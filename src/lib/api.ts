@@ -1,5 +1,12 @@
 export const API_PORT = 3000;
-export const getBaseUrl = () => `http://${window.location.hostname}:${API_PORT}/api`;
+export const getBaseUrl = () => {
+  // If we're on a real URL (not localhost:5173), use relative path
+  if (window.location.port !== '5173' && window.location.hostname !== 'localhost') {
+    return '/api';
+  }
+  // Fallback for local development
+  return `http://${window.location.hostname}:${API_PORT}/api`;
+};
 
 export const api = {
   async get(endpoint: string) {

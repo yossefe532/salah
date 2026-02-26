@@ -281,7 +281,23 @@ app.patch('/api/attendees/:id/toggle-attendance', (req, res) => {
   res.json(attendee);
 });
 
-const PORT = 3000;
+const PORT = process.env.PORT || 3000;
+
+// Serve static files from the React app
+const distPath = path.join(__dirname, '../dist');
+if (fs.existsSync(distPath)) {
+    app.use(express.static(distPath));
+    
+    // The "catchall" handler: for any request that doesn't
+    // match one above, send back React's index.html file.
+    app.get('*', (req, res, next) => {
+        if (req.path.startsWith('/api')) {
+            return next();
+        }
+        res.sendFile(path.join(distPath, 'index.html'));
+    });
+}
+
 app.listen(PORT, '0.0.0.0', () => {
-  console.log(`Local API Server running on port ${PORT}`);
+  console.log(`Server running on port ${PORT}`);
 });
