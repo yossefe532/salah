@@ -3,6 +3,7 @@ import cors from 'cors';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { createClient } from '@supabase/supabase-js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -11,289 +12,220 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-const DB_FILE = path.join(__dirname, 'db.json');
+// Supabase Configuration
+const SUPABASE_URL = process.env.SUPABASE_URL || 'https://cwftlzaibboszcrukhig.supabase.co';
+const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-// Initialize DB with Admin User
-if (!fs.existsSync(DB_FILE)) {
-  fs.writeFileSync(DB_FILE, JSON.stringify({ 
-    users: [
-      {
-        id: 'owner-id',
-        email: 'admin@event.com',
-        full_name: 'System Owner',
-        role: 'owner',
-        password: 'admin123', // Hardcoded initial password
-        created_at: new Date().toISOString()
-      }
-    ], 
-    attendees: [], 
-    logs: [] 
-  }, null, 2));
+if (!SUPABASE_SERVICE_ROLE_KEY) {
+  console.error('FATAL: SUPABASE_SERVICE_ROLE_KEY is missing!');
 }
 
-const readDB = () => {
-  try {
-    return JSON.parse(fs.readFileSync(DB_FILE));
-  } catch (e) {
-    return { users: [], attendees: [], logs: [] };
-  }
-};
-
-const writeDB = (data) => {
-  fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2));
-};
+const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
 // --- Routes ---
 
-// Login (Strict Check)
-app.post('/api/login', (req, res) => {
+// Login
+app.post('/api/login', async (req, res) => {
   const { email, password } = req.body;
-  const db = readDB();
   
-  console.log('Login attempt:', email, password); // Debug log
+  const { data: user, error } = await supabase
+    .from('users')
+    .select('*')
+    .eq('email', email.trim().toLowerCase())
+    .eq('password', password.trim())
+    .single();
 
-  // Find user by email AND password (with trim)
-  const user = db.users.find(u => 
-      u.email.trim().toLowerCase() === email.trim().toLowerCase() && 
-      u.password.trim() === password.trim()
-  );
-  
   if (user) {
-    // Return user without password
     const { password, ...userWithoutPass } = user;
     res.json({ 
         user: userWithoutPass, 
         session: { 
-            access_token: 'valid-local-token-' + user.id, 
+            access_token: 'supabase-session-' + user.id, 
             user: userWithoutPass 
         } 
     });
   } else {
-    console.log('Login failed for:', email);
     res.status(401).json({ error: 'Invalid email or password' });
   }
 });
 
 // Users
-app.get('/api/users', (req, res) => {
-  const db = readDB();
-  // Don't send passwords
-  const safeUsers = db.users.map(({ password, ...u }) => u);
-  res.json(safeUsers);
+app.get('/api/users', async (req, res) => {
+  const { data: users, error } = await supabase
+    .from('users')
+    .select('id, email, full_name, role, created_at');
+  res.json(users || []);
 });
 
-app.post('/api/users', (req, res) => {
-  const db = readDB();
+app.post('/api/users', async (req, res) => {
   const newUser = req.body;
-  
-  if (db.users.find(u => u.email === newUser.email)) {
-    return res.status(400).json({ error: 'User already exists' });
-  }
-  
-  // Ensure password is set (default if missing, though frontend should send it)
-  if (!newUser.password) {
-      newUser.password = '123456'; 
-  }
+  if (!newUser.password) newUser.password = '123456';
 
-  db.users.push(newUser);
-  writeDB(db);
-  
-  // Return safe user
-  const { password, ...safeUser } = newUser;
-  res.json(safeUser);
+  const { data, error } = await supabase
+    .from('users')
+    .insert([newUser])
+    .select('id, email, full_name, role, created_at')
+    .single();
+
+  if (error) return res.status(400).json({ error: error.message });
+  res.json(data);
 });
 
-app.put('/api/users/:id', (req, res) => {
-  const db = readDB();
-  const index = db.users.findIndex(u => u.id === req.params.id);
-  if (index === -1) return res.status(404).json({ error: 'User not found' });
-  
-  // Update fields (except password unless provided)
-  const updatedUser = { ...db.users[index], ...req.body };
-  
-  // If role changed, ensure at least one owner remains? (Optional check)
-  
-  db.users[index] = updatedUser;
-  writeDB(db);
-  
-  const { password, ...safeUser } = updatedUser;
-  res.json(safeUser);
+app.put('/api/users/:id', async (req, res) => {
+  const { data, error } = await supabase
+    .from('users')
+    .update(req.body)
+    .eq('id', req.params.id)
+    .select('id, email, full_name, role, created_at')
+    .single();
+
+  if (error) return res.status(400).json({ error: error.message });
+  res.json(data);
 });
 
-app.delete('/api/users/:id', (req, res) => {
-  const db = readDB();
-  // Prevent deleting last owner?
-  const user = db.users.find(u => u.id === req.params.id);
-  if (user && user.role === 'owner' && db.users.filter(u => u.role === 'owner').length <= 1) {
-      return res.status(400).json({ error: 'Cannot delete the last owner' });
-  }
-
-  db.users = db.users.filter(u => u.id !== req.params.id);
-  writeDB(db);
+app.delete('/api/users/:id', async (req, res) => {
+  const { error } = await supabase
+    .from('users')
+    .delete()
+    .eq('id', req.params.id);
+  if (error) return res.status(400).json({ error: error.message });
   res.json({ success: true });
 });
 
 // Attendees
-app.get('/api/attendees', (req, res) => {
-  const db = readDB();
-  // Filter query: trash=true -> only deleted, otherwise -> only active
+app.get('/api/attendees', async (req, res) => {
   const showTrash = req.query.trash === 'true';
-  
-  const attendees = db.attendees.filter(a => 
-    showTrash ? a.is_deleted === true : !a.is_deleted
-  );
-  
-  res.json(attendees);
+  const { data: attendees, error } = await supabase
+    .from('attendees')
+    .select('*')
+    .eq('is_deleted', showTrash)
+    .order('created_at', { ascending: false });
+  res.json(attendees || []);
 });
 
-// GET Single Attendee (Allow getting deleted ones too for ID check)
-app.get('/api/attendees/:id', (req, res) => {
-  const db = readDB();
-  const attendee = db.attendees.find(a => a.id === req.params.id);
-  if (attendee) {
-    res.json(attendee);
-  } else {
-    res.status(404).json({ error: 'Attendee not found' });
-  }
+app.get('/api/attendees/:id', async (req, res) => {
+  const { data: attendee, error } = await supabase
+    .from('attendees')
+    .select('*')
+    .eq('id', req.params.id)
+    .single();
+  if (attendee) res.json(attendee);
+  else res.status(404).json({ error: 'Attendee not found' });
 });
 
-app.post('/api/attendees', (req, res) => {
-  const db = readDB();
+app.post('/api/attendees', async (req, res) => {
   const newAttendee = { ...req.body, is_deleted: false };
-  
-  if (db.attendees.find(a => a.id === newAttendee.id)) {
-      return res.status(400).json({ error: 'Attendee ID conflict' });
-  }
-  
-  db.attendees.push(newAttendee);
-  writeDB(db);
-  res.json(newAttendee);
+  const { data, error } = await supabase
+    .from('attendees')
+    .insert([newAttendee])
+    .select()
+    .single();
+
+  if (error) return res.status(400).json({ error: error.message });
+  res.json(data);
 });
 
-app.put('/api/attendees/:id', (req, res) => {
-  const db = readDB();
-  const index = db.attendees.findIndex(a => a.id === req.params.id);
-  if (index === -1) return res.status(404).json({ error: 'Attendee not found' });
-  
-  // Merge but keep existing is_deleted unless explicitly changed (unlikely here)
-  db.attendees[index] = { ...db.attendees[index], ...req.body };
-  writeDB(db);
-  res.json(db.attendees[index]);
+app.put('/api/attendees/:id', async (req, res) => {
+  const { data, error } = await supabase
+    .from('attendees')
+    .update(req.body)
+    .eq('id', req.params.id)
+    .select()
+    .single();
+
+  if (error) return res.status(400).json({ error: error.message });
+  res.json(data);
 });
 
-// Soft Delete (Move to Trash)
-app.delete('/api/attendees/:id', (req, res) => {
-  const db = readDB();
-  const index = db.attendees.findIndex(a => a.id === req.params.id);
-  if (index === -1) return res.status(404).json({ error: 'Attendee not found' });
-  
-  db.attendees[index].is_deleted = true;
-  writeDB(db);
+app.delete('/api/attendees/:id', async (req, res) => {
+  const { error } = await supabase
+    .from('attendees')
+    .update({ is_deleted: true })
+    .eq('id', req.params.id);
+  if (error) return res.status(400).json({ error: error.message });
   res.json({ success: true });
 });
 
-// Restore from Trash
-app.patch('/api/attendees/:id/restore', (req, res) => {
-  const db = readDB();
-  const index = db.attendees.findIndex(a => a.id === req.params.id);
-  if (index === -1) return res.status(404).json({ error: 'Attendee not found' });
-  
-  db.attendees[index].is_deleted = false;
-  writeDB(db);
+app.patch('/api/attendees/:id/restore', async (req, res) => {
+  const { error } = await supabase
+    .from('attendees')
+    .update({ is_deleted: false })
+    .eq('id', req.params.id);
+  if (error) return res.status(400).json({ error: error.message });
   res.json({ success: true });
 });
 
-// Permanent Delete
-app.delete('/api/attendees/:id/permanent', (req, res) => {
-  const db = readDB();
-  const index = db.attendees.findIndex(a => a.id === req.params.id);
-  if (index === -1) return res.status(404).json({ error: 'Attendee not found' });
-  
-  db.attendees.splice(index, 1);
-  writeDB(db);
+app.delete('/api/attendees/:id/permanent', async (req, res) => {
+  const { error } = await supabase
+    .from('attendees')
+    .delete()
+    .eq('id', req.params.id);
+  if (error) return res.status(400).json({ error: error.message });
   res.json({ success: true });
 });
 
 // Check-in
-app.post('/api/checkin', (req, res) => {
+app.post('/api/checkin', async (req, res) => {
   const { code, userId } = req.body;
-  const db = readDB();
   
-  const attendeeIndex = db.attendees.findIndex(a => 
-    a.qr_code === code || a.barcode === code || a.id === code
-  );
-  
-  if (attendeeIndex === -1) {
-    return res.status(404).json({ error: 'Attendee not found' });
-  }
-  
-  const attendee = db.attendees[attendeeIndex];
-  
-  if (attendee.attendance_status) {
-    return res.status(400).json({ error: 'Already checked in', attendee });
-  }
-  
-  attendee.attendance_status = true;
-  attendee.checked_in_at = new Date().toISOString();
-  attendee.checked_in_by = userId;
-  
-  db.attendees[attendeeIndex] = attendee;
-  writeDB(db);
-  
-  // Log
-  db.logs.push({
-      id: crypto.randomUUID(),
-      attendee_id: attendee.id,
-      recorded_by: userId,
-      action: 'check_in',
-      created_at: new Date().toISOString()
-  });
-  writeDB(db);
-  
-  res.json({ success: true, attendee });
+  const { data: attendee, error: fetchError } = await supabase
+    .from('attendees')
+    .select('*')
+    .or(`qr_code.eq.${code},barcode.eq.${code},id.eq.${code}`)
+    .single();
+
+  if (!attendee) return res.status(404).json({ error: 'Attendee not found' });
+  if (attendee.attendance_status) return res.status(400).json({ error: 'Already checked in', attendee });
+
+  const { data: updated, error: updateError } = await supabase
+    .from('attendees')
+    .update({
+      attendance_status: true,
+      checked_in_at: new Date().toISOString(),
+      checked_in_by: userId
+    })
+    .eq('id', attendee.id)
+    .select()
+    .single();
+
+  if (updateError) return res.status(400).json({ error: updateError.message });
+
+  await supabase.from('logs').insert([{
+    attendee_id: attendee.id,
+    recorded_by: userId,
+    action: 'check_in'
+  }]);
+
+  res.json({ success: true, attendee: updated });
 });
 
-// Toggle Attendance Manually
-app.patch('/api/attendees/:id/toggle-attendance', (req, res) => {
+app.patch('/api/attendees/:id/toggle-attendance', async (req, res) => {
   const { id } = req.params;
-  const db = readDB();
-  const index = db.attendees.findIndex(a => a.id === id);
+  const { data: attendee } = await supabase.from('attendees').select('*').eq('id', id).single();
   
-  if (index === -1) {
-    return res.status(404).json({ error: 'Attendee not found' });
-  }
+  if (!attendee) return res.status(404).json({ error: 'Attendee not found' });
 
-  const attendee = db.attendees[index];
-  // Toggle status
   const newStatus = !attendee.attendance_status;
-  
-  attendee.attendance_status = newStatus;
-  if (newStatus) {
-    attendee.checked_in_at = new Date().toISOString();
-    attendee.checked_in_by = 'manual';
-  } else {
-    attendee.checked_in_at = null;
-    attendee.checked_in_by = null;
-  }
-  
-  db.attendees[index] = attendee;
-  writeDB(db);
-  res.json(attendee);
+  const { data: updated, error } = await supabase
+    .from('attendees')
+    .update({
+      attendance_status: newStatus,
+      checked_in_at: newStatus ? new Date().toISOString() : null,
+      checked_in_by: newStatus ? 'manual' : null
+    })
+    .eq('id', id)
+    .select()
+    .single();
+
+  res.json(updated);
 });
 
 const PORT = process.env.PORT || 3000;
-
-// Serve static files from the React app
 const distPath = path.join(__dirname, '../dist');
 if (fs.existsSync(distPath)) {
     app.use(express.static(distPath));
-    
-    // The "catchall" handler: for any request that doesn't
-    // match one above, send back React's index.html file.
     app.get('*', (req, res, next) => {
-        if (req.path.startsWith('/api')) {
-            return next();
-        }
+        if (req.path.startsWith('/api')) return next();
         res.sendFile(path.join(distPath, 'index.html'));
     });
 }
