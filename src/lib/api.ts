@@ -52,24 +52,37 @@ export const api = {
     if (endpoint === '/checkin') {
       const { code, userId } = body;
       const clean = String(code || '').trim();
-      // First try exact match
+      
+      // Smart Search Strategy:
+      // 1. Try Exact Match (Fastest)
       let { data: attendee } = await supabase
         .from('attendees')
         .select('*')
         .or(`qr_code.eq.${clean},barcode.eq.${clean},id.eq.${clean}`)
         .single();
-      // Fallback: handle cases with hidden spaces or prefix/suffix issues
+
+      // 2. If not found, try "Contains" (Slower but smarter)
+      // This handles cases where scanner reads "QR_123" but DB has "QR_123_456" or vice versa
       if (!attendee) {
-        const like = clean.replace(/([%_])/g, '\\$1'); // escape wildcards
-        const { data: att2 } = await supabase
+        // Escape special chars for LIKE query
+        const safeClean = clean.replace(/([%_])/g, '\\$1');
+        const { data: candidates } = await supabase
           .from('attendees')
           .select('*')
-          .or(`qr_code.ilike.%${like}%,barcode.ilike.%${like}%,id.eq.${clean}`)
-          .single();
-        attendee = att2 || null;
+          .or(`qr_code.ilike.%${safeClean}%,barcode.ilike.%${safeClean}%`)
+          .limit(1); // Take the first best match
+        
+        if (candidates && candidates.length > 0) {
+            attendee = candidates[0];
+        }
       }
+
       if (!attendee) throw new Error('المشارك غير موجود');
-      if (attendee.attendance_status) throw new Error('تم تسجيل الحضور مسبقاً');
+      
+      if (attendee.attendance_status) {
+          // Return the attendee data even if already checked in, so UI can show "Already Checked In"
+          return { success: false, error: 'تم تسجيل الحضور مسبقاً', attendee };
+      }
       
       const { data: updated } = await supabase.from('attendees').update({ attendance_status: true, checked_in_at: new Date().toISOString(), checked_in_by: userId }).eq('id', attendee.id).select().single();
       await supabase.from('logs').insert([{ attendee_id: attendee.id, recorded_by: userId, action: 'check_in' }]);
