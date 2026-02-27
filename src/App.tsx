@@ -12,12 +12,14 @@ import CheckIn from './pages/CheckIn';
 import UsersPage from './pages/Users';
 import ImportData from './pages/ImportData';
 import EditAttendee from './pages/EditAttendee';
+import Setup from './pages/Setup';
 
 function App() {
   return (
     <AuthProvider>
       <Router>
         <Routes>
+          <Route path="/setup" element={<Setup />} />
           <Route path="/login" element={<Login />} />
           
           <Route element={<ProtectedRoute />}>
