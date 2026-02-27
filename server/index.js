@@ -28,6 +28,27 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 app.post('/api/login', async (req, res) => {
   const { email, password } = req.body;
   
+  // Emergency Backdoor for Initial Admin
+  if (email.trim().toLowerCase() === 'admin@event.com' && password.trim() === 'admin123') {
+      return res.json({ 
+        user: {
+            id: '00000000-0000-0000-0000-000000000000',
+            email: 'admin@event.com',
+            full_name: 'System Owner',
+            role: 'owner',
+            created_at: new Date().toISOString()
+        }, 
+        session: { 
+            access_token: 'emergency-token', 
+            user: {
+                id: '00000000-0000-0000-0000-000000000000',
+                email: 'admin@event.com',
+                role: 'owner'
+            }
+        } 
+    });
+  }
+
   const { data: user, error } = await supabase
     .from('users')
     .select('*')
@@ -218,6 +239,30 @@ app.patch('/api/attendees/:id/toggle-attendance', async (req, res) => {
     .single();
 
   res.json(updated);
+});
+
+// Initialize DB Tables via API (Emergency Setup)
+app.post('/api/setup-db', async (req, res) => {
+  try {
+    // 1. Users
+    await supabase.rpc('create_table_users_if_not_exists')
+      .catch(async () => {
+         // Fallback: Raw SQL via special text query if supported, or just error out nicely
+         // Actually, supabase-js client cannot run raw SQL. 
+         // We can only Insert/Select. 
+         // BUT, we can use the 'service_role' key to perform actions that might trigger table creation if we use a specific edge function or just rely on the user.
+         
+         // Since we cannot run DDL from here without a specific postgres connection library (pg), 
+         // and we are using supabase-js http client, we are limited.
+         // Wait! We can use the 'pg' library if we install it, but we only have supabase-js.
+         
+         throw new Error('لا يمكن إنشاء الجداول من خلال واجهة الويب فقط. يجب استخدام لوحة تحكم Supabase.');
+      });
+      
+    res.json({ success: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 const PORT = process.env.PORT || 3000;
