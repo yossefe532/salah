@@ -352,14 +352,21 @@ const ImportData: React.FC = () => {
           // Process batch in parallel requests
           await Promise.all(batch.map(async (attendee) => {
               try {
-                  // Remove ID to let DB generate it, or use our generated one if safe
-                  // Ideally let DB handle ID generation to avoid conflicts
-                  const { id, ...data } = attendee; 
+                  const { id, ...data } = attendee;
+                  
+                  // Fix missing phone numbers (Generate dummy phone if missing)
+                  // Database requires phone_primary NOT NULL
+                  if (!data.phone_primary || data.phone_primary.trim() === '') {
+                      data.phone_primary = `no-phone-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+                  }
+
                   await api.post('/attendees', data);
                   successCount++;
-              } catch (e) {
+              } catch (e: any) {
                   console.error('Failed to import:', attendee.full_name, e);
                   failCount++;
+                  // Log error for the first failure to help debug
+                  if (failCount === 1) console.log('First Error Detail:', e);
               }
           }));
           
