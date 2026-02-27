@@ -324,6 +324,7 @@ const ImportData: React.FC = () => {
     // Batch processing to avoid overwhelming the server/browser
     const BATCH_SIZE = 50;
     const batches = [];
+    let firstError = null;
     
     // Get existing phones once
     let existingPhones = new Set();
@@ -366,7 +367,10 @@ const ImportData: React.FC = () => {
                   console.error('Failed to import:', attendee.full_name, e);
                   failCount++;
                   // Log error for the first failure to help debug
-                  if (failCount === 1) console.log('First Error Detail:', e);
+                  if (failCount === 1) {
+                      console.log('First Error Detail:', e);
+                      firstError = e;
+                  }
               }
           }));
           
@@ -375,7 +379,13 @@ const ImportData: React.FC = () => {
       }
 
       let msg = `تم استيراد ${successCount} بنجاح.`;
-      if (failCount > 0) msg += ` فشل ${failCount} (ربما مكرر أو بيانات غير صالحة).`;
+      if (failCount > 0) {
+          msg += ` فشل ${failCount}.`;
+          // Show the first error detail to the user to debug
+          if (firstError) {
+              msg += `\n\nسبب الفشل الأول: ${typeof firstError === 'object' ? (firstError.message || JSON.stringify(firstError)) : firstError}`;
+          }
+      }
       alert(msg);
       navigate('/attendees');
     } catch (e) {
