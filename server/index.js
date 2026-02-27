@@ -28,27 +28,6 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 app.post('/api/login', async (req, res) => {
   const { email, password } = req.body;
   
-  // Emergency Backdoor for Initial Admin
-  if (email.trim().toLowerCase() === 'admin@event.com' && password.trim() === 'admin123') {
-      return res.json({ 
-        user: {
-            id: '00000000-0000-0000-0000-000000000000',
-            email: 'admin@event.com',
-            full_name: 'System Owner',
-            role: 'owner',
-            created_at: new Date().toISOString()
-        }, 
-        session: { 
-            access_token: 'emergency-token', 
-            user: {
-                id: '00000000-0000-0000-0000-000000000000',
-                email: 'admin@event.com',
-                role: 'owner'
-            }
-        } 
-    });
-  }
-
   const { data: user, error } = await supabase
     .from('users')
     .select('*')

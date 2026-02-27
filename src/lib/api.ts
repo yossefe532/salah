@@ -31,14 +31,6 @@ export const api = {
   
   async post(endpoint: string, body: any) {
     if (endpoint === '/login') {
-      // Emergency Local Login for Admin
-      if (body.email.trim().toLowerCase() === 'admin@event.com' && body.password.trim() === 'admin123') {
-          return { 
-            user: { id: '0', email: 'admin@event.com', role: 'owner', full_name: 'System Owner' }, 
-            session: { access_token: 'emergency', user: { id: '0', role: 'owner' } } 
-          };
-      }
-
       const { data: user } = await supabase
         .from('users')
         .select('*')
