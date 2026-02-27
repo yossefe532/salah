@@ -318,21 +318,61 @@ const ImportData: React.FC = () => {
 
   const handleImport = async () => {
     setImporting(true);
+    let successCount = 0;
+    let failCount = 0;
+    
+    // Batch processing to avoid overwhelming the server/browser
+    const BATCH_SIZE = 50;
+    const batches = [];
+    
+    // Get existing phones once
+    let existingPhones = new Set();
     try {
-      const existing = await api.get('/attendees');
-      const existingPhones = new Set(existing.map((a: any) => a.phone_primary));
-      
-      let count = 0;
-      for (const attendee of parsed) {
-        if (!existingPhones.has(attendee.phone_primary)) {
-          await api.post('/attendees', attendee);
-          count++;
-        }
+        const existing = await api.get('/attendees');
+        existingPhones = new Set(existing.map((a: any) => a.phone_primary));
+    } catch (e) {
+        console.error('Failed to fetch existing attendees, proceeding with caution');
+    }
+
+    const uniqueNew = parsed.filter(a => !existingPhones.has(a.phone_primary));
+    
+    if (uniqueNew.length === 0) {
+        alert('لا توجد بيانات جديدة للحفظ (الكل موجود مسبقاً)');
+        setImporting(false);
+        return;
+    }
+
+    for (let i = 0; i < uniqueNew.length; i += BATCH_SIZE) {
+        batches.push(uniqueNew.slice(i, i + BATCH_SIZE));
+    }
+
+    try {
+      for (let i = 0; i < batches.length; i++) {
+          const batch = batches[i];
+          // Process batch in parallel requests
+          await Promise.all(batch.map(async (attendee) => {
+              try {
+                  // Remove ID to let DB generate it, or use our generated one if safe
+                  // Ideally let DB handle ID generation to avoid conflicts
+                  const { id, ...data } = attendee; 
+                  await api.post('/attendees', data);
+                  successCount++;
+              } catch (e) {
+                  console.error('Failed to import:', attendee.full_name, e);
+                  failCount++;
+              }
+          }));
+          
+          // Optional: slight delay between batches to be nice to the server
+          if (i < batches.length - 1) await new Promise(r => setTimeout(r, 500));
       }
-      alert(`تم بنجاح استيراد ${count} مشترك جديد.`);
+
+      let msg = `تم استيراد ${successCount} بنجاح.`;
+      if (failCount > 0) msg += ` فشل ${failCount} (ربما مكرر أو بيانات غير صالحة).`;
+      alert(msg);
       navigate('/attendees');
     } catch (e) {
-      alert('حدث خطأ أثناء الاستيراد');
+      alert('حدث خطأ غير متوقع أثناء الاستيراد');
     } finally {
       setImporting(false);
     }
