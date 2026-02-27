@@ -51,7 +51,23 @@ export const api = {
 
     if (endpoint === '/checkin') {
       const { code, userId } = body;
-      const { data: attendee } = await supabase.from('attendees').select('*').or(`qr_code.eq.${code},barcode.eq.${code},id.eq.${code}`).single();
+      const clean = String(code || '').trim();
+      // First try exact match
+      let { data: attendee } = await supabase
+        .from('attendees')
+        .select('*')
+        .or(`qr_code.eq.${clean},barcode.eq.${clean},id.eq.${clean}`)
+        .single();
+      // Fallback: handle cases with hidden spaces or prefix/suffix issues
+      if (!attendee) {
+        const like = clean.replace(/([%_])/g, '\\$1'); // escape wildcards
+        const { data: att2 } = await supabase
+          .from('attendees')
+          .select('*')
+          .or(`qr_code.ilike.%${like}%,barcode.ilike.%${like}%,id.eq.${clean}`)
+          .single();
+        attendee = att2 || null;
+      }
       if (!attendee) throw new Error('المشارك غير موجود');
       if (attendee.attendance_status) throw new Error('تم تسجيل الحضور مسبقاً');
       

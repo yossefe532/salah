@@ -70,7 +70,7 @@ const Setup: React.FC = () => {
                     <p className="text-sm text-yellow-700">
                         تنبيه: إذا ظهر لك خطأ "full_name not found"، فهذا يعني أنك لم تنشئ الجداول في Supabase.
                         <br/>
-                        <strong>الحل:</strong> افتح Supabase > SQL Editor والصق الكود الموجود في الملف <code>supabase/migrations/...</code>
+                        <strong>الحل:</strong> افتح Supabase &gt; SQL Editor والصق الكود الموجود في الملف <code>supabase/migrations/...</code>
                     </p>
                 </div>
             </div>

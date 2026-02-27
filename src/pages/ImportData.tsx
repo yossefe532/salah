@@ -3,6 +3,7 @@ import { api } from '../lib/api';
 import { useNavigate } from 'react-router-dom';
 import { ArrowRight, Save, Phone, MessageCircle, AlertTriangle, CheckCircle, Trash2, Edit2, X, Check, Plus, Upload } from 'lucide-react';
 import { Governorate, SeatClass, AttendeeStatus, PaymentType } from '../types';
+import * as XLSX from 'xlsx';
 
 type ParsedAttendee = {
   full_name: string;
@@ -54,7 +55,133 @@ const ImportData: React.FC = () => {
   const [importing, setImporting] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const navigate = useNavigate();
+  const [excelLoading, setExcelLoading] = useState(false);
 
+  const headerMap: Record<string, keyof ParsedAttendee | 'paid' | 'gov'> = {
+    'الاسم': 'full_name',
+    'اسم': 'full_name',
+    'name': 'full_name',
+    'المحافظة': 'gov',
+    'محافظة': 'gov',
+    'governorate': 'gov',
+    'رقم': 'phone_primary',
+    'الموبايل': 'phone_primary',
+    'الهاتف': 'phone_primary',
+    'phone': 'phone_primary',
+    'الفئة': 'seat_class',
+    'class': 'seat_class',
+    'الحالة': 'status',
+    'status': 'status',
+    'نوع الدفع': 'payment_type',
+    'مدفوع': 'paid',
+    'المدفوع': 'paid',
+    'deposit': 'paid'
+  };
+
+  const normalizePhoneExcel = (s: any) => {
+    const str = String(s ?? '').replace(/[^\d]/g, '');
+    if (str.startsWith('10') && str.length === 10) return `0${str}`;
+    if (str.length >= 11) return str.slice(0, 11);
+    return str;
+  };
+
+  const toGovernorate = (val: any): Governorate | null => {
+    const t = String(val ?? '').trim();
+    for (const [g, syns] of Object.entries(GOV_SYNONYMS) as [Governorate, string[]][]) {
+      if (syns.some(s => t.includes(s))) return g;
+    }
+    return null;
+  };
+
+  const onExcelFile = async (f: File) => {
+    setExcelLoading(true);
+    try {
+      const buf = await f.arrayBuffer();
+      const wb = XLSX.read(buf, { type: 'array' });
+      const wsname = wb.SheetNames[0];
+      const ws = wb.Sheets[wsname];
+      const rows: any[] = XLSX.utils.sheet_to_json(ws, { header: 1, raw: false });
+      if (!rows.length) {
+        alert('ملف فارغ');
+        setExcelLoading(false);
+        return;
+      }
+      const headerRow: string[] = (rows[0] as string[]).map(h => String(h || '').toLowerCase().trim());
+      const indices: Record<string, number> = {};
+      headerRow.forEach((h, idx) => {
+        const key = headerMap[h] || headerMap[h.replace(/\s+/g, '')] || null;
+        if (key) indices[key] = idx;
+      });
+
+      const results: ParsedAttendee[] = [];
+      const skippedItems: SkippedItem[] = [];
+
+      for (let r = 1; r < rows.length; r++) {
+        const row = rows[r] as any[];
+        const nameVal = row[indices['full_name']] ?? row[0];
+        const govVal = row[indices['gov']];
+        const phoneVal = row[indices['phone_primary']];
+        const classVal = row[indices['seat_class']];
+        const statusVal = row[indices['status']];
+        const typeVal = row[indices['payment_type']];
+        const paidVal = row[indices['paid']];
+
+        const name = String(nameVal || '').trim();
+        const gov = toGovernorate(govVal);
+        const phone = normalizePhoneExcel(phoneVal);
+        if (!name || !gov || !phone) {
+          skippedItems.push({ reason: 'بيانات ناقصة', raw: (row || []).map(x => String(x || '')) });
+          continue;
+        }
+
+        let seat_class: SeatClass = 'A';
+        const cls = String(classVal || '').toUpperCase();
+        if (cls === 'B') seat_class = 'B';
+        else if (cls === 'C') seat_class = 'C';
+
+        let status: AttendeeStatus = 'interested';
+        const st = String(statusVal || '').toLowerCase();
+        if (st.includes('مسجل') || st.includes('registered')) status = 'registered';
+
+        let payment_type: PaymentType = 'deposit';
+        let payment_amount = 0;
+        const t = String(typeVal || '').toLowerCase();
+        if (t.includes('كامل') || t.includes('full')) {
+          payment_type = 'full';
+        }
+        const paidNum = Number(String(paidVal || '0').replace(/[^\d]/g, '')) || 0;
+        if (paidNum > 0) {
+          payment_type = payment_type === 'full' ? 'full' : 'deposit';
+          payment_amount = paidNum;
+        }
+        const price = seat_class === 'A' ? 2000 : seat_class === 'B' ? 1700 : 1500;
+        const remaining_amount = payment_type === 'full' ? 0 : Math.max(0, price - payment_amount);
+
+        results.push({
+          full_name: name,
+          governorate: gov,
+          phone_primary: phone,
+          status,
+          seat_class,
+          payment_type,
+          payment_amount,
+          remaining_amount,
+          qr_code: crypto.randomUUID(),
+          id: crypto.randomUUID(),
+          created_at: new Date().toISOString(),
+          created_by: 'import-agent',
+          warnings: []
+        });
+      }
+
+      setParsed(results);
+      setSkipped(skippedItems);
+    } catch (e) {
+      alert('تعذر قراءة ملف Excel');
+    } finally {
+      setExcelLoading(false);
+    }
+  };
   const handleParse = () => {
     setIsProcessing(true);
     const text = rawText;
@@ -218,7 +345,14 @@ const ImportData: React.FC = () => {
             <Upload className="h-6 w-6 text-indigo-600" />
             الاستيراد الذكي للبيانات
         </h1>
-        <p className="text-gray-500 mb-6">انسخ قائمة المشتركين بالكامل وألصقها هنا، وسيقوم النظام بتحليلها تلقائياً.</p>
+        <p className="text-gray-500 mb-6">يمكنك إما لصق القائمة أو رفع ملف Excel مباشرة.</p>
+        <div className="flex items-center gap-3 mb-4">
+          <label className="inline-flex items-center px-4 py-2 bg-emerald-600 text-white rounded-md hover:bg-emerald-700 cursor-pointer">
+            <input type="file" accept=".xlsx,.xls" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) onExcelFile(f); }} />
+            {excelLoading ? 'جاري قراءة الملف...' : 'رفع ملف Excel'}
+          </label>
+          <span className="text-xs text-gray-500">الأعمدة المقترحة: الاسم، المحافظة، الهاتف، الفئة، الحالة، المدفوع/نوع الدفع</span>
+        </div>
         
         <textarea
           className="w-full h-48 p-4 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 font-mono text-sm mb-4"

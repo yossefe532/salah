@@ -24,7 +24,8 @@ const CheckIn: React.FC = () => {
     setAttendee(null);
 
     try {
-      const result = await api.post('/checkin', { code, userId: user.id });
+      const normalized = code.trim();
+      const result = await api.post('/checkin', { code: normalized, userId: user.id });
       setAttendee(result.attendee);
       setMessage({ type: 'success', text: 'تم تسجيل الحضور بنجاح!' });
     } catch (error: any) {
