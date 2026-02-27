@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { api } from '../lib/api';
 import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext'; // Import Auth Context
 import { ArrowRight, Save, Phone, MessageCircle, AlertTriangle, CheckCircle, Trash2, Edit2, X, Check, Plus, Upload } from 'lucide-react';
 import { Governorate, SeatClass, AttendeeStatus, PaymentType } from '../types';
 import * as XLSX from 'xlsx';
@@ -48,6 +49,7 @@ const parsePayment = (line: string): { payment_type: PaymentType; payment_amount
 };
 
 const ImportData: React.FC = () => {
+  const { user } = useAuth();
   const [rawText, setRawText] = useState('');
   const [parsed, setParsed] = useState<ParsedAttendee[]>([]);
   const [skipped, setSkipped] = useState<SkippedItem[]>([]);
@@ -169,7 +171,7 @@ const ImportData: React.FC = () => {
           qr_code: crypto.randomUUID(),
           id: crypto.randomUUID(),
           created_at: new Date().toISOString(),
-          created_by: 'import-agent',
+          created_by: user?.id || null,
           warnings: []
         });
       }
@@ -255,7 +257,7 @@ const ImportData: React.FC = () => {
         qr_code: crypto.randomUUID(),
         id: crypto.randomUUID(),
         created_at: new Date().toISOString(),
-        created_by: 'import-agent',
+        created_by: user?.id || null,
         warnings: [],
       });
     };
@@ -309,7 +311,7 @@ const ImportData: React.FC = () => {
           id: newId,
           qr_code: newId,
           created_at: new Date().toISOString(),
-          created_by: 'import-agent'
+          created_by: user?.id || null
       };
       setParsed(prev => [fixed, ...prev]);
       setSkipped(prev => prev.filter((_, i) => i !== idx));
