@@ -9,6 +9,10 @@ import { useNavigate } from 'react-router-dom';
 
 const schema = z.object({
   full_name: z.string().min(3, 'Full name must be at least 3 characters'),
+  university: z.string().optional(),
+  faculty: z.string().optional(),
+  year: z.string().optional(),
+  notes: z.string().optional(),
   phone_primary: z.string().min(10, 'Phone number must be valid'),
   phone_secondary: z.string().optional(),
   email_primary: z.string().email('Invalid email address').optional().or(z.literal('')),
@@ -65,6 +69,25 @@ const Register: React.FC = () => {
     setSubmitError(null);
 
     try {
+      // Check for duplicate name (Exact Match)
+      const { data: existingName } = await api.get('/attendees');
+      const isDuplicateName = existingName.some((a: any) => 
+        a.full_name.trim().toLowerCase() === data.full_name.trim().toLowerCase() && !a.is_deleted
+      );
+      
+      if (isDuplicateName) {
+        throw new Error('هذا الاسم مسجل بالفعل! يرجى التأكد من البيانات أو إضافة اسم مميز (مثل اسم الجد).');
+      }
+
+      // Check for duplicate phone
+      const isDuplicatePhone = existingName.some((a: any) => 
+        a.phone_primary === data.phone_primary && !a.is_deleted
+      );
+
+      if (isDuplicatePhone) {
+         throw new Error('رقم الهاتف هذا مسجل بالفعل لمشارك آخر.');
+      }
+
       const newAttendeeId = crypto.randomUUID();
       const newAttendee = {
           id: newAttendeeId,
@@ -102,15 +125,15 @@ const Register: React.FC = () => {
   };
 
   return (
-    <div className="max-w-3xl mx-auto bg-white shadow sm:rounded-lg">
+    <div className="max-w-3xl mx-auto bg-white dark:bg-gray-800 shadow sm:rounded-lg transition-colors duration-200" dir="rtl">
       <div className="px-4 py-5 sm:p-6">
-        <h3 className="text-lg font-medium leading-6 text-gray-900">Register New Attendee</h3>
-        <div className="mt-2 max-w-xl text-sm text-gray-500">
-          <p>Fill in the details to register a new attendee for the event.</p>
+        <h3 className="text-lg font-medium leading-6 text-gray-900 dark:text-white">تسجيل مشترك جديد</h3>
+        <div className="mt-2 max-w-xl text-sm text-gray-500 dark:text-gray-400">
+          <p>يرجى ملء البيانات بدقة لتسجيل الحضور.</p>
         </div>
         
         {submitError && (
-          <div className="mt-4 bg-red-50 text-red-600 p-3 rounded text-sm">
+          <div className="mt-4 bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400 p-3 rounded text-sm">
             {submitError}
           </div>
         )}
@@ -119,28 +142,82 @@ const Register: React.FC = () => {
           {/* Personal Info */}
           <div className="grid grid-cols-1 gap-y-6 gap-x-4 sm:grid-cols-6">
             <div className="sm:col-span-6">
-              <label htmlFor="full_name" className="block text-sm font-medium text-gray-700">
-                Full Name (Triple) *
+              <label htmlFor="full_name" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                الاسم بالكامل (ثلاثي) *
               </label>
               <div className="mt-1">
                 <input
                   type="text"
                   {...register('full_name')}
-                  className="shadow-sm focus:ring-indigo-500 focus:border-indigo-500 block w-full sm:text-sm border-gray-300 rounded-md p-2 border"
+                  className="shadow-sm focus:ring-indigo-500 focus:border-indigo-500 block w-full sm:text-sm border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-md p-2 border"
+                  placeholder="مثال: أحمد محمد علي"
                 />
                 {errors.full_name && <p className="mt-1 text-sm text-red-600">{errors.full_name.message}</p>}
               </div>
             </div>
 
             <div className="sm:col-span-3">
-              <label htmlFor="phone_primary" className="block text-sm font-medium text-gray-700">
-                Phone Number *
+              <label htmlFor="university" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                الجامعة
+              </label>
+              <div className="mt-1">
+                <input
+                  type="text"
+                  {...register('university')}
+                  className="shadow-sm focus:ring-indigo-500 focus:border-indigo-500 block w-full sm:text-sm border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-md p-2 border"
+                />
+              </div>
+            </div>
+
+            <div className="sm:col-span-3">
+              <label htmlFor="faculty" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                الكلية
+              </label>
+              <div className="mt-1">
+                <input
+                  type="text"
+                  {...register('faculty')}
+                  className="shadow-sm focus:ring-indigo-500 focus:border-indigo-500 block w-full sm:text-sm border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-md p-2 border"
+                />
+              </div>
+            </div>
+
+            <div className="sm:col-span-3">
+              <label htmlFor="year" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                السنة الدراسية
+              </label>
+              <div className="mt-1">
+                <input
+                  type="text"
+                  {...register('year')}
+                  className="shadow-sm focus:ring-indigo-500 focus:border-indigo-500 block w-full sm:text-sm border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-md p-2 border"
+                />
+              </div>
+            </div>
+
+            <div className="sm:col-span-6">
+              <label htmlFor="notes" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                ملاحظات إضافية
+              </label>
+              <div className="mt-1">
+                <textarea
+                  {...register('notes')}
+                  rows={3}
+                  className="shadow-sm focus:ring-indigo-500 focus:border-indigo-500 block w-full sm:text-sm border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-md p-2 border"
+                />
+              </div>
+            </div>
+
+            <div className="sm:col-span-3">
+              <label htmlFor="phone_primary" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                رقم الهاتف *
               </label>
               <div className="mt-1">
                 <input
                   type="text"
                   {...register('phone_primary')}
-                  className="shadow-sm focus:ring-indigo-500 focus:border-indigo-500 block w-full sm:text-sm border-gray-300 rounded-md p-2 border"
+                  className="shadow-sm focus:ring-indigo-500 focus:border-indigo-500 block w-full sm:text-sm border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-md p-2 border"
+                  dir="ltr"
                 />
                 {errors.phone_primary && <p className="mt-1 text-sm text-red-600">{errors.phone_primary.message}</p>}
               </div>
@@ -151,15 +228,15 @@ const Register: React.FC = () => {
                  <button
                    type="button"
                    onClick={() => setShowSecondaryPhone(true)}
-                   className="mt-6 inline-flex items-center px-3 py-2 border border-gray-300 shadow-sm text-sm leading-4 font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+                   className="mt-6 inline-flex items-center px-3 py-2 border border-gray-300 dark:border-gray-600 shadow-sm text-sm leading-4 font-medium rounded-md text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
                  >
-                   <Plus className="h-4 w-4 mr-2" />
-                   Add Secondary Phone
+                   <Plus className="h-4 w-4 ml-2" />
+                   إضافة هاتف آخر
                  </button>
                ) : (
                  <div>
-                   <label htmlFor="phone_secondary" className="block text-sm font-medium text-gray-700 flex justify-between">
-                     <span>Secondary Phone</span>
+                   <label htmlFor="phone_secondary" className="block text-sm font-medium text-gray-700 dark:text-gray-300 flex justify-between">
+                     <span>هاتف ثانوي</span>
                      <button type="button" onClick={() => { setShowSecondaryPhone(false); setValue('phone_secondary', ''); }} className="text-red-500 hover:text-red-700">
                        <Minus className="h-4 w-4" />
                      </button>
@@ -168,160 +245,126 @@ const Register: React.FC = () => {
                      <input
                        type="text"
                        {...register('phone_secondary')}
-                       className="shadow-sm focus:ring-indigo-500 focus:border-indigo-500 block w-full sm:text-sm border-gray-300 rounded-md p-2 border"
+                       className="shadow-sm focus:ring-indigo-500 focus:border-indigo-500 block w-full sm:text-sm border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-md p-2 border"
+                       dir="ltr"
                      />
-                     {errors.phone_secondary && <p className="mt-1 text-sm text-red-600">{errors.phone_secondary.message}</p>}
                    </div>
                  </div>
                )}
             </div>
 
             <div className="sm:col-span-3">
-              <label htmlFor="email_primary" className="block text-sm font-medium text-gray-700">
-                Email Address
+              <label htmlFor="email_primary" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                البريد الإلكتروني
               </label>
               <div className="mt-1">
                 <input
                   type="email"
                   {...register('email_primary')}
-                  className="shadow-sm focus:ring-indigo-500 focus:border-indigo-500 block w-full sm:text-sm border-gray-300 rounded-md p-2 border"
+                  className="shadow-sm focus:ring-indigo-500 focus:border-indigo-500 block w-full sm:text-sm border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-md p-2 border"
+                  dir="ltr"
                 />
-                {errors.email_primary && <p className="mt-1 text-sm text-red-600">{errors.email_primary.message}</p>}
               </div>
             </div>
 
-            <div className="sm:col-span-3">
-               {!showSecondaryEmail ? (
-                 <button
-                   type="button"
-                   onClick={() => setShowSecondaryEmail(true)}
-                   className="mt-6 inline-flex items-center px-3 py-2 border border-gray-300 shadow-sm text-sm leading-4 font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
-                 >
-                   <Plus className="h-4 w-4 mr-2" />
-                   Add Secondary Email
-                 </button>
-               ) : (
-                 <div>
-                   <label htmlFor="email_secondary" className="block text-sm font-medium text-gray-700 flex justify-between">
-                     <span>Secondary Email</span>
-                     <button type="button" onClick={() => { setShowSecondaryEmail(false); setValue('email_secondary', ''); }} className="text-red-500 hover:text-red-700">
-                       <Minus className="h-4 w-4" />
-                     </button>
-                   </label>
-                   <div className="mt-1">
-                     <input
-                       type="email"
-                       {...register('email_secondary')}
-                       className="shadow-sm focus:ring-indigo-500 focus:border-indigo-500 block w-full sm:text-sm border-gray-300 rounded-md p-2 border"
-                     />
-                     {errors.email_secondary && <p className="mt-1 text-sm text-red-600">{errors.email_secondary.message}</p>}
-                   </div>
-                 </div>
-               )}
-            </div>
-
             <div className="sm:col-span-6">
-              <label htmlFor="facebook_link" className="block text-sm font-medium text-gray-700">
-                Facebook Profile Link
+              <label htmlFor="facebook_link" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                رابط فيسبوك
               </label>
               <div className="mt-1">
                 <input
                   type="url"
                   {...register('facebook_link')}
-                  className="shadow-sm focus:ring-indigo-500 focus:border-indigo-500 block w-full sm:text-sm border-gray-300 rounded-md p-2 border"
+                  className="shadow-sm focus:ring-indigo-500 focus:border-indigo-500 block w-full sm:text-sm border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-md p-2 border"
                   placeholder="https://facebook.com/..."
+                  dir="ltr"
                 />
-                {errors.facebook_link && <p className="mt-1 text-sm text-red-600">{errors.facebook_link.message}</p>}
               </div>
             </div>
 
             <div className="sm:col-span-3">
-              <label htmlFor="governorate" className="block text-sm font-medium text-gray-700">
-                Governorate *
+              <label htmlFor="governorate" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                المحافظة *
               </label>
               <div className="mt-1">
                 <select
                   {...register('governorate')}
-                  className="shadow-sm focus:ring-indigo-500 focus:border-indigo-500 block w-full sm:text-sm border-gray-300 rounded-md p-2 border"
+                  className="shadow-sm focus:ring-indigo-500 focus:border-indigo-500 block w-full sm:text-sm border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-md p-2 border"
                 >
-                  <option value="Minya">Minya</option>
-                  <option value="Asyut">Asyut</option>
-                  <option value="Sohag">Sohag</option>
-                  <option value="Qena">Qena</option>
+                  <option value="Minya">المنيا</option>
+                  <option value="Asyut">أسيوط</option>
+                  <option value="Sohag">سوهاج</option>
+                  <option value="Qena">قنا</option>
                 </select>
-                {errors.governorate && <p className="mt-1 text-sm text-red-600">{errors.governorate.message}</p>}
               </div>
             </div>
 
             <div className="sm:col-span-3">
-              <label htmlFor="seat_class" className="block text-sm font-medium text-gray-700">
-                Seat Class *
+              <label htmlFor="seat_class" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                فئة المقعد *
               </label>
               <div className="mt-1">
                 <select
                   {...register('seat_class')}
-                  className="shadow-sm focus:ring-indigo-500 focus:border-indigo-500 block w-full sm:text-sm border-gray-300 rounded-md p-2 border"
+                  className="shadow-sm focus:ring-indigo-500 focus:border-indigo-500 block w-full sm:text-sm border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-md p-2 border"
                 >
-                  <option value="A">Class A (2000 EGP)</option>
-                  <option value="B">Class B (1700 EGP)</option>
-                  <option value="C">Class C (1500 EGP)</option>
+                  <option value="A">فئة A (2000 ج.م)</option>
+                  <option value="B">فئة B (1700 ج.م)</option>
+                  <option value="C">فئة C (1500 ج.م)</option>
                 </select>
-                {errors.seat_class && <p className="mt-1 text-sm text-red-600">{errors.seat_class.message}</p>}
               </div>
             </div>
 
-            <div className="sm:col-span-6 border-t pt-6 mt-2">
-              <h4 className="text-md font-medium text-gray-900 mb-4">Registration Status</h4>
+            <div className="sm:col-span-6 border-t dark:border-gray-700 pt-6 mt-2">
+              <h4 className="text-md font-medium text-gray-900 dark:text-white mb-4">حالة التسجيل</h4>
               
               <div className="space-y-4">
                 <div>
-                  <label htmlFor="status" className="block text-sm font-medium text-gray-700">
-                    Client Status *
+                  <label htmlFor="status" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    حالة العميل *
                   </label>
                   <div className="mt-1">
                     <select
                       {...register('status')}
-                      className="shadow-sm focus:ring-indigo-500 focus:border-indigo-500 block w-full sm:text-sm border-gray-300 rounded-md p-2 border"
+                      className="shadow-sm focus:ring-indigo-500 focus:border-indigo-500 block w-full sm:text-sm border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-md p-2 border"
                     >
-                      <option value="registered">Registered (Payment Required)</option>
-                      <option value="interested">Interested (No Payment Yet)</option>
+                      <option value="registered">مسجل (مطلوب دفع)</option>
+                      <option value="interested">مهتم (لم يدفع بعد)</option>
                     </select>
-                    {errors.status && <p className="mt-1 text-sm text-red-600">{errors.status.message}</p>}
                   </div>
                 </div>
 
                 {status === 'registered' && (
-                  <div className="grid grid-cols-1 gap-y-6 gap-x-4 sm:grid-cols-6 bg-gray-50 p-4 rounded-md">
+                  <div className="grid grid-cols-1 gap-y-6 gap-x-4 sm:grid-cols-6 bg-gray-50 dark:bg-gray-700/50 p-4 rounded-md">
                     <div className="sm:col-span-3">
-                      <label htmlFor="payment_type" className="block text-sm font-medium text-gray-700">
-                        Payment Type
+                      <label htmlFor="payment_type" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                        نوع الدفع
                       </label>
                       <div className="mt-1">
                         <select
                           {...register('payment_type')}
-                          className="shadow-sm focus:ring-indigo-500 focus:border-indigo-500 block w-full sm:text-sm border-gray-300 rounded-md p-2 border"
+                          className="shadow-sm focus:ring-indigo-500 focus:border-indigo-500 block w-full sm:text-sm border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-md p-2 border"
                         >
-                          <option value="deposit">Deposit</option>
-                          <option value="full">Full Payment</option>
+                          <option value="deposit">عربون</option>
+                          <option value="full">دفع كامل</option>
                         </select>
                       </div>
                     </div>
 
                     <div className="sm:col-span-3">
-                      <label htmlFor="payment_amount" className="block text-sm font-medium text-gray-700">
-                        Payment Amount (EGP)
+                      <label htmlFor="payment_amount" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                        المبلغ المدفوع (ج.م)
                       </label>
                       <div className="mt-1">
                         <input
                           type="number"
                           {...register('payment_amount', { valueAsNumber: true })}
-                          onWheel={(e) => e.currentTarget.blur()} // Prevent mouse wheel change
-                          className="shadow-sm focus:ring-indigo-500 focus:border-indigo-500 block w-full sm:text-sm border-gray-300 rounded-md p-2 border"
+                          onWheel={(e) => e.currentTarget.blur()}
+                          className="shadow-sm focus:ring-indigo-500 focus:border-indigo-500 block w-full sm:text-sm border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-md p-2 border"
                         />
-                        {errors.payment_amount && <p className="mt-1 text-sm text-red-600">{errors.payment_amount.message}</p>}
                       </div>
-                      <p className="mt-1 text-xs text-gray-500">
-                        Total for Class {seatClass}: {SEAT_PRICES[seatClass]} EGP
+                      <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                        الإجمالي لفئة {seatClass}: {SEAT_PRICES[seatClass]} ج.م
                       </p>
                     </div>
                   </div>
@@ -331,26 +374,26 @@ const Register: React.FC = () => {
           </div>
 
           <div className="pt-5">
-            <div className="flex justify-end">
+            <div className="flex justify-end gap-3">
               <button
                 type="button"
                 onClick={() => navigate('/')}
-                className="bg-white py-2 px-4 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+                className="bg-white dark:bg-gray-700 py-2 px-4 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
               >
-                Cancel
+                إلغاء
               </button>
               <button
                 type="submit"
                 disabled={isSubmitting}
-                className="ml-3 inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50"
+                className="inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50"
               >
                 {isSubmitting ? (
                   <>
-                    <Loader2 className="animate-spin -ml-1 mr-2 h-4 w-4" />
-                    Saving...
+                    <Loader2 className="animate-spin ml-2 h-4 w-4" />
+                    جاري الحفظ...
                   </>
                 ) : (
-                  'Register Attendee'
+                  'تسجيل المشترك'
                 )}
               </button>
             </div>

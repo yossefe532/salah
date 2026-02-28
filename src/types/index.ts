@@ -22,6 +22,10 @@ export interface Attendee {
   email_primary?: string;
   email_secondary?: string;
   facebook_link?: string;
+  university?: string;
+  faculty?: string;
+  year?: string;
+  notes?: string;
   governorate: Governorate;
   seat_class: SeatClass;
   payment_type: PaymentType;
