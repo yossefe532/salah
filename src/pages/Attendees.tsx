@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { api } from '../lib/api';
+import { api, supabase } from '../lib/api';
 import { Attendee } from '../types';
-import { Search, Eye, QrCode, CheckCircle, XCircle, UserCheck, UserX, Trash2, RefreshCcw, AlertTriangle, MessageCircle, Phone, Upload, Edit2, FileSpreadsheet, Copy } from 'lucide-react';
+import { Search, Eye, QrCode, CheckCircle, XCircle, UserCheck, UserX, Trash2, RefreshCcw, AlertTriangle, MessageCircle, Phone, Upload, Edit2, FileSpreadsheet, Copy, Zap } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import * as XLSX from 'xlsx';
@@ -10,6 +10,7 @@ const Attendees: React.FC = () => {
   const { user } = useAuth();
   const [attendees, setAttendees] = useState<Attendee[]>([]);
   const [loading, setLoading] = useState(true);
+  const [isRealtime, setIsRealtime] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [viewMode, setViewMode] = useState<'active' | 'trash'>('active');
   const [filters, setFilters] = useState({
@@ -48,6 +49,39 @@ const Attendees: React.FC = () => {
 
   useEffect(() => {
     fetchAttendees();
+
+    // Real-time Subscription
+    const channel = supabase
+      .channel('attendees_list_changes')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'attendees' },
+        (payload) => {
+          console.log('Real-time change received:', payload);
+          setIsRealtime(true);
+          
+          if (payload.eventType === 'INSERT') {
+            const newRecord = payload.new as Attendee;
+            setAttendees(prev => [newRecord, ...prev]);
+          } 
+          else if (payload.eventType === 'UPDATE') {
+            const updatedRecord = payload.new as Attendee;
+            setAttendees(prev => prev.map(a => a.id === updatedRecord.id ? updatedRecord : a));
+          } 
+          else if (payload.eventType === 'DELETE') {
+            const deletedId = payload.old.id;
+            setAttendees(prev => prev.filter(a => a.id !== deletedId));
+          }
+          
+          // Flash realtime indicator
+          setTimeout(() => setIsRealtime(false), 2000);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, [fetchAttendees]);
 
   const handleToggleAttendance = async (attendeeId: string, currentStatus: boolean) => {
@@ -158,6 +192,12 @@ const Attendees: React.FC = () => {
             <h1 className="text-2xl font-bold text-gray-900">
               {viewMode === 'active' ? 'إدارة الحضور' : 'سلة المهملات'}
             </h1>
+            {isRealtime && (
+                <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800 animate-pulse">
+                    <Zap className="w-3 h-3 mr-1" />
+                    تحديث حي
+                </span>
+            )}
             {user?.role === 'owner' && (
               <button
                 onClick={() => setViewMode(viewMode === 'active' ? 'trash' : 'active')}

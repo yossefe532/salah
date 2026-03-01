@@ -1,5 +1,7 @@
 import { supabase } from './supabase';
 
+export { supabase }; // Export supabase client for realtime usage
+
 export const API_PORT = 3000;
 
 // Offline Queue Management

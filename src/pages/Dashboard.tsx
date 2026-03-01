@@ -1,9 +1,9 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { api } from '../lib/api';
+import { api, supabase } from '../lib/api';
 import { Attendee } from '../types';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
-import { Users, CheckCircle, DollarSign, AlertTriangle } from 'lucide-react';
+import { Users, CheckCircle, DollarSign, AlertTriangle, Zap } from 'lucide-react';
 
 const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042'];
 
@@ -18,16 +18,9 @@ const Dashboard: React.FC = () => {
     byGovernorate: [] as { name: string; value: number }[],
   });
   const [loading, setLoading] = useState(true);
+  const [isRealtime, setIsRealtime] = useState(false);
 
-  useEffect(() => {
-    if (user?.role === 'owner') {
-      fetchStats();
-    } else {
-      setLoading(false);
-    }
-  }, [user]);
-
-  const fetchStats = async () => {
+  const fetchStats = useCallback(async () => {
     try {
       const attendees: Attendee[] = await api.get('/attendees');
 
@@ -68,7 +61,34 @@ const Dashboard: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    if (user?.role === 'owner') {
+      fetchStats();
+
+      // Real-time Subscription for Dashboard
+      const channel = supabase
+        .channel('dashboard_stats_changes')
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'attendees' },
+          () => {
+            console.log('Stats update received');
+            setIsRealtime(true);
+            fetchStats(); // Re-fetch stats on any change
+            setTimeout(() => setIsRealtime(false), 2000);
+          }
+        )
+        .subscribe();
+
+      return () => {
+        supabase.removeChannel(channel);
+      };
+    } else {
+      setLoading(false);
+    }
+  }, [user, fetchStats]);
 
   if (loading) return <div className="p-8 text-center dark:text-white">جاري تحميل لوحة التحكم...</div>;
 
@@ -87,7 +107,15 @@ const Dashboard: React.FC = () => {
 
   return (
     <div className="space-y-6" dir="rtl">
-      <h1 className="text-2xl font-semibold text-gray-900 dark:text-white">لوحة تحكم الفعالية</h1>
+      <div className="flex items-center gap-2">
+        <h1 className="text-2xl font-semibold text-gray-900 dark:text-white">لوحة تحكم الفعالية</h1>
+        {isRealtime && (
+            <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800 animate-pulse">
+                <Zap className="w-3 h-3 mr-1" />
+                تحديث حي
+            </span>
+        )}
+      </div>
       
       {/* Summary Cards */}
       <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
