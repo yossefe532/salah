@@ -70,9 +70,12 @@ const Register: React.FC = () => {
 
     try {
       // Check for duplicate name (Exact Match)
-      const { data: existingName } = await api.get('/attendees');
-      const isDuplicateName = existingName.some((a: any) => 
-        a.full_name.trim().toLowerCase() === data.full_name.trim().toLowerCase() && !a.is_deleted
+      // Ensure we have an array, even if API returns null/undefined
+      const response = await api.get('/attendees');
+      const existingAttendees = Array.isArray(response) ? response : [];
+      
+      const isDuplicateName = existingAttendees.some((a: any) => 
+        a.full_name && a.full_name.trim().toLowerCase() === data.full_name.trim().toLowerCase() && !a.is_deleted
       );
       
       if (isDuplicateName) {
@@ -80,7 +83,7 @@ const Register: React.FC = () => {
       }
 
       // Check for duplicate phone
-      const isDuplicatePhone = existingName.some((a: any) => 
+      const isDuplicatePhone = existingAttendees.some((a: any) => 
         a.phone_primary === data.phone_primary && !a.is_deleted
       );
 
