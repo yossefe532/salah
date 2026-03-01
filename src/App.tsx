@@ -13,12 +13,14 @@ import UsersPage from './pages/Users';
 import ImportData from './pages/ImportData';
 import EditAttendee from './pages/EditAttendee';
 import Setup from './pages/Setup';
+import LiveCounter from './pages/LiveCounter';
 
 function App() {
   return (
     <AuthProvider>
       <Router>
         <Routes>
+          <Route path="/live" element={<LiveCounter />} />
           <Route path="/setup" element={<Setup />} />
           <Route path="/login" element={<Login />} />
           

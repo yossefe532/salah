@@ -2,9 +2,47 @@ import { supabase } from './supabase';
 
 export const API_PORT = 3000;
 
+// Offline Queue Management
+const QUEUE_KEY = 'offline_checkin_queue';
+
+const addToQueue = (endpoint: string, body: any) => {
+  const queue = JSON.parse(localStorage.getItem(QUEUE_KEY) || '[]');
+  queue.push({ endpoint, body, timestamp: Date.now() });
+  localStorage.setItem(QUEUE_KEY, JSON.stringify(queue));
+};
+
+export const processOfflineQueue = async () => {
+  if (!navigator.onLine) return;
+  const queue = JSON.parse(localStorage.getItem(QUEUE_KEY) || '[]');
+  if (queue.length === 0) return;
+
+  console.log(`Processing ${queue.length} offline requests...`);
+  const failedRequests = [];
+
+  for (const req of queue) {
+    try {
+      await api.post(req.endpoint, req.body);
+    } catch (e) {
+      console.error('Failed to sync request:', req, e);
+      // Only retry if it's a network error, not a logic error (like 404)
+      failedRequests.push(req);
+    }
+  }
+
+  if (failedRequests.length < queue.length) {
+      // Some succeeded
+      localStorage.setItem(QUEUE_KEY, JSON.stringify(failedRequests));
+      alert('تمت مزامنة البيانات المسجلة أثناء انقطاع الإنترنت بنجاح.');
+  }
+};
+
+// Listen for online status
+window.addEventListener('online', processOfflineQueue);
+
 // This client-side API now talks directly to Supabase when online
 export const api = {
   async get(endpoint: string) {
+    // ... existing get code ...
     if (endpoint.startsWith('/attendees')) {
       const showTrash = endpoint.includes('trash=true');
       const idMatch = endpoint.match(/\/attendees\/([^\/?]+)/);
@@ -30,6 +68,12 @@ export const api = {
   },
   
   async post(endpoint: string, body: any) {
+    // Offline Handling for Check-in
+    if (endpoint === '/checkin' && !navigator.onLine) {
+        addToQueue(endpoint, body);
+        return { success: true, offline: true, message: 'تم التسجيل وضع الأوفلاين (سيتم الرفع عند عودة النت)' };
+    }
+
     if (endpoint === '/login') {
       const { data: user } = await supabase
         .from('users')

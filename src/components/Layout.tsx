@@ -26,7 +26,38 @@ const Layout: React.FC = () => {
     navigate('/login');
   };
   
-  // ... rest of code
+  const navItems = [
+    {
+      name: 'قائمة الحضور',
+      path: '/attendees',
+      icon: <Users className="w-5 h-5" />,
+      roles: ['owner', 'data_entry', 'organizer']
+    },
+    {
+      name: 'المسح الضوئي',
+      path: '/checkin',
+      icon: <Scan className="w-5 h-5" />,
+      roles: ['owner', 'organizer']
+    },
+    {
+      name: 'شاشة العرض',
+      path: '/live',
+      icon: <LayoutDashboard className="w-5 h-5" />,
+      roles: ['owner']
+    },
+    {
+      name: 'المستخدمين',
+      path: '/users',
+      icon: <UserPlus className="w-5 h-5" />,
+      roles: ['owner']
+    }
+  ];
+
+  const filteredNavItems = navItems.filter(item => 
+    !item.roles || (user?.role && item.roles.includes(user.role))
+  );
+
+  const isActive = (path: string) => location.pathname === path;
   
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex flex-col transition-colors duration-200">
