@@ -25,6 +25,36 @@ const Layout: React.FC = () => {
     await signOut();
     navigate('/login');
   };
+
+  // Keyboard Shortcuts
+  React.useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Only trigger if Alt key is pressed (to avoid conflict with typing)
+      if (e.altKey) {
+        switch (e.key.toLowerCase()) {
+          case 'n': // New
+            e.preventDefault();
+            if (user?.role === 'owner' || user?.role === 'data_entry') navigate('/register');
+            break;
+          case 's': // Scan
+            e.preventDefault();
+            if (user?.role === 'owner' || user?.role === 'organizer') navigate('/checkin');
+            break;
+          case 'l': // List
+            e.preventDefault();
+            navigate('/attendees');
+            break;
+          case 'h': // Home
+            e.preventDefault();
+            navigate('/');
+            break;
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [navigate, user]);
   
   const navItems = [
     {

@@ -33,6 +33,15 @@ const SEAT_PRICES = {
   C: 1500,
 };
 
+// Smart Input Helpers
+const smartFormatPhone = (value: string) => {
+  if (!value) return '';
+  // Convert Arabic/Persian digits to English
+  const englishDigits = value.replace(/[٠-٩]/g, d => '0123456789'['٠١٢٣٤٥٦٧٨٩'.indexOf(d)]);
+  // Remove non-digits
+  return englishDigits.replace(/\D/g, '');
+};
+
 const Register: React.FC = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -41,7 +50,7 @@ const Register: React.FC = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
-  const { register, handleSubmit, watch, setValue, formState: { errors } } = useForm<FormData>({
+  const { register, handleSubmit, watch, setValue, formState: { errors }, trigger } = useForm<FormData>({
     resolver: zodResolver(schema),
     defaultValues: {
       governorate: 'Minya',
@@ -51,6 +60,26 @@ const Register: React.FC = () => {
       payment_amount: 0,
     },
   });
+
+  // Smart Navigation Handler
+  const handleKeyDown = async (e: React.KeyboardEvent, fieldName: keyof FormData, nextFieldId?: string) => {
+    if (e.key === 'Enter') {
+      e.preventDefault(); // Prevent form submission
+      
+      // Validate current field before moving
+      const isValid = await trigger(fieldName);
+      
+      if (isValid) {
+        if (nextFieldId) {
+          const nextElement = document.getElementById(nextFieldId);
+          nextElement?.focus();
+        } else {
+          // If no next field, maybe submit? Or just blur.
+          (e.target as HTMLElement).blur();
+        }
+      }
+    }
+  };
 
   const status = watch('status');
   const seatClass = watch('seat_class');
@@ -150,8 +179,11 @@ const Register: React.FC = () => {
               </label>
               <div className="mt-1">
                 <input
+                  id="full_name"
                   type="text"
+                  autoFocus
                   {...register('full_name')}
+                  onKeyDown={(e) => handleKeyDown(e, 'full_name', 'university')}
                   className="shadow-sm focus:ring-indigo-500 focus:border-indigo-500 block w-full sm:text-sm border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-md p-2 border"
                   placeholder="مثال: أحمد محمد علي"
                 />
@@ -165,8 +197,10 @@ const Register: React.FC = () => {
               </label>
               <div className="mt-1">
                 <input
+                  id="university"
                   type="text"
                   {...register('university')}
+                  onKeyDown={(e) => handleKeyDown(e, 'university', 'faculty')}
                   className="shadow-sm focus:ring-indigo-500 focus:border-indigo-500 block w-full sm:text-sm border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-md p-2 border"
                 />
               </div>
@@ -178,8 +212,10 @@ const Register: React.FC = () => {
               </label>
               <div className="mt-1">
                 <input
+                  id="faculty"
                   type="text"
                   {...register('faculty')}
+                  onKeyDown={(e) => handleKeyDown(e, 'faculty', 'year')}
                   className="shadow-sm focus:ring-indigo-500 focus:border-indigo-500 block w-full sm:text-sm border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-md p-2 border"
                 />
               </div>
@@ -191,8 +227,10 @@ const Register: React.FC = () => {
               </label>
               <div className="mt-1">
                 <input
+                  id="year"
                   type="text"
                   {...register('year')}
+                  onKeyDown={(e) => handleKeyDown(e, 'year', 'notes')}
                   className="shadow-sm focus:ring-indigo-500 focus:border-indigo-500 block w-full sm:text-sm border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-md p-2 border"
                 />
               </div>
@@ -204,7 +242,12 @@ const Register: React.FC = () => {
               </label>
               <div className="mt-1">
                 <textarea
+                  id="notes"
                   {...register('notes')}
+                  // Textarea needs shift+enter for new line, enter moves next
+                  onKeyDown={(e) => {
+                      if(!e.shiftKey) handleKeyDown(e, 'notes', 'phone_primary');
+                  }}
                   rows={3}
                   className="shadow-sm focus:ring-indigo-500 focus:border-indigo-500 block w-full sm:text-sm border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-md p-2 border"
                 />
@@ -217,8 +260,24 @@ const Register: React.FC = () => {
               </label>
               <div className="mt-1">
                 <input
-                  type="text"
+                  id="phone_primary"
+                  type="tel"
+                  inputMode="tel"
+                  pattern="[0-9]*"
                   {...register('phone_primary')}
+                  onKeyDown={(e) => handleKeyDown(e, 'phone_primary', showSecondaryPhone ? 'phone_secondary' : 'email_primary')}
+                  onBlur={(e) => {
+                      const formatted = smartFormatPhone(e.target.value);
+                      setValue('phone_primary', formatted);
+                      trigger('phone_primary');
+                  }}
+                  onChange={(e) => {
+                      // Real-time correction for better UX (optional)
+                      const val = e.target.value;
+                      if (val.match(/[٠-٩]/)) {
+                          e.target.value = smartFormatPhone(val);
+                      }
+                  }}
                   className="shadow-sm focus:ring-indigo-500 focus:border-indigo-500 block w-full sm:text-sm border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-md p-2 border"
                   dir="ltr"
                 />
@@ -246,8 +305,13 @@ const Register: React.FC = () => {
                    </label>
                    <div className="mt-1">
                      <input
-                       type="text"
+                       id="phone_secondary"
+                       type="tel"
+                       inputMode="tel"
+                       pattern="[0-9]*"
                        {...register('phone_secondary')}
+                       onKeyDown={(e) => handleKeyDown(e, 'phone_secondary', 'email_primary')}
+                       onBlur={(e) => setValue('phone_secondary', smartFormatPhone(e.target.value))}
                        className="shadow-sm focus:ring-indigo-500 focus:border-indigo-500 block w-full sm:text-sm border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-md p-2 border"
                        dir="ltr"
                      />
@@ -262,12 +326,46 @@ const Register: React.FC = () => {
               </label>
               <div className="mt-1">
                 <input
+                  id="email_primary"
                   type="email"
                   {...register('email_primary')}
+                  onKeyDown={(e) => handleKeyDown(e, 'email_primary', showSecondaryEmail ? 'email_secondary' : 'facebook_link')}
                   className="shadow-sm focus:ring-indigo-500 focus:border-indigo-500 block w-full sm:text-sm border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-md p-2 border"
                   dir="ltr"
                 />
               </div>
+            </div>
+
+            <div className="sm:col-span-3">
+               {!showSecondaryEmail ? (
+                 <button
+                   type="button"
+                   onClick={() => setShowSecondaryEmail(true)}
+                   className="mt-6 inline-flex items-center px-3 py-2 border border-gray-300 dark:border-gray-600 shadow-sm text-sm leading-4 font-medium rounded-md text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+                 >
+                   <Plus className="h-4 w-4 mr-2" />
+                   Add Secondary Email
+                 </button>
+               ) : (
+                 <div>
+                   <label htmlFor="email_secondary" className="block text-sm font-medium text-gray-700 flex justify-between">
+                     <span>Secondary Email</span>
+                     <button type="button" onClick={() => { setShowSecondaryEmail(false); setValue('email_secondary', ''); }} className="text-red-500 hover:text-red-700">
+                       <Minus className="h-4 w-4" />
+                     </button>
+                   </label>
+                   <div className="mt-1">
+                     <input
+                       id="email_secondary"
+                       type="email"
+                       {...register('email_secondary')}
+                       onKeyDown={(e) => handleKeyDown(e, 'email_secondary', 'facebook_link')}
+                       className="shadow-sm focus:ring-indigo-500 focus:border-indigo-500 block w-full sm:text-sm border-gray-300 rounded-md p-2 border"
+                     />
+                     {errors.email_secondary && <p className="mt-1 text-sm text-red-600">{errors.email_secondary.message}</p>}
+                   </div>
+                 </div>
+               )}
             </div>
 
             <div className="sm:col-span-6">
@@ -276,8 +374,10 @@ const Register: React.FC = () => {
               </label>
               <div className="mt-1">
                 <input
+                  id="facebook_link"
                   type="url"
                   {...register('facebook_link')}
+                  onKeyDown={(e) => handleKeyDown(e, 'facebook_link', 'governorate')}
                   className="shadow-sm focus:ring-indigo-500 focus:border-indigo-500 block w-full sm:text-sm border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-md p-2 border"
                   placeholder="https://facebook.com/..."
                   dir="ltr"
@@ -291,7 +391,9 @@ const Register: React.FC = () => {
               </label>
               <div className="mt-1">
                 <select
+                  id="governorate"
                   {...register('governorate')}
+                  onKeyDown={(e) => handleKeyDown(e, 'governorate', 'seat_class')}
                   className="shadow-sm focus:ring-indigo-500 focus:border-indigo-500 block w-full sm:text-sm border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-md p-2 border"
                 >
                   <option value="Minya">المنيا</option>
@@ -308,7 +410,9 @@ const Register: React.FC = () => {
               </label>
               <div className="mt-1">
                 <select
+                  id="seat_class"
                   {...register('seat_class')}
+                  onKeyDown={(e) => handleKeyDown(e, 'seat_class', 'status')}
                   className="shadow-sm focus:ring-indigo-500 focus:border-indigo-500 block w-full sm:text-sm border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-md p-2 border"
                 >
                   <option value="A">فئة A (2000 ج.م)</option>
@@ -328,7 +432,9 @@ const Register: React.FC = () => {
                   </label>
                   <div className="mt-1">
                     <select
+                      id="status"
                       {...register('status')}
+                      onKeyDown={(e) => handleKeyDown(e, 'status', status === 'registered' ? 'payment_type' : undefined)}
                       className="shadow-sm focus:ring-indigo-500 focus:border-indigo-500 block w-full sm:text-sm border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-md p-2 border"
                     >
                       <option value="registered">مسجل (مطلوب دفع)</option>
@@ -345,7 +451,9 @@ const Register: React.FC = () => {
                       </label>
                       <div className="mt-1">
                         <select
+                          id="payment_type"
                           {...register('payment_type')}
+                          onKeyDown={(e) => handleKeyDown(e, 'payment_type', 'payment_amount')}
                           className="shadow-sm focus:ring-indigo-500 focus:border-indigo-500 block w-full sm:text-sm border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-md p-2 border"
                         >
                           <option value="deposit">عربون</option>
@@ -360,8 +468,11 @@ const Register: React.FC = () => {
                       </label>
                       <div className="mt-1">
                         <input
+                          id="payment_amount"
                           type="number"
+                          inputMode="decimal"
                           {...register('payment_amount', { valueAsNumber: true })}
+                          onKeyDown={(e) => handleKeyDown(e, 'payment_amount', undefined)}
                           onWheel={(e) => e.currentTarget.blur()}
                           className="shadow-sm focus:ring-indigo-500 focus:border-indigo-500 block w-full sm:text-sm border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-md p-2 border"
                         />
