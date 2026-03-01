@@ -1,9 +1,10 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { api } from '../lib/api';
 import { Attendee } from '../types';
-import { Search, Eye, QrCode, CheckCircle, XCircle, UserCheck, UserX, Trash2, RefreshCcw, AlertTriangle, MessageCircle, Phone, Upload, Edit2 } from 'lucide-react';
+import { Search, Eye, QrCode, CheckCircle, XCircle, UserCheck, UserX, Trash2, RefreshCcw, AlertTriangle, MessageCircle, Phone, Upload, Edit2, FileSpreadsheet, Copy } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import * as XLSX from 'xlsx';
 
 const Attendees: React.FC = () => {
   const { user } = useAuth();
@@ -104,6 +105,45 @@ const Attendees: React.FC = () => {
     );
   });
 
+  // Export to Excel
+  const handleExportExcel = () => {
+    if (filteredAttendees.length === 0) return alert('لا توجد بيانات للتصدير');
+    
+    const dataToExport = filteredAttendees.map(a => ({
+      'الاسم': a.full_name,
+      'الهاتف': a.phone_primary,
+      'المحافظة': a.governorate,
+      'الفئة': a.seat_class,
+      'حالة الدفع': a.payment_type === 'full' ? 'كامل' : (Number(a.payment_amount) === 0 ? 'عربون صفري' : 'عربون'),
+      'المدفوع': a.payment_amount,
+      'المتبقي': a.remaining_amount,
+      'حالة الحضور': a.attendance_status ? 'حاضر' : 'غائب',
+      'تاريخ التسجيل': new Date(a.created_at).toLocaleDateString('ar-EG'),
+      'ملاحظات': a.notes || ''
+    }));
+
+    const ws = XLSX.utils.json_to_sheet(dataToExport);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Attendees");
+    XLSX.writeFile(wb, "attendees_list.xlsx");
+  };
+
+  // Copy Phones
+  const handleCopyPhones = () => {
+    if (filteredAttendees.length === 0) return alert('لا توجد أرقام للنسخ');
+    
+    const phones = filteredAttendees
+        .map(a => a.phone_primary)
+        .filter(p => p && p.length > 5) // Basic validation
+        .join('\n'); // New line separated for easy pasting into bulk SMS tools
+    
+    navigator.clipboard.writeText(phones).then(() => {
+        alert(`تم نسخ ${filteredAttendees.length} رقم هاتف للحافظة بنجاح!`);
+    }).catch(() => {
+        alert('فشل النسخ. يرجى المحاولة يدوياً.');
+    });
+  };
+
   const stats = {
     total: filteredAttendees.length,
     present: filteredAttendees.filter(a => a.attendance_status).length,
@@ -135,6 +175,22 @@ const Attendees: React.FC = () => {
         <div className="mt-4 sm:mt-0 flex gap-2">
            {viewMode === 'active' && (
             <>
+               <button
+                onClick={handleExportExcel}
+                className="inline-flex items-center justify-center px-3 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none transition-colors"
+                title="تصدير Excel"
+              >
+                <FileSpreadsheet className="h-4 w-4 ml-2 text-green-600" />
+                Excel
+              </button>
+              <button
+                onClick={handleCopyPhones}
+                className="inline-flex items-center justify-center px-3 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none transition-colors"
+                title="نسخ الأرقام"
+              >
+                <Copy className="h-4 w-4 ml-2 text-blue-600" />
+                نسخ
+              </button>
                <Link
                 to="/import"
                 className="inline-flex items-center justify-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none transition-colors"
@@ -290,7 +346,14 @@ const Attendees: React.FC = () => {
                       </span>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm font-medium text-gray-900">{attendee.payment_amount} ج.م</div>
+                      <div className="text-sm font-medium text-gray-900">
+                        {attendee.payment_amount} ج.م
+                        {Number(attendee.payment_amount) === 0 && attendee.payment_type === 'deposit' && (
+                            <span className="mr-2 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-yellow-100 text-yellow-800">
+                                عربون صفري
+                            </span>
+                        )}
+                      </div>
                       <div className={`text-xs font-bold mt-1 ${attendee.remaining_amount > 0 ? 'text-red-600' : 'text-green-600'}`}>
                         {attendee.remaining_amount > 0 ? `متبقي: ${attendee.remaining_amount}` : 'خالص'}
                       </div>
