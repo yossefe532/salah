@@ -35,7 +35,15 @@ const Attendees: React.FC = () => {
       if (filters.governorate) data = data.filter(a => a.governorate === filters.governorate);
       if (filters.seat_class) data = data.filter(a => a.seat_class === filters.seat_class);
       if (filters.status) data = data.filter(a => a.status === filters.status);
-      if (filters.payment_type) data = data.filter(a => a.payment_type === filters.payment_type);
+      
+      if (filters.payment_type) {
+          if (filters.payment_type === 'zero_deposit') {
+              data = data.filter(a => a.payment_type === 'deposit' && Number(a.payment_amount) === 0);
+          } else {
+              data = data.filter(a => a.payment_type === filters.payment_type);
+          }
+      }
+      
       if (filters.attendance === 'present') data = data.filter(a => a.attendance_status);
       if (filters.attendance === 'absent') data = data.filter(a => !a.attendance_status);
 
@@ -295,7 +303,8 @@ const Attendees: React.FC = () => {
           >
             <option value="">حالة الدفع</option>
             <option value="full">دفع كامل</option>
-            <option value="deposit">عربون فقط</option>
+            <option value="deposit">عربون</option>
+            <option value="zero_deposit">عربون صفري (0 ج.م)</option>
           </select>
           
           <select

@@ -16,6 +16,8 @@ const Dashboard: React.FC = () => {
     remainingRevenue: 0,
     byClass: [] as { name: string; value: number }[],
     byGovernorate: [] as { name: string; value: number }[],
+    recentTransactions: [] as Attendee[],
+    salesAnalysis: [] as any[],
   });
   const [loading, setLoading] = useState(true);
   const [isRealtime, setIsRealtime] = useState(false);
@@ -47,6 +49,18 @@ const Dashboard: React.FC = () => {
         }, {} as Record<string, number>);
         const byGovernorate = Object.keys(govCounts).map(key => ({ name: key, value: govCounts[key] }));
 
+        // Recent Transactions (Last 5 registered)
+        const recentTransactions = [...attendees].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()).slice(0, 5);
+
+        // Sales Analysis by Class
+        const salesAnalysisData = ['A', 'B', 'C'].map(cls => {
+            const classAttendees = attendees.filter(a => a.seat_class === cls);
+            const count = classAttendees.length;
+            const revenue = classAttendees.reduce((sum, a) => sum + (Number(a.payment_amount) || 0), 0);
+            const remaining = classAttendees.reduce((sum, a) => sum + (Number(a.remaining_amount) || 0), 0);
+            return { class: cls, count, revenue, remaining };
+        });
+
         setStats({
           totalAttendees,
           checkedIn,
@@ -54,6 +68,8 @@ const Dashboard: React.FC = () => {
           remainingRevenue,
           byClass,
           byGovernorate,
+          recentTransactions,
+          salesAnalysis: salesAnalysisData,
         });
       }
     } catch (error) {
@@ -237,6 +253,66 @@ const Dashboard: React.FC = () => {
             </ResponsiveContainer>
           </div>
         </div>
+      </div>
+
+      {/* Advanced Financial Tables */}
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+          {/* Sales Analysis */}
+          <div className="bg-white dark:bg-gray-800 shadow rounded-lg p-6 transition-colors overflow-hidden">
+              <h3 className="text-lg font-medium leading-6 text-gray-900 dark:text-white mb-4">تحليل المبيعات</h3>
+              <div className="overflow-x-auto">
+                  <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+                      <thead>
+                          <tr>
+                              <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">الفئة</th>
+                              <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">العدد</th>
+                              <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">الإيراد</th>
+                              <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">المتبقي</th>
+                          </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+                          {stats.salesAnalysis.map((row) => (
+                              <tr key={row.class}>
+                                  <td className="px-4 py-2 text-sm text-gray-900 dark:text-white font-bold">{row.class}</td>
+                                  <td className="px-4 py-2 text-sm text-gray-500 dark:text-gray-300">{row.count}</td>
+                                  <td className="px-4 py-2 text-sm text-green-600 font-medium">{row.revenue.toLocaleString()} ج.م</td>
+                                  <td className="px-4 py-2 text-sm text-red-500 font-medium">{row.remaining.toLocaleString()} ج.م</td>
+                              </tr>
+                          ))}
+                      </tbody>
+                  </table>
+              </div>
+          </div>
+
+          {/* Recent Transactions */}
+          <div className="bg-white dark:bg-gray-800 shadow rounded-lg p-6 transition-colors overflow-hidden">
+              <h3 className="text-lg font-medium leading-6 text-gray-900 dark:text-white mb-4">آخر العمليات</h3>
+              <div className="overflow-x-auto">
+                  <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+                      <thead>
+                          <tr>
+                              <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">الاسم</th>
+                              <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">المبلغ</th>
+                              <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">التاريخ</th>
+                          </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+                          {stats.recentTransactions.map((t) => (
+                              <tr key={t.id}>
+                                  <td className="px-4 py-2 text-sm text-gray-900 dark:text-white truncate max-w-[150px]">{t.full_name}</td>
+                                  <td className="px-4 py-2 text-sm text-gray-900 dark:text-white font-medium">
+                                      {t.payment_amount} ج.م
+                                      {Number(t.payment_amount) === 0 && <span className="mr-1 text-xs text-yellow-500">(0)</span>}
+                                  </td>
+                                  <td className="px-4 py-2 text-sm text-gray-500 dark:text-gray-400 text-xs">
+                                      {new Date(t.created_at).toLocaleDateString('ar-EG')}
+                                  </td>
+                              </tr>
+                          ))}
+                      </tbody>
+                  </table>
+              </div>
+          </div>
       </div>
     </div>
   );
