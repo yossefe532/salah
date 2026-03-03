@@ -16,8 +16,9 @@ const Dashboard: React.FC = () => {
     remainingRevenue: 0,
     byClass: [] as { name: string; value: number }[],
     byGovernorate: [] as { name: string; value: number }[],
-    recentTransactions: [] as Attendee[],
+    activityLogs: [] as any[], // New Activity Logs
     salesAnalysis: [] as any[],
+    crossAnalysis: [] as any[], // New Cross Analysis
   });
   const [loading, setLoading] = useState(true);
   const [isRealtime, setIsRealtime] = useState(false);
@@ -25,6 +26,8 @@ const Dashboard: React.FC = () => {
   const fetchStats = useCallback(async () => {
     try {
       const attendees: Attendee[] = await api.get('/attendees');
+      // Fetch Activity Logs
+      const { data: logs } = await supabase.from('activity_logs').select('*').order('created_at', { ascending: false }).limit(10);
 
       if (attendees) {
         const totalAttendees = attendees.length;
@@ -49,8 +52,19 @@ const Dashboard: React.FC = () => {
         }, {} as Record<string, number>);
         const byGovernorate = Object.keys(govCounts).map(key => ({ name: key, value: govCounts[key] }));
 
-        // Recent Transactions (Last 5 registered)
-        const recentTransactions = [...attendees].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()).slice(0, 5);
+        // Cross Analysis (Governorate x Class)
+        const govs = ['Minya', 'Asyut', 'Sohag', 'Qena'];
+        const crossAnalysisData = govs.map(gov => {
+            const govName = gov === 'Minya' ? 'المنيا' : gov === 'Asyut' ? 'أسيوط' : gov === 'Sohag' ? 'سوهاج' : 'قنا';
+            const inGov = attendees.filter(a => a.governorate === gov);
+            return {
+                name: govName,
+                A: inGov.filter(a => a.seat_class === 'A').length,
+                B: inGov.filter(a => a.seat_class === 'B').length,
+                C: inGov.filter(a => a.seat_class === 'C').length,
+                total: inGov.length
+            };
+        });
 
         // Sales Analysis by Class
         const salesAnalysisData = ['A', 'B', 'C'].map(cls => {
@@ -68,8 +82,9 @@ const Dashboard: React.FC = () => {
           remainingRevenue,
           byClass,
           byGovernorate,
-          recentTransactions,
+          activityLogs: logs || [],
           salesAnalysis: salesAnalysisData,
+          crossAnalysis: crossAnalysisData
         });
       }
     } catch (error) {
@@ -255,6 +270,28 @@ const Dashboard: React.FC = () => {
         </div>
       </div>
 
+      {/* Cross Analysis (Gov x Class) */}
+      <div className="bg-white dark:bg-gray-800 shadow rounded-lg p-6 transition-colors">
+          <h3 className="text-lg font-medium leading-6 text-gray-900 dark:text-white mb-4">تحليل الفئات لكل محافظة</h3>
+          <div className="h-64">
+              <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={stats.crossAnalysis}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#374151" opacity={0.2} />
+                      <XAxis dataKey="name" stroke="#9CA3AF" />
+                      <YAxis stroke="#9CA3AF" />
+                      <Tooltip 
+                          contentStyle={{ backgroundColor: '#1F2937', borderColor: '#374151', color: '#fff' }}
+                          itemStyle={{ color: '#fff' }}
+                      />
+                      <Legend />
+                      <Bar dataKey="A" stackId="a" fill="#8884d8" name="فئة A" />
+                      <Bar dataKey="B" stackId="a" fill="#82ca9d" name="فئة B" />
+                      <Bar dataKey="C" stackId="a" fill="#ffc658" name="فئة C" />
+                  </BarChart>
+              </ResponsiveContainer>
+          </div>
+      </div>
+
       {/* Advanced Financial Tables */}
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
           {/* Sales Analysis */}
@@ -284,28 +321,41 @@ const Dashboard: React.FC = () => {
               </div>
           </div>
 
-          {/* Recent Transactions */}
+          {/* Activity Logs (Detailed) */}
           <div className="bg-white dark:bg-gray-800 shadow rounded-lg p-6 transition-colors overflow-hidden">
-              <h3 className="text-lg font-medium leading-6 text-gray-900 dark:text-white mb-4">آخر العمليات</h3>
+              <h3 className="text-lg font-medium leading-6 text-gray-900 dark:text-white mb-4">سجل النشاطات (Live)</h3>
               <div className="overflow-x-auto">
                   <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
                       <thead>
                           <tr>
-                              <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">الاسم</th>
-                              <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">المبلغ</th>
+                              <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">النشاط</th>
+                              <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">التفاصيل</th>
                               <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">التاريخ</th>
                           </tr>
                       </thead>
                       <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-                          {stats.recentTransactions.map((t) => (
-                              <tr key={t.id}>
-                                  <td className="px-4 py-2 text-sm text-gray-900 dark:text-white truncate max-w-[150px]">{t.full_name}</td>
+                          {stats.activityLogs.map((log) => (
+                              <tr key={log.id}>
                                   <td className="px-4 py-2 text-sm text-gray-900 dark:text-white font-medium">
-                                      {t.payment_amount} ج.م
-                                      {Number(t.payment_amount) === 0 && <span className="mr-1 text-xs text-yellow-500">(0)</span>}
+                                      <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
+                                          log.action_type === 'payment' ? 'bg-green-100 text-green-800' :
+                                          log.action_type === 'status' ? 'bg-blue-100 text-blue-800' :
+                                          log.action_type === 'check_in' ? 'bg-purple-100 text-purple-800' :
+                                          'bg-gray-100 text-gray-800'
+                                      }`}>
+                                          {log.action_type === 'payment' ? 'دفع' :
+                                           log.action_type === 'status' ? 'حالة' :
+                                           log.action_type === 'check_in' ? 'حضور' : 'تسجيل'}
+                                      </span>
+                                  </td>
+                                  <td className="px-4 py-2 text-sm text-gray-900 dark:text-white">
+                                      <div className="font-bold">{log.attendee_name}</div>
+                                      <div className="text-xs text-gray-500 dark:text-gray-400">{log.details}</div>
                                   </td>
                                   <td className="px-4 py-2 text-sm text-gray-500 dark:text-gray-400 text-xs">
-                                      {new Date(t.created_at).toLocaleDateString('ar-EG')}
+                                      {new Date(log.created_at).toLocaleTimeString('ar-EG', {hour: '2-digit', minute:'2-digit'})}
+                                      <br/>
+                                      {new Date(log.created_at).toLocaleDateString('ar-EG')}
                                   </td>
                               </tr>
                           ))}

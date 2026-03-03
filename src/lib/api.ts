@@ -92,6 +92,18 @@ export const api = {
     if (endpoint === '/attendees') {
       const { data, error } = await supabase.from('attendees').insert([{ ...body, is_deleted: false }]).select().single();
       if (error) throw new Error(error.message);
+      
+      // Log New Registration
+      if (data) {
+          await supabase.from('activity_logs').insert([{
+              attendee_id: data.id,
+              attendee_name: data.full_name,
+              action_type: 'register',
+              details: `تسجيل جديد (${data.seat_class}) - ${data.payment_amount} ج.م`,
+              amount_change: Number(data.payment_amount),
+              performed_by: data.created_by
+          }]);
+      }
       return data;
     }
 
@@ -131,6 +143,16 @@ export const api = {
       }
       
       const { data: updated } = await supabase.from('attendees').update({ attendance_status: true, checked_in_at: new Date().toISOString(), checked_in_by: userId }).eq('id', attendee.id).select().single();
+      
+      // Log Check-in in Activity Logs too (for unified history)
+      await supabase.from('activity_logs').insert([{ 
+          attendee_id: attendee.id, 
+          attendee_name: attendee.full_name,
+          action_type: 'check_in',
+          details: 'تم تسجيل الحضور',
+          performed_by: userId 
+      }]);
+      
       await supabase.from('logs').insert([{ attendee_id: attendee.id, recorded_by: userId, action: 'check_in' }]);
       return { success: true, attendee: updated };
     }
@@ -145,6 +167,50 @@ export const api = {
   async put(endpoint: string, body: any) {
     const id = endpoint.split('/').pop();
     const table = endpoint.includes('/users/') ? 'users' : 'attendees';
+    
+    // Smart Logging Logic for Attendees
+    if (table === 'attendees') {
+        const { data: oldRecord } = await supabase.from('attendees').select('*').eq('id', id).single();
+        
+        if (oldRecord) {
+            const logs = [];
+            const userId = body.updated_by || null; // Assume userId is passed in body for logging
+
+            // 1. Payment Change
+            if (body.payment_amount !== undefined && Number(body.payment_amount) !== Number(oldRecord.payment_amount)) {
+                const diff = Number(body.payment_amount) - Number(oldRecord.payment_amount);
+                if (diff > 0) {
+                    logs.push({
+                        attendee_id: id,
+                        attendee_name: oldRecord.full_name,
+                        action_type: 'payment',
+                        details: `دفع إضافي: ${diff} ج.م (الإجمالي: ${body.payment_amount})`,
+                        amount_change: diff,
+                        performed_by: userId
+                    });
+                }
+            }
+
+            // 2. Status Change
+            if (body.status && body.status !== oldRecord.status) {
+                const statusMap: Record<string, string> = { 'interested': 'مهتم', 'registered': 'تم التسجيل' };
+                logs.push({
+                    attendee_id: id,
+                    attendee_name: oldRecord.full_name,
+                    action_type: 'status',
+                    details: `تغيير الحالة من "${statusMap[oldRecord.status] || oldRecord.status}" إلى "${statusMap[body.status] || body.status}"`,
+                    amount_change: 0,
+                    performed_by: userId
+                });
+            }
+
+            // Insert logs if any
+            if (logs.length > 0) {
+                await supabase.from('activity_logs').insert(logs);
+            }
+        }
+    }
+
     const { data, error } = await supabase.from(table).update(body).eq('id', id).select().single();
     if (error) throw new Error(error.message);
     return data;
