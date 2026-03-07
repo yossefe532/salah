@@ -11,7 +11,8 @@ import {
   Menu, 
   X,
   Moon,
-  Sun
+  Sun,
+  Home
 } from 'lucide-react';
 
 const Layout: React.FC = () => {
@@ -57,6 +58,12 @@ const Layout: React.FC = () => {
   }, [navigate, user]);
   
   const navItems = [
+    {
+      name: 'الرئيسية',
+      path: '/',
+      icon: <Home className="w-5 h-5" />,
+      roles: ['owner', 'data_entry', 'organizer']
+    },
     {
       name: 'قائمة الحضور',
       path: '/attendees',
