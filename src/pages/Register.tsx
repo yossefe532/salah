@@ -1,14 +1,17 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
-import { api } from '../lib/api';
+import { api, GOVERNORATE_CAPACITIES } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
 import { Plus, Minus, Loader2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
 const schema = z.object({
   full_name: z.string().min(3, 'Full name must be at least 3 characters'),
+  occupation_type: z.enum(['student', 'employee', 'business_owner', 'executive']),
+  organization_name: z.string().optional(),
+  job_title: z.string().optional(),
   university: z.string().optional(),
   faculty: z.string().optional(),
   year: z.string().optional(),
@@ -20,9 +23,15 @@ const schema = z.object({
   facebook_link: z.string().url('Invalid URL').optional().or(z.literal('')),
   governorate: z.enum(['Minya', 'Asyut', 'Sohag', 'Qena']),
   seat_class: z.enum(['A', 'B', 'C']),
+  seat_number: z.number().int().positive().optional(),
+  ticket_price_override: z.number().min(0).optional(),
   status: z.enum(['interested', 'registered']),
   payment_type: z.enum(['deposit', 'full']).optional(),
   payment_amount: z.number().min(0).optional(),
+  sales_channel: z.enum(['direct', 'sales_team', 'external_partner', 'sponsor_referral']),
+  sales_source_name: z.string().optional(),
+  commission_amount: z.number().min(0).optional(),
+  commission_notes: z.string().optional(),
 });
 
 type FormData = z.infer<typeof schema>;
@@ -49,15 +58,20 @@ const Register: React.FC = () => {
   const [showSecondaryEmail, setShowSecondaryEmail] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [occupiedSeats, setOccupiedSeats] = useState<number[]>([]);
 
   const { register, handleSubmit, watch, setValue, formState: { errors }, trigger } = useForm<FormData>({
     resolver: zodResolver(schema),
     defaultValues: {
       governorate: 'Minya',
       seat_class: 'B',
+      seat_number: undefined,
       status: 'registered',
       payment_type: 'deposit',
       payment_amount: 0,
+      occupation_type: 'employee',
+      sales_channel: 'direct',
+      commission_amount: 0,
     },
   });
 
@@ -82,15 +96,56 @@ const Register: React.FC = () => {
   };
 
   const status = watch('status');
+  const governorate = watch('governorate');
   const seatClass = watch('seat_class');
   const paymentType = watch('payment_type');
+  const occupationType = watch('occupation_type');
+  const salesChannel = watch('sales_channel');
+  const paymentAmount = Number(watch('payment_amount') || 0);
+  const commissionAmount = Number(watch('commission_amount') || 0);
+  const netTicketAmount = Math.max(0, paymentAmount - commissionAmount);
+  const selectedSeatNumber = watch('seat_number');
+  const ticketPriceOverride = watch('ticket_price_override') as number | undefined;
+  const currentGovCapacity = (GOVERNORATE_CAPACITIES[governorate] as any)?.[seatClass] || 0;
+  const effectiveSeatPrice = ticketPriceOverride && user?.role === 'owner' ? Number(ticketPriceOverride) : SEAT_PRICES[seatClass];
+  const availableSeatNumbers = useMemo(() => {
+    if (status !== 'registered' || currentGovCapacity <= 0) return [];
+    const occupied = new Set(occupiedSeats);
+    const result: number[] = [];
+    for (let i = 1; i <= currentGovCapacity; i += 1) {
+      if (!occupied.has(i)) result.push(i);
+    }
+    return result;
+  }, [currentGovCapacity, occupiedSeats, status]);
 
   // Auto-fill full payment amount
-  React.useEffect(() => {
+  useEffect(() => {
     if (status === 'registered' && paymentType === 'full') {
-      setValue('payment_amount', SEAT_PRICES[seatClass]);
+      setValue('payment_amount', effectiveSeatPrice);
     }
-  }, [status, seatClass, paymentType, setValue]);
+  }, [status, seatClass, paymentType, setValue, effectiveSeatPrice]);
+
+  useEffect(() => {
+    const loadSeats = async () => {
+      if (status !== 'registered') {
+        setOccupiedSeats([]);
+        setValue('seat_number', undefined);
+        return;
+      }
+
+      const response = await api.get('/attendees');
+      const attendees = Array.isArray(response) ? response : [];
+      const seats = attendees
+        .filter((a: any) => a.governorate === governorate && a.seat_class === seatClass && a.status === 'registered' && !a.is_deleted)
+        .map((a: any) => Number(a.seat_number))
+        .filter((n: number) => Number.isInteger(n) && n > 0);
+      setOccupiedSeats(seats);
+      if (selectedSeatNumber && seats.includes(Number(selectedSeatNumber))) {
+        setValue('seat_number', undefined);
+      }
+    };
+    loadSeats();
+  }, [governorate, seatClass, selectedSeatNumber, setValue, status]);
 
   const onSubmit = async (data: FormData) => {
     if (!user) return;
@@ -120,7 +175,13 @@ const Register: React.FC = () => {
          throw new Error('رقم الهاتف هذا مسجل بالفعل لمشارك آخر.');
       }
 
+      const capacity = (GOVERNORATE_CAPACITIES[data.governorate] as any)?.[data.seat_class] || 0;
+      // Seat number is now optional, resolveSeat will pick a random one if not provided
+      
       const newAttendeeId = crypto.randomUUID();
+      const safeCommission = Math.max(0, Math.min(Number(data.commission_amount || 0), Number(data.payment_amount || 0)));
+      
+      // We will let the API handle seat resolution if not provided
       const newAttendee = {
           id: newAttendeeId,
           created_at: new Date().toISOString(),
@@ -129,6 +190,17 @@ const Register: React.FC = () => {
           // Handle optional/nulls
           payment_type: data.status === 'registered' ? data.payment_type : 'deposit',
           payment_amount: data.status === 'registered' ? Number(data.payment_amount) : 0,
+          occupation_type: data.occupation_type,
+          organization_name: data.occupation_type === 'student' ? null : (data.organization_name || null),
+          job_title: data.occupation_type === 'student' ? null : (data.job_title || null),
+          university: data.occupation_type === 'student' ? (data.university || null) : null,
+          faculty: data.occupation_type === 'student' ? (data.faculty || null) : null,
+          year: data.occupation_type === 'student' ? (data.year || null) : null,
+          sales_channel: data.sales_channel,
+          seat_number: data.status === 'registered' && capacity > 0 && data.seat_number ? Number(data.seat_number) : null,
+          sales_source_name: data.sales_source_name || null,
+          commission_amount: data.status === 'registered' ? safeCommission : 0,
+          commission_notes: data.commission_notes || null,
           phone_secondary: data.phone_secondary || null,
           email_primary: data.email_primary || null,
           email_secondary: data.email_secondary || null,
@@ -136,8 +208,8 @@ const Register: React.FC = () => {
           
           // Calculated fields for display
           remaining_amount: (data.status === 'registered') 
-            ? Math.max(0, SEAT_PRICES[data.seat_class] - (Number(data.payment_amount) || 0))
-            : SEAT_PRICES[data.seat_class],
+            ? Math.max(0, effectiveSeatPrice - (Number(data.payment_amount) || 0))
+            : effectiveSeatPrice,
             
           attendance_status: false,
           qr_code: newAttendeeId, // Use ID as QR content
@@ -146,11 +218,14 @@ const Register: React.FC = () => {
 
       await api.post('/attendees', newAttendee);
 
-      alert('Attendee registered successfully!');
+      alert('تم تسجيل المشترك بنجاح!');
       navigate('/attendees');
     } catch (error) {
       console.error('Registration error:', error);
-      setSubmitError((error as Error).message || 'Failed to register attendee');
+      const errorMsg = (error as Error).message || 'فشل تسجيل المشترك';
+      setSubmitError(errorMsg);
+      // Ensure error is visible by scrolling to it
+      window.scrollTo({ top: 0, behavior: 'smooth' });
     } finally {
       setIsSubmitting(false);
     }
@@ -183,7 +258,7 @@ const Register: React.FC = () => {
                   type="text"
                   autoFocus
                   {...register('full_name')}
-                  onKeyDown={(e) => handleKeyDown(e, 'full_name', 'university')}
+                  onKeyDown={(e) => handleKeyDown(e, 'full_name', 'occupation_type')}
                   className="shadow-sm focus:ring-indigo-500 focus:border-indigo-500 block w-full sm:text-sm border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-md p-2 border"
                   placeholder="مثال: أحمد محمد علي"
                 />
@@ -192,49 +267,105 @@ const Register: React.FC = () => {
             </div>
 
             <div className="sm:col-span-3">
-              <label htmlFor="university" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                الجامعة
+              <label htmlFor="occupation_type" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                صفة العميل
               </label>
               <div className="mt-1">
-                <input
-                  id="university"
-                  type="text"
-                  {...register('university')}
-                  onKeyDown={(e) => handleKeyDown(e, 'university', 'faculty')}
+                <select
+                  id="occupation_type"
+                  {...register('occupation_type')}
+                  onKeyDown={(e) => handleKeyDown(e, 'occupation_type', occupationType === 'student' ? 'university' : 'organization_name')}
                   className="shadow-sm focus:ring-indigo-500 focus:border-indigo-500 block w-full sm:text-sm border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-md p-2 border"
-                />
+                >
+                  <option value="student">طالب</option>
+                  <option value="employee">موظف</option>
+                  <option value="business_owner">صاحب عمل</option>
+                  <option value="executive">تنفيذي</option>
+                </select>
               </div>
             </div>
 
-            <div className="sm:col-span-3">
-              <label htmlFor="faculty" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                الكلية
-              </label>
-              <div className="mt-1">
-                <input
-                  id="faculty"
-                  type="text"
-                  {...register('faculty')}
-                  onKeyDown={(e) => handleKeyDown(e, 'faculty', 'year')}
-                  className="shadow-sm focus:ring-indigo-500 focus:border-indigo-500 block w-full sm:text-sm border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-md p-2 border"
-                />
-              </div>
-            </div>
+            {occupationType === 'student' ? (
+              <>
+                <div className="sm:col-span-3">
+                  <label htmlFor="university" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    الجامعة
+                  </label>
+                  <div className="mt-1">
+                    <input
+                      id="university"
+                      type="text"
+                      {...register('university')}
+                      onKeyDown={(e) => handleKeyDown(e, 'university', 'faculty')}
+                      className="shadow-sm focus:ring-indigo-500 focus:border-indigo-500 block w-full sm:text-sm border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-md p-2 border"
+                    />
+                  </div>
+                </div>
 
-            <div className="sm:col-span-3">
-              <label htmlFor="year" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                السنة الدراسية
-              </label>
-              <div className="mt-1">
-                <input
-                  id="year"
-                  type="text"
-                  {...register('year')}
-                  onKeyDown={(e) => handleKeyDown(e, 'year', 'notes')}
-                  className="shadow-sm focus:ring-indigo-500 focus:border-indigo-500 block w-full sm:text-sm border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-md p-2 border"
-                />
-              </div>
-            </div>
+                <div className="sm:col-span-3">
+                  <label htmlFor="faculty" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    الكلية
+                  </label>
+                  <div className="mt-1">
+                    <input
+                      id="faculty"
+                      type="text"
+                      {...register('faculty')}
+                      onKeyDown={(e) => handleKeyDown(e, 'faculty', 'year')}
+                      className="shadow-sm focus:ring-indigo-500 focus:border-indigo-500 block w-full sm:text-sm border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-md p-2 border"
+                    />
+                  </div>
+                </div>
+
+                <div className="sm:col-span-3">
+                  <label htmlFor="year" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    السنة الدراسية
+                  </label>
+                  <div className="mt-1">
+                    <input
+                      id="year"
+                      type="text"
+                      {...register('year')}
+                      onKeyDown={(e) => handleKeyDown(e, 'year', 'notes')}
+                      className="shadow-sm focus:ring-indigo-500 focus:border-indigo-500 block w-full sm:text-sm border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-md p-2 border"
+                    />
+                  </div>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="sm:col-span-3">
+                  <label htmlFor="organization_name" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    جهة العمل
+                  </label>
+                  <div className="mt-1">
+                    <input
+                      id="organization_name"
+                      type="text"
+                      {...register('organization_name')}
+                      onKeyDown={(e) => handleKeyDown(e, 'organization_name', 'job_title')}
+                      className="shadow-sm focus:ring-indigo-500 focus:border-indigo-500 block w-full sm:text-sm border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-md p-2 border"
+                      placeholder="اسم الشركة أو المؤسسة"
+                    />
+                  </div>
+                </div>
+                <div className="sm:col-span-3">
+                  <label htmlFor="job_title" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    المسمى الوظيفي
+                  </label>
+                  <div className="mt-1">
+                    <input
+                      id="job_title"
+                      type="text"
+                      {...register('job_title')}
+                      onKeyDown={(e) => handleKeyDown(e, 'job_title', 'notes')}
+                      className="shadow-sm focus:ring-indigo-500 focus:border-indigo-500 block w-full sm:text-sm border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-md p-2 border"
+                      placeholder="مثال: مهندس / مدير / CEO"
+                    />
+                  </div>
+                </div>
+              </>
+            )}
 
             <div className="sm:col-span-6">
               <label htmlFor="notes" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
@@ -478,7 +609,123 @@ const Register: React.FC = () => {
                         />
                       </div>
                       <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                        الإجمالي لفئة {seatClass}: {SEAT_PRICES[seatClass]} ج.م
+                        الإجمالي لفئة {seatClass}: {effectiveSeatPrice} ج.م
+                      </p>
+                    </div>
+                    
+                    {user?.role === 'owner' && (
+                      <div className="sm:col-span-3">
+                        <label htmlFor="ticket_price_override" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                          سعر مخصص للتذكرة (اختياري)
+                        </label>
+                        <div className="mt-1">
+                          <input
+                            id="ticket_price_override"
+                            type="number"
+                            inputMode="decimal"
+                            {...register('ticket_price_override', { valueAsNumber: true })}
+                            onWheel={(e) => e.currentTarget.blur()}
+                            className="shadow-sm focus:ring-indigo-500 focus:border-indigo-500 block w-full sm:text-sm border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-md p-2 border"
+                            placeholder={`الأساسي: ${SEAT_PRICES[seatClass]} ج.م`}
+                          />
+                        </div>
+                        <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                          يظهر هذا الحقل للمالك فقط. سيتم اعتماد السعر المخصص في الحسابات والمتبقي.
+                        </p>
+                      </div>
+                    )}
+
+                    {currentGovCapacity > 0 && (
+                      <div className="sm:col-span-3">
+                        <label htmlFor="seat_number" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                          رقم المقعد ({governorate})
+                        </label>
+                        <div className="mt-1">
+                          <select
+                            id="seat_number"
+                            {...register('seat_number', { setValueAs: (v) => (v === '' ? undefined : Number(v)) })}
+                            className="shadow-sm focus:ring-indigo-500 focus:border-indigo-500 block w-full sm:text-sm border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-md p-2 border"
+                          >
+                            <option value="">اختر المقعد</option>
+                            {availableSeatNumbers.map((seatNo) => (
+                              <option key={seatNo} value={seatNo}>{seatClass}-{String(seatNo).padStart(3, '0')}</option>
+                            ))}
+                          </select>
+                        </div>
+                        <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                          المتاح: {availableSeatNumbers.length} / {currentGovCapacity}
+                        </p>
+                      </div>
+                    )}
+
+                    <div className="sm:col-span-3">
+                      <label htmlFor="sales_channel" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                        مصدر التسجيل
+                      </label>
+                      <div className="mt-1">
+                        <select
+                          id="sales_channel"
+                          {...register('sales_channel')}
+                          className="shadow-sm focus:ring-indigo-500 focus:border-indigo-500 block w-full sm:text-sm border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-md p-2 border"
+                        >
+                          <option value="direct">مباشر</option>
+                          <option value="sales_team">تيم سيلز</option>
+                          <option value="external_partner">شريك خارجي</option>
+                          <option value="sponsor_referral">ترشيح راعي</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    <div className="sm:col-span-3">
+                      <label htmlFor="sales_source_name" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                        اسم المصدر / المندوب
+                      </label>
+                      <div className="mt-1">
+                        <input
+                          id="sales_source_name"
+                          type="text"
+                          {...register('sales_source_name')}
+                          className="shadow-sm focus:ring-indigo-500 focus:border-indigo-500 block w-full sm:text-sm border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-md p-2 border"
+                          placeholder="اسم المندوب أو الشركة"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="sm:col-span-3">
+                      <label htmlFor="commission_amount" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                        عمولة المصدر (ج.م)
+                      </label>
+                      <div className="mt-1">
+                        <input
+                          id="commission_amount"
+                          type="number"
+                          inputMode="decimal"
+                          {...register('commission_amount', { valueAsNumber: true })}
+                          onWheel={(e) => e.currentTarget.blur()}
+                          className="shadow-sm focus:ring-indigo-500 focus:border-indigo-500 block w-full sm:text-sm border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-md p-2 border"
+                          placeholder={salesChannel === 'direct' ? '0' : '150 أو 200'}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="sm:col-span-3">
+                      <label htmlFor="commission_notes" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                        ملاحظات العمولة
+                      </label>
+                      <div className="mt-1">
+                        <input
+                          id="commission_notes"
+                          type="text"
+                          {...register('commission_notes')}
+                          className="shadow-sm focus:ring-indigo-500 focus:border-indigo-500 block w-full sm:text-sm border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-md p-2 border"
+                          placeholder="سبب أو مرجعية العمولة"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="sm:col-span-6 bg-white dark:bg-gray-800 border border-indigo-100 dark:border-indigo-900 rounded-md p-3">
+                      <p className="text-sm text-gray-700 dark:text-gray-300">
+                        صافي دخل التذكرة بعد العمولة: <span className="font-bold text-indigo-600 dark:text-indigo-400">{netTicketAmount.toLocaleString()} ج.م</span>
                       </p>
                     </div>
                   </div>
