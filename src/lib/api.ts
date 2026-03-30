@@ -67,77 +67,98 @@ const buildSeatBarcode = (seatClass?: string, seatNumber?: number | null) => {
 const isMissingTable = (error: any) => String(error?.message || '').includes('Could not find the table');
 
 const buildSeatCode = (seatClass: 'A' | 'B' | 'C', rowNumber: number, side: 'left' | 'right', tableOrder: number | null, seatNumber: number) => {
-  if (seatClass === 'C') return `C-R${rowNumber}-${side === 'right' ? 'R' : 'L'}-S${seatNumber}`;
+  if (seatClass === 'C') return `C-R${rowNumber}-S${seatNumber}`;
   return `${seatClass}-R${rowNumber}-T${tableOrder}-S${seatNumber}`;
 };
 
 const generateHallPlan = (eventId: string, governorate: string = 'Minya') => {
   const tables: any[] = [];
   const seats: any[] = [];
-  const classes: ('A' | 'B')[] = ['A', 'B'];
-  classes.forEach((seatClass, classIndex) => {
-    const yBase = classIndex * 4;
+  const leftTableCenters = [14, 26, 38];
+  const rightTableCenters = [62, 74, 86];
+  const tableSeatDx = 2.2;
+  const tableSeatDy = 2.2;
+  const aRowY = [28, 50, 72];
+  const bRowY = [104, 126, 148];
+
+  (['A', 'B'] as const).forEach((seatClass) => {
+    const rowBases = seatClass === 'A' ? aRowY : bRowY;
     for (let row = 1; row <= 3; row += 1) {
-      for (let sideIndex = 0; sideIndex < 2; sideIndex += 1) {
-        const side: 'left' | 'right' = sideIndex === 0 ? 'left' : 'right';
-        for (let tableOrder = 1; tableOrder <= 3; tableOrder += 1) {
-          const tableId = `${governorate}-${seatClass}-R${row}-${side === 'left' ? 'L' : 'R'}-T${tableOrder}`;
-          tables.push({
-            id: tableId,
+      const yCenter = rowBases[row - 1];
+      for (let tableNo = 1; tableNo <= 6; tableNo += 1) {
+        const isLeft = tableNo <= 3;
+        const side: 'left' | 'right' = isLeft ? 'left' : 'right';
+        const xCenter = isLeft ? leftTableCenters[tableNo - 1] : rightTableCenters[tableNo - 4];
+        const tableId = `${governorate}-${seatClass}-R${row}-T${tableNo}`;
+        tables.push({
+          id: tableId,
+          event_id: eventId,
+          governorate,
+          seat_class: seatClass,
+          row_number: row,
+          side,
+          table_order: tableNo,
+          seats_count: 12,
+          position_x: xCenter,
+          position_y: yCenter,
+          width: 10,
+          height: 8
+        });
+
+        for (let seat = 1; seat <= 12; seat += 1) {
+          const seatId = `${tableId}-S${seat}`;
+          const localRow = Math.floor((seat - 1) / 4);
+          const localCol = (seat - 1) % 4;
+          const seatX = xCenter + (localCol - 1.5) * tableSeatDx;
+          const seatY = yCenter + (localRow - 1) * tableSeatDy;
+          seats.push({
+            id: seatId,
             event_id: eventId,
             governorate,
             seat_class: seatClass,
             row_number: row,
             side,
-            table_order: tableOrder,
-            seats_count: 12
+            table_id: tableId,
+            seat_number: seat,
+            seat_code: buildSeatCode(seatClass, row, side, tableNo, seat),
+            status: 'available',
+            position_x: seatX,
+            position_y: seatY
           });
-          for (let seat = 1; seat <= 12; seat += 1) {
-            const seatId = `${tableId}-S${seat}`;
-            seats.push({
-              id: seatId,
-              event_id: eventId,
-              governorate,
-              seat_class: seatClass,
-              row_number: row + yBase,
-              side,
-              table_id: tableId,
-              seat_number: seat,
-              seat_code: buildSeatCode(seatClass, row, side, tableOrder, seat),
-              status: 'available',
-              position_x: side === 'left' ? (tableOrder * 10) : (60 + tableOrder * 10),
-              position_y: row * 10 + yBase * 10
-            });
-          }
         }
       }
     }
   });
 
-  for (let row = 1; row <= 23; row += 1) {
-    for (let sideIndex = 0; sideIndex < 2; sideIndex += 1) {
-      const side: 'left' | 'right' = sideIndex === 0 ? 'left' : 'right';
-      for (let seat = 1; seat <= 8; seat += 1) {
-        const index = (row - 1) * 16 + (sideIndex * 8) + seat;
-        if (index > 368) continue;
-        const seatId = `${governorate}-C-R${row}-${side === 'left' ? 'L' : 'R'}-S${seat}`;
-        seats.push({
-          id: seatId,
-          event_id: eventId,
-          governorate,
-          seat_class: 'C',
-          row_number: row,
-          side,
-          table_id: null,
-          seat_number: seat,
-          seat_code: buildSeatCode('C', row, side, null, seat),
-          status: 'available',
-          position_x: side === 'left' ? seat * 5 : 70 + seat * 5,
-          position_y: 100 + row * 6
-        });
-      }
+  const cRows = 23;
+  const cLeftXs = [10, 14, 18, 22, 26, 30, 34, 38];
+  const cRightXs = [62, 66, 70, 74, 78, 82, 86, 90];
+  const cStartY = 188;
+  const cRowGap = 7;
+  for (let row = 1; row <= cRows; row += 1) {
+    const y = cStartY + (row - 1) * cRowGap;
+    for (let s = 1; s <= 16; s += 1) {
+      const side: 'left' | 'right' = s <= 8 ? 'left' : 'right';
+      const seatInSide = s <= 8 ? s : s - 8;
+      const x = side === 'left' ? cLeftXs[seatInSide - 1] : cRightXs[seatInSide - 1];
+      const seatId = `${governorate}-C-R${row}-S${s}`;
+      seats.push({
+        id: seatId,
+        event_id: eventId,
+        governorate,
+        seat_class: 'C',
+        row_number: row,
+        side,
+        table_id: null,
+        seat_number: s,
+        seat_code: buildSeatCode('C', row, side, null, s),
+        status: 'available',
+        position_x: x,
+        position_y: y
+      });
     }
   }
+
   return { tables, seats };
 };
 
@@ -211,6 +232,20 @@ const getGovernorateFromEventId = (eventId?: string | null) => {
 const getTableOrderFromTableId = (tableId?: string | null) => {
   const match = String(tableId || '').match(/-T(\d+)$/);
   return match ? Number(match[1]) : null;
+};
+
+const LAYOUT_VERSIONS_KEY = 'seating_layout_versions_v1';
+
+const readLayoutVersionsStore = () => {
+  try {
+    return JSON.parse(localStorage.getItem(LAYOUT_VERSIONS_KEY) || '{}');
+  } catch {
+    return {};
+  }
+};
+
+const writeLayoutVersionsStore = (value: any) => {
+  localStorage.setItem(LAYOUT_VERSIONS_KEY, JSON.stringify(value || {}));
 };
 
 // Offline Queue Management
@@ -327,6 +362,15 @@ export const api = {
       const { data, error } = await attendeesQuery;
       if (error) throw new Error(error.message);
       return data || [];
+    }
+
+    if (endpoint.startsWith('/seating/layout-versions')) {
+      const query = endpoint.split('?')[1] || '';
+      const params = new URLSearchParams(query);
+      const eventId = params.get('eventId') || DEFAULT_EVENT_ID;
+      const store = readLayoutVersionsStore();
+      const versions = Array.isArray(store[eventId]) ? store[eventId] : [];
+      return versions.map((v: any) => ({ id: v.id, name: v.name, created_at: v.created_at }));
     }
 
     if (endpoint.startsWith('/leads/social')) {
@@ -588,6 +632,52 @@ export const api = {
       return { success: true, updated: updates.length };
     }
 
+    if (endpoint === '/seating/layout-version/save') {
+      const eventId = body?.event_id || DEFAULT_EVENT_ID;
+      const name = String(body?.name || `Version ${new Date().toLocaleString()}`).trim();
+      const { data: seats, error } = await supabase
+        .from('seats')
+        .select('id, position_x, position_y')
+        .eq('event_id', eventId);
+      if (error) throw new Error(error.message);
+      const version = {
+        id: crypto.randomUUID(),
+        name,
+        created_at: new Date().toISOString(),
+        seats: (seats || []).map((s: any) => ({
+          id: s.id,
+          position_x: Number(s.position_x || 0),
+          position_y: Number(s.position_y || 0)
+        }))
+      };
+      const store = readLayoutVersionsStore();
+      const current = Array.isArray(store[eventId]) ? store[eventId] : [];
+      store[eventId] = [version, ...current].slice(0, 30);
+      writeLayoutVersionsStore(store);
+      return { success: true, version: { id: version.id, name: version.name, created_at: version.created_at } };
+    }
+
+    if (endpoint === '/seating/layout-version/apply') {
+      const eventId = body?.event_id || DEFAULT_EVENT_ID;
+      const versionId = body?.version_id;
+      if (!versionId) throw new Error('version_id مطلوب');
+      const store = readLayoutVersionsStore();
+      const versions = Array.isArray(store[eventId]) ? store[eventId] : [];
+      const version = versions.find((v: any) => v.id === versionId);
+      if (!version) throw new Error('نسخة التخطيط غير موجودة');
+      for (const seat of version.seats || []) {
+        await supabase
+          .from('seats')
+          .update({
+            position_x: Number(seat.position_x || 0),
+            position_y: Number(seat.position_y || 0)
+          })
+          .eq('event_id', eventId)
+          .eq('id', seat.id);
+      }
+      return { success: true, applied: Number((version.seats || []).length) };
+    }
+
     if (endpoint === '/seating/assign-attendee') {
       const eventId = body?.event_id || DEFAULT_EVENT_ID;
       const seatId = body?.seat_id;
@@ -636,6 +726,70 @@ export const api = {
       });
 
       return { success: true };
+    }
+
+    if (endpoint === '/seating/book-table') {
+      const eventId = body?.event_id || DEFAULT_EVENT_ID;
+      const tableId = body?.table_id;
+      if (!tableId) throw new Error('table_id مطلوب');
+      const hallGovernorate = getGovernorateFromEventId(eventId);
+
+      const { data: tableSeats, error: tableSeatsError } = await supabase
+        .from('seats')
+        .select('*')
+        .eq('event_id', eventId)
+        .eq('table_id', tableId)
+        .order('seat_number', { ascending: true });
+      if (tableSeatsError || !tableSeats?.length) throw new Error('الطاولة غير موجودة أو بدون مقاعد');
+
+      const seatClass = tableSeats[0].seat_class;
+      const availableSeats = tableSeats.filter((s: any) => !s.attendee_id && (s.status === 'available' || s.status === 'vip'));
+      if (!availableSeats.length) throw new Error('لا توجد مقاعد متاحة في هذه الطاولة');
+
+      const { data: attendees, error: attendeesError } = await supabase
+        .from('attendees')
+        .select('*')
+        .eq('governorate', hallGovernorate)
+        .eq('seat_class', seatClass)
+        .eq('status', 'registered')
+        .eq('is_deleted', false)
+        .order('created_at', { ascending: true });
+      if (attendeesError) throw new Error(attendeesError.message);
+
+      const attendeeList = (attendees || []) as any[];
+      const freeAttendees: any[] = [];
+      for (const attendee of attendeeList) {
+        const { data: existing } = await supabase
+          .from('seats')
+          .select('id')
+          .eq('event_id', eventId)
+          .eq('attendee_id', attendee.id)
+          .eq('status', 'booked')
+          .maybeSingle();
+        if (!existing) freeAttendees.push(attendee);
+      }
+
+      const targetCount = Math.min(availableSeats.length, freeAttendees.length);
+      let assigned = 0;
+      for (let i = 0; i < targetCount; i += 1) {
+        const seat = availableSeats[i];
+        const attendee = freeAttendees[i];
+        await supabase
+          .from('seats')
+          .update({ status: 'booked', attendee_id: attendee.id, reserved_by: null, reserved_until: null })
+          .eq('event_id', eventId)
+          .eq('id', seat.id);
+
+        await updateAttendeeSafely(String(attendee.id), {
+          status: 'registered',
+          seat_number: Number(seat.seat_number),
+          seat_class: seat.seat_class,
+          barcode: seat.seat_code
+        });
+        assigned += 1;
+      }
+
+      return { success: true, assigned };
     }
 
     if (endpoint === '/seating/swap-attendees') {
@@ -707,7 +861,16 @@ export const api = {
 
         const attendeeList = (attendees || []) as any[];
         const seatList = (seats || []) as any[];
-        const availableSeats = seatList.filter((s) => !s.attendee_id && (s.status === 'available' || s.status === 'vip'));
+        const availableSeats = seatList
+          .filter((s) => !s.attendee_id && (s.status === 'available' || s.status === 'vip'))
+          .sort((a, b) => {
+            const ay = Number(a.position_y || 9999);
+            const by = Number(b.position_y || 9999);
+            if (ay !== by) return ay - by;
+            const ax = Math.abs(Number(a.position_x || 50) - 50);
+            const bx = Math.abs(Number(b.position_x || 50) - 50);
+            return ax - bx;
+          });
 
         for (const attendee of attendeeList) {
           const existing = seatList.find((s) => s.attendee_id === attendee.id && s.status === 'booked');
