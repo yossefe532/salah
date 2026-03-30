@@ -194,6 +194,25 @@ const resolveSeat = async (
   return available[Math.floor(Math.random() * available.length)];
 };
 
+const normalizeGovernorate = (value?: string | null) => {
+  const raw = String(value || '').trim().toLowerCase();
+  if (!raw) return 'Minya';
+  if (raw.includes('asyut')) return 'Asyut';
+  if (raw.includes('sohag')) return 'Sohag';
+  if (raw.includes('qena')) return 'Qena';
+  return 'Minya';
+};
+
+const getGovernorateFromEventId = (eventId?: string | null) => {
+  const prefix = String(eventId || DEFAULT_EVENT_ID).split('-')[0];
+  return normalizeGovernorate(prefix);
+};
+
+const getTableOrderFromTableId = (tableId?: string | null) => {
+  const match = String(tableId || '').match(/-T(\d+)$/);
+  return match ? Number(match[1]) : null;
+};
+
 // Offline Queue Management
 const QUEUE_KEY = 'offline_checkin_queue';
 
@@ -289,6 +308,25 @@ export const api = {
         return { seat, score: rowScore * 10 + centerScore };
       }).sort((a, b) => a.score - b.score);
       return scored[0].seat;
+    }
+
+    if (endpoint.startsWith('/seating/attendees')) {
+      const query = endpoint.split('?')[1] || '';
+      const params = new URLSearchParams(query);
+      const eventId = params.get('eventId') || DEFAULT_EVENT_ID;
+      const hallGovernorate = getGovernorateFromEventId(eventId);
+      const seatClass = params.get('seatClass');
+      let attendeesQuery = supabase
+        .from('attendees')
+        .select('*')
+        .eq('governorate', hallGovernorate)
+        .eq('status', 'registered')
+        .eq('is_deleted', false)
+        .order('created_at', { ascending: true });
+      if (seatClass) attendeesQuery = attendeesQuery.eq('seat_class', seatClass);
+      const { data, error } = await attendeesQuery;
+      if (error) throw new Error(error.message);
+      return data || [];
     }
 
     if (endpoint.startsWith('/leads/social')) {
@@ -434,6 +472,17 @@ export const api = {
       const seatIds: string[] = body?.seat_ids || [];
       const paymentStatus = body?.payment_status || 'paid';
       if (!userId || !attendeeId || !seatIds.length) throw new Error('بيانات تأكيد الحجز غير مكتملة');
+      const hallGovernorate = getGovernorateFromEventId(eventId);
+
+      const { data: attendee, error: attendeeError } = await supabase
+        .from('attendees')
+        .select('id, governorate')
+        .eq('id', attendeeId)
+        .single();
+      if (attendeeError || !attendee) throw new Error('المشارك غير موجود');
+      if (normalizeGovernorate(attendee.governorate) !== hallGovernorate) {
+        throw new Error('لا يمكن تسكين مشارك في قاعة محافظة مختلفة عن محافظته');
+      }
 
       const { data: seats, error: seatsError } = await supabase
         .from('seats')
@@ -496,6 +545,191 @@ export const api = {
       const { error } = await supabase.from('seats').update({ status: nextStatus }).eq('event_id', eventId).eq('id', seatId);
       if (error) throw new Error(error.message);
       return { success: true, status: nextStatus };
+    }
+
+    if (endpoint === '/seating/update-layout') {
+      const eventId = body?.event_id || DEFAULT_EVENT_ID;
+      const updates = Array.isArray(body?.updates) ? body.updates : [];
+      if (!updates.length) return { success: true, updated: 0 };
+
+      for (const item of updates) {
+        const { data: currentSeat, error: seatErr } = await supabase
+          .from('seats')
+          .select('id, seat_class, row_number, side, table_id, seat_number')
+          .eq('event_id', eventId)
+          .eq('id', item.id)
+          .single();
+        if (seatErr || !currentSeat) continue;
+        const nextRow = Number(item.row_number ?? currentSeat.row_number);
+        const nextSide = item.side ?? currentSeat.side;
+        const nextTableId = item.table_id ?? currentSeat.table_id;
+        const tableOrder = getTableOrderFromTableId(nextTableId);
+        const nextCode = buildSeatCode(
+          currentSeat.seat_class as 'A' | 'B' | 'C',
+          nextRow,
+          nextSide as 'left' | 'right',
+          tableOrder,
+          Number(currentSeat.seat_number || 1)
+        );
+
+        await supabase
+          .from('seats')
+          .update({
+            position_x: Number(item.position_x ?? 0),
+            position_y: Number(item.position_y ?? 0),
+            row_number: nextRow,
+            side: nextSide,
+            table_id: nextTableId,
+            seat_code: nextCode
+          })
+          .eq('event_id', eventId)
+          .eq('id', item.id);
+      }
+      return { success: true, updated: updates.length };
+    }
+
+    if (endpoint === '/seating/assign-attendee') {
+      const eventId = body?.event_id || DEFAULT_EVENT_ID;
+      const seatId = body?.seat_id;
+      const attendeeId = body?.attendee_id;
+      if (!seatId || !attendeeId) throw new Error('seat_id و attendee_id مطلوبان');
+      const hallGovernorate = getGovernorateFromEventId(eventId);
+
+      const [{ data: seat, error: seatErr }, { data: attendee, error: attendeeErr }] = await Promise.all([
+        supabase.from('seats').select('*').eq('event_id', eventId).eq('id', seatId).single(),
+        supabase.from('attendees').select('*').eq('id', attendeeId).single()
+      ]);
+      if (seatErr || !seat) throw new Error('المقعد غير موجود');
+      if (attendeeErr || !attendee) throw new Error('المشارك غير موجود');
+      if (normalizeGovernorate(attendee.governorate) !== hallGovernorate) {
+        throw new Error('لا يمكن تسكين مشارك في قاعة محافظة مختلفة عن محافظته');
+      }
+      if (attendee.seat_class !== seat.seat_class) {
+        throw new Error('لا يمكن تسكين المشارك في فئة مختلفة عن فئته');
+      }
+      if (seat.status === 'booked' && seat.attendee_id && seat.attendee_id !== attendeeId) {
+        throw new Error('المقعد محجوز بالفعل لمشارك آخر');
+      }
+
+      const { data: oldSeat } = await supabase
+        .from('seats')
+        .select('id')
+        .eq('event_id', eventId)
+        .eq('attendee_id', attendeeId)
+        .eq('status', 'booked')
+        .maybeSingle();
+      if (oldSeat?.id && oldSeat.id !== seatId) {
+        await supabase.from('seats').update({ status: 'available', attendee_id: null }).eq('event_id', eventId).eq('id', oldSeat.id);
+      }
+
+      await supabase
+        .from('seats')
+        .update({ status: 'booked', attendee_id: attendeeId, reserved_by: null, reserved_until: null })
+        .eq('event_id', eventId)
+        .eq('id', seatId);
+
+      await updateAttendeeSafely(String(attendeeId), {
+        status: 'registered',
+        seat_number: Number(seat.seat_number),
+        seat_class: seat.seat_class,
+        barcode: seat.seat_code
+      });
+
+      return { success: true };
+    }
+
+    if (endpoint === '/seating/swap-attendees') {
+      const eventId = body?.event_id || DEFAULT_EVENT_ID;
+      const attendeeAId = body?.attendee_a_id;
+      const attendeeBId = body?.attendee_b_id;
+      if (!attendeeAId || !attendeeBId) throw new Error('بيانات التبديل غير مكتملة');
+      const hallGovernorate = getGovernorateFromEventId(eventId);
+
+      const [{ data: attendeeA }, { data: attendeeB }] = await Promise.all([
+        supabase.from('attendees').select('*').eq('id', attendeeAId).single(),
+        supabase.from('attendees').select('*').eq('id', attendeeBId).single()
+      ]);
+      if (!attendeeA || !attendeeB) throw new Error('أحد المشاركين غير موجود');
+      if (normalizeGovernorate(attendeeA.governorate) !== hallGovernorate || normalizeGovernorate(attendeeB.governorate) !== hallGovernorate) {
+        throw new Error('لا يمكن تبديل مقاعد مشاركين من محافظة أخرى داخل هذه القاعة');
+      }
+
+      const [{ data: seatA }, { data: seatB }] = await Promise.all([
+        supabase.from('seats').select('*').eq('event_id', eventId).eq('attendee_id', attendeeAId).eq('status', 'booked').maybeSingle(),
+        supabase.from('seats').select('*').eq('event_id', eventId).eq('attendee_id', attendeeBId).eq('status', 'booked').maybeSingle()
+      ]);
+      if (!seatA || !seatB) throw new Error('لا يمكن التبديل قبل تسكين الطرفين');
+      if (seatA.seat_class !== attendeeB.seat_class || seatB.seat_class !== attendeeA.seat_class) {
+        throw new Error('لا يمكن التبديل بسبب تعارض فئات الكراسي');
+      }
+
+      await supabase.from('seats').update({ attendee_id: attendeeBId }).eq('event_id', eventId).eq('id', seatA.id);
+      await supabase.from('seats').update({ attendee_id: attendeeAId }).eq('event_id', eventId).eq('id', seatB.id);
+
+      await updateAttendeeSafely(String(attendeeAId), {
+        seat_number: Number(seatB.seat_number),
+        seat_class: seatB.seat_class,
+        barcode: seatB.seat_code
+      });
+      await updateAttendeeSafely(String(attendeeBId), {
+        seat_number: Number(seatA.seat_number),
+        seat_class: seatA.seat_class,
+        barcode: seatA.seat_code
+      });
+
+      return { success: true };
+    }
+
+    if (endpoint === '/seating/auto-assign') {
+      const eventId = body?.event_id || DEFAULT_EVENT_ID;
+      const hallGovernorate = getGovernorateFromEventId(eventId);
+      const targetClass = body?.seat_class as 'A' | 'B' | 'C' | undefined;
+      const classList: Array<'A' | 'B' | 'C'> = targetClass ? [targetClass] : ['A', 'B', 'C'];
+
+      let assigned = 0;
+      for (const cls of classList) {
+        const [{ data: attendees }, { data: seats }] = await Promise.all([
+          supabase
+            .from('attendees')
+            .select('*')
+            .eq('governorate', hallGovernorate)
+            .eq('seat_class', cls)
+            .eq('status', 'registered')
+            .eq('is_deleted', false)
+            .order('created_at', { ascending: true }),
+          supabase
+            .from('seats')
+            .select('*')
+            .eq('event_id', eventId)
+            .eq('seat_class', cls)
+            .order('row_number', { ascending: true })
+        ]);
+
+        const attendeeList = (attendees || []) as any[];
+        const seatList = (seats || []) as any[];
+        const availableSeats = seatList.filter((s) => !s.attendee_id && (s.status === 'available' || s.status === 'vip'));
+
+        for (const attendee of attendeeList) {
+          const existing = seatList.find((s) => s.attendee_id === attendee.id && s.status === 'booked');
+          if (existing) continue;
+          const nextSeat = availableSeats.shift();
+          if (!nextSeat) break;
+
+          await supabase
+            .from('seats')
+            .update({ status: 'booked', attendee_id: attendee.id, reserved_by: null, reserved_until: null })
+            .eq('event_id', eventId)
+            .eq('id', nextSeat.id);
+
+          await updateAttendeeSafely(String(attendee.id), {
+            seat_number: Number(nextSeat.seat_number),
+            seat_class: nextSeat.seat_class,
+            barcode: nextSeat.seat_code
+          });
+          assigned += 1;
+        }
+      }
+      return { success: true, assigned };
     }
 
     if (endpoint === '/login') {
