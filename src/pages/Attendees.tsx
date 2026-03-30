@@ -156,8 +156,12 @@ const Attendees: React.FC = () => {
       'الهاتف': a.phone_primary,
       'المحافظة': a.governorate,
       'الفئة': a.seat_class,
+      'مصدر التسجيل': a.sales_channel || 'direct',
+      'اسم المصدر': a.sales_source_name || '',
       'حالة الدفع': a.payment_type === 'full' ? 'كامل' : (Number(a.payment_amount) === 0 ? 'عربون صفري' : 'عربون'),
       'المدفوع': a.payment_amount,
+      'العمولة': Number(a.commission_amount || 0),
+      'صافي التذكرة': Math.max(0, Number(a.payment_amount || 0) - Number(a.commission_amount || 0)),
       'المتبقي': a.remaining_amount,
       'حالة الحضور': a.attendance_status ? 'حاضر' : 'غائب',
       'تاريخ التسجيل': new Date(a.created_at).toLocaleDateString('ar-EG'),
@@ -403,6 +407,15 @@ const Attendees: React.FC = () => {
                             </span>
                         )}
                       </div>
+                      <div className="text-xs text-amber-600 mt-1">
+                        عمولة: {Number(attendee.commission_amount || 0).toLocaleString()} ج.م
+                      </div>
+                      <div className="text-xs text-indigo-600 mt-1">
+                        صافي: {Math.max(0, Number(attendee.payment_amount || 0) - Number(attendee.commission_amount || 0)).toLocaleString()} ج.م
+                      </div>
+                      <div className="text-xs text-gray-500 mt-1">
+                        المصدر: {attendee.sales_source_name || attendee.sales_channel || 'مباشر'}
+                      </div>
                       <div className={`text-xs font-bold mt-1 ${attendee.remaining_amount > 0 ? 'text-red-600' : 'text-green-600'}`}>
                         {attendee.remaining_amount > 0 ? `متبقي: ${attendee.remaining_amount}` : 'خالص'}
                       </div>
@@ -475,8 +488,9 @@ const Attendees: React.FC = () => {
                             </button>
                             <button
                               onClick={() => handlePermanentDelete(attendee.id)}
-                              className="p-2 bg-red-600 text-white hover:bg-red-700 rounded-full border border-red-700 transition-colors shadow-sm"
-                              title="حذف نهائي"
+                              disabled
+                              className="p-2 bg-gray-300 text-gray-600 rounded-full border border-gray-300 cursor-not-allowed transition-colors shadow-sm"
+                              title="الحذف النهائي معطل لحماية البيانات"
                             >
                               <XCircle className="h-5 w-5" />
                             </button>

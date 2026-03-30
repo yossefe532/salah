@@ -14,6 +14,10 @@ import ImportData from './pages/ImportData';
 import EditAttendee from './pages/EditAttendee';
 import Setup from './pages/Setup';
 import LiveCounter from './pages/LiveCounter';
+import Finance from './pages/Finance';
+import SocialMediaLeads from './pages/SocialMediaLeads';
+import SalesLeads from './pages/SalesLeads';
+import SeatingManagement from './pages/SeatingManagement';
 
 function App() {
   return (
@@ -31,6 +35,8 @@ function App() {
               <Route element={<ProtectedRoute allowedRoles={['owner']} />}>
                 <Route path="/users" element={<UsersPage />} />
                 <Route path="/import" element={<ImportData />} />
+                <Route path="/finance" element={<Finance />} />
+                <Route path="/seating" element={<SeatingManagement />} />
               </Route>
 
               <Route element={<ProtectedRoute allowedRoles={['owner', 'data_entry']} />}>
@@ -41,6 +47,14 @@ function App() {
               <Route element={<ProtectedRoute allowedRoles={['owner', 'data_entry', 'organizer']} />}>
                 <Route path="/attendees" element={<Attendees />} />
                 <Route path="/attendees/:id/id-card" element={<IDCard />} />
+              </Route>
+
+              <Route element={<ProtectedRoute allowedRoles={['social_media']} />}>
+                <Route path="/social-leads" element={<SocialMediaLeads />} />
+              </Route>
+
+              <Route element={<ProtectedRoute allowedRoles={['sales']} />}>
+                <Route path="/sales-leads" element={<SalesLeads />} />
               </Route>
               
               <Route element={<ProtectedRoute allowedRoles={['owner', 'organizer']} />}>

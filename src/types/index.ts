@@ -1,9 +1,10 @@
-export type UserRole = 'owner' | 'data_entry' | 'organizer';
+export type UserRole = 'owner' | 'data_entry' | 'organizer' | 'social_media' | 'sales';
 
 export interface User {
   id: string;
   email: string;
   role: UserRole;
+  commission_balance?: number;
   created_at: string;
   updated_at?: string;
   full_name?: string;
@@ -13,6 +14,9 @@ export type Governorate = 'Minya' | 'Asyut' | 'Sohag' | 'Qena';
 export type SeatClass = 'A' | 'B' | 'C';
 export type PaymentType = 'deposit' | 'full';
 export type AttendeeStatus = 'interested' | 'registered';
+export type SalesChannel = 'direct' | 'sales_team' | 'external_partner' | 'sponsor_referral';
+export type OccupationType = 'student' | 'employee' | 'business_owner' | 'executive';
+export type SeatStatus = 'available' | 'reserved' | 'booked' | 'vip';
 
 export interface Attendee {
   id: string;
@@ -25,9 +29,13 @@ export interface Attendee {
   university?: string;
   faculty?: string;
   year?: string;
+  occupation_type?: OccupationType;
+  organization_name?: string;
   notes?: string;
   governorate: Governorate;
   seat_class: SeatClass;
+  seat_number?: number;
+  ticket_price_override?: number;
   payment_type: PaymentType;
   payment_amount: number;
   remaining_amount: number;
@@ -41,6 +49,23 @@ export interface Attendee {
   created_at: string;
   updated_at: string;
   is_deleted?: boolean;
+  sales_channel?: SalesChannel;
+  sales_source_name?: string;
+  commission_amount?: number;
+  commission_notes?: string;
+  lead_status?: 'under_review' | 'sales_completed' | 'registered';
+  social_media_user_id?: string;
+  sales_user_id?: string;
+  social_commission_amount?: number;
+  sales_commission_amount?: number;
+  commission_distributed?: boolean;
+  sales_verified_full_name?: boolean;
+  sales_verified_phone?: boolean;
+  sales_verified_photo?: boolean;
+  sales_verified_job?: boolean;
+  profile_photo_url?: string;
+  job_title?: string;
+  sales_verified_at?: string;
 }
 
 export interface AttendanceLog {
@@ -58,4 +83,84 @@ export interface PaymentHistory {
   payment_type: PaymentType;
   paid_at: string;
   recorded_by: string;
+}
+
+export interface ExpenseCategory {
+  id: string;
+  name: string;
+  is_active: boolean;
+  created_at: string;
+}
+
+export interface Expense {
+  id: string;
+  category_id?: string;
+  title: string;
+  amount: number;
+  expense_date: string;
+  notes?: string;
+  created_by?: string;
+  created_at: string;
+  expense_categories?: ExpenseCategory | null;
+}
+
+export interface Sponsor {
+  id: string;
+  company_name: string;
+  contact_name?: string;
+  phone?: string;
+  email?: string;
+  notes?: string;
+  created_at: string;
+}
+
+export interface SponsorContract {
+  id: string;
+  sponsor_id: string;
+  contract_title: string;
+  contract_amount: number;
+  paid_amount: number;
+  signed_at: string;
+  due_date?: string;
+  notes?: string;
+  created_by?: string;
+  created_at: string;
+  sponsors?: Sponsor | null;
+}
+
+export interface SponsorPayment {
+  id: string;
+  sponsor_contract_id: string;
+  amount: number;
+  paid_at: string;
+  notes?: string;
+  recorded_by?: string;
+  created_at: string;
+}
+
+export interface SeatTable {
+  id: string;
+  event_id: string;
+  seat_class: SeatClass;
+  row_number: number;
+  side: 'left' | 'right';
+  table_order: number;
+  seats_count: number;
+}
+
+export interface Seat {
+  id: string;
+  event_id: string;
+  seat_class: SeatClass;
+  row_number: number;
+  side: 'left' | 'right';
+  table_id?: string | null;
+  seat_number: number;
+  seat_code: string;
+  status: SeatStatus;
+  position_x?: number | null;
+  position_y?: number | null;
+  reserved_by?: string | null;
+  reserved_until?: string | null;
+  attendee_id?: string | null;
 }

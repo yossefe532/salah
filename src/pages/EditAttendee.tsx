@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
-import { api } from '../lib/api';
+import { api, GOVERNORATE_CAPACITIES } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
 import { Loader2, Save, ArrowRight, Plus, Minus } from 'lucide-react';
 import { useNavigate, useParams } from 'react-router-dom';
@@ -17,9 +17,15 @@ const schema = z.object({
   facebook_link: z.string().url('رابط غير صالح').optional().or(z.literal('')),
   governorate: z.enum(['Minya', 'Asyut', 'Sohag', 'Qena']),
   seat_class: z.enum(['A', 'B', 'C']),
+  seat_number: z.number().int().positive().optional(),
   status: z.enum(['interested', 'registered']),
   payment_type: z.enum(['deposit', 'full']).optional(),
   payment_amount: z.number().min(0).optional(),
+  sales_channel: z.enum(['direct', 'sales_team', 'external_partner', 'sponsor_referral']),
+  sales_source_name: z.string().optional(),
+  commission_amount: z.number().min(0).optional(),
+  commission_notes: z.string().optional(),
+  ticket_price_override: z.number().min(0).optional(),
 });
 
 type FormData = z.infer<typeof schema>;
@@ -39,6 +45,7 @@ const EditAttendee: React.FC = () => {
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [showSecondaryPhone, setShowSecondaryPhone] = useState(false);
   const [showSecondaryEmail, setShowSecondaryEmail] = useState(false);
+  const [occupiedSeats, setOccupiedSeats] = useState<number[]>([]);
 
   const { register, handleSubmit, watch, setValue, reset, formState: { errors } } = useForm<FormData>({
     resolver: zodResolver(schema),
@@ -48,12 +55,31 @@ const EditAttendee: React.FC = () => {
         status: 'registered',
         payment_type: 'deposit',
         payment_amount: 0,
+        sales_channel: 'direct',
+        commission_amount: 0,
     }
   });
 
   const status = watch('status');
+  const governorate = watch('governorate');
   const seatClass = watch('seat_class');
   const paymentType = watch('payment_type');
+  const selectedSeatNumber = watch('seat_number');
+  const paymentAmount = Number(watch('payment_amount') || 0);
+  const commissionAmount = Number(watch('commission_amount') || 0);
+  const netTicketAmount = Math.max(0, paymentAmount - commissionAmount);
+  const ticketPriceOverride = watch('ticket_price_override') as number | undefined;
+  const currentGovCapacity = (GOVERNORATE_CAPACITIES[governorate] as any)?.[seatClass] || 0;
+  const effectiveSeatPrice = ticketPriceOverride && user?.role === 'owner' ? Number(ticketPriceOverride) : SEAT_PRICES[seatClass as keyof typeof SEAT_PRICES];
+  const availableSeatNumbers = React.useMemo(() => {
+    if (status !== 'registered' || currentGovCapacity <= 0) return [];
+    const occupied = new Set(occupiedSeats);
+    const result: number[] = [];
+    for (let i = 1; i <= currentGovCapacity; i += 1) {
+      if (!occupied.has(i) || i === Number(selectedSeatNumber)) result.push(i);
+    }
+    return result;
+  }, [currentGovCapacity, occupiedSeats, selectedSeatNumber, status]);
 
   useEffect(() => {
     const fetchAttendee = async () => {
@@ -68,9 +94,14 @@ const EditAttendee: React.FC = () => {
           facebook_link: data.facebook_link || '',
           governorate: data.governorate,
           seat_class: data.seat_class,
+          seat_number: data.seat_number || undefined,
           status: data.status,
           payment_type: data.payment_type || 'deposit',
           payment_amount: data.payment_amount || 0,
+          sales_channel: data.sales_channel || 'direct',
+          sales_source_name: data.sales_source_name || '',
+          commission_amount: data.commission_amount || 0,
+          commission_notes: data.commission_notes || '',
         });
         if (data.phone_secondary) setShowSecondaryPhone(true);
         if (data.email_secondary) setShowSecondaryEmail(true);
@@ -88,9 +119,30 @@ const EditAttendee: React.FC = () => {
   // Auto-fill full payment amount if switched to full
   useEffect(() => {
     if (status === 'registered' && paymentType === 'full') {
-      setValue('payment_amount', SEAT_PRICES[seatClass]);
+      setValue('payment_amount', effectiveSeatPrice);
     }
-  }, [status, seatClass, paymentType, setValue]);
+  }, [status, seatClass, paymentType, setValue, effectiveSeatPrice]);
+
+  useEffect(() => {
+    const loadSeats = async () => {
+      if (status !== 'registered') {
+        setOccupiedSeats([]);
+        setValue('seat_number', undefined);
+        return;
+      }
+      const response = await api.get('/attendees');
+      const attendees = Array.isArray(response) ? response : [];
+      const seats = attendees
+        .filter((a: any) => a.governorate === governorate && a.seat_class === seatClass && a.status === 'registered' && !a.is_deleted && a.id !== id)
+        .map((a: any) => Number(a.seat_number))
+        .filter((n: number) => Number.isInteger(n) && n > 0);
+      setOccupiedSeats(seats);
+      if (selectedSeatNumber && seats.includes(Number(selectedSeatNumber))) {
+        setValue('seat_number', undefined);
+      }
+    };
+    loadSeats();
+  }, [governorate, id, seatClass, selectedSeatNumber, setValue, status]);
 
   const onSubmit = async (data: FormData) => {
     if (!user || !id) return;
@@ -98,18 +150,27 @@ const EditAttendee: React.FC = () => {
     setSubmitError(null);
 
     try {
+      const capacity = (GOVERNORATE_CAPACITIES[data.governorate] as any)?.[data.seat_class] || 0;
+      // Seat number is now optional, resolveSeat will pick a random one if not provided
       const updatedAttendee = {
           ...data,
           payment_type: data.status === 'registered' ? data.payment_type : 'deposit',
           payment_amount: data.status === 'registered' ? Number(data.payment_amount) : 0,
+          sales_channel: data.sales_channel,
+          seat_number: data.status === 'registered' && capacity > 0 ? Number(data.seat_number) : null,
+          sales_source_name: data.sales_source_name || null,
+          commission_amount: data.status === 'registered'
+            ? Math.max(0, Math.min(Number(data.commission_amount || 0), Number(data.payment_amount || 0)))
+            : 0,
+          commission_notes: data.commission_notes || null,
           phone_secondary: data.phone_secondary || null,
           email_primary: data.email_primary || null,
           email_secondary: data.email_secondary || null,
           facebook_link: data.facebook_link || null,
           
           remaining_amount: (data.status === 'registered') 
-            ? Math.max(0, SEAT_PRICES[data.seat_class] - (Number(data.payment_amount) || 0))
-            : SEAT_PRICES[data.seat_class],
+            ? Math.max(0, effectiveSeatPrice - (Number(data.payment_amount) || 0))
+            : effectiveSeatPrice,
           
           updated_at: new Date().toISOString(),
       };
@@ -266,11 +327,89 @@ const EditAttendee: React.FC = () => {
                         />
                       </div>
                       <p className="mt-2 text-sm text-gray-500 flex justify-between">
-                        <span>إجمالي سعر الفئة {seatClass}: {seatClass ? SEAT_PRICES[seatClass as keyof typeof SEAT_PRICES] : 0} ج.م</span>
+                        <span>إجمالي سعر الفئة {seatClass}: {seatClass ? effectiveSeatPrice : 0} ج.م</span>
                         <span className="font-bold text-red-600">
-                            المتبقي: {seatClass ? Math.max(0, SEAT_PRICES[seatClass as keyof typeof SEAT_PRICES] - (watch('payment_amount') || 0)) : 0} ج.م
+                            المتبقي: {seatClass ? Math.max(0, effectiveSeatPrice - (watch('payment_amount') || 0)) : 0} ج.م
                         </span>
                       </p>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700">مصدر التسجيل</label>
+                      <select
+                        {...register('sales_channel')}
+                        className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm p-2 border"
+                      >
+                        <option value="direct">مباشر</option>
+                        <option value="sales_team">تيم سيلز</option>
+                        <option value="external_partner">شريك خارجي</option>
+                        <option value="sponsor_referral">ترشيح راعي</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700">اسم المصدر / المندوب</label>
+                      <input
+                        type="text"
+                        {...register('sales_source_name')}
+                        className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm p-2 border"
+                        placeholder="اسم المندوب أو الجهة"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700">العمولة (ج.م)</label>
+                      <input
+                        type="number"
+                        {...register('commission_amount', { valueAsNumber: true })}
+                        className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm p-2 border"
+                      />
+                    </div>
+
+                    {currentGovCapacity > 0 && (
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700">رقم المقعد ({governorate})</label>
+                        <select
+                          {...register('seat_number', { setValueAs: (v) => (v === '' ? undefined : Number(v)) })}
+                          className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm p-2 border"
+                        >
+                          <option value="">اختر المقعد</option>
+                          {availableSeatNumbers.map((seatNo) => (
+                            <option key={seatNo} value={seatNo}>{seatClass}-{String(seatNo).padStart(3, '0')}</option>
+                          ))}
+                        </select>
+                        <p className="mt-1 text-xs text-gray-500">
+                          المتاح: {availableSeatNumbers.length} / {currentGovCapacity}
+                        </p>
+                      </div>
+                    )}
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700">ملاحظات العمولة</label>
+                      <input
+                        type="text"
+                        {...register('commission_notes')}
+                        className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm p-2 border"
+                      />
+                    </div>
+
+                    {user?.role === 'owner' && (
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700">سعر مخصص للتذكرة (اختياري)</label>
+                        <input
+                          type="number"
+                          {...register('ticket_price_override', { valueAsNumber: true })}
+                          className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm p-2 border"
+                          placeholder={`الأساسي: ${SEAT_PRICES[seatClass as keyof typeof SEAT_PRICES]} ج.م`}
+                        />
+                        <p className="mt-1 text-xs text-gray-500">
+                          يظهر هذا الحقل للمالك فقط. سيتم اعتماد السعر المخصص في الحسابات والمتبقي.
+                        </p>
+                      </div>
+                    )}
+
+                    <div className="sm:col-span-2 bg-indigo-50 border border-indigo-100 rounded-md p-3 text-sm">
+                      صافي دخل التذكرة بعد العمولة: <span className="font-bold text-indigo-700">{netTicketAmount.toLocaleString()} ج.م</span>
                     </div>
                   </>
                 )}

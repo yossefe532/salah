@@ -146,6 +146,8 @@ const UsersPage: React.FC = () => {
                         >
                             <option value="data_entry">مدخل بيانات</option>
                             <option value="organizer">منظم</option>
+                            <option value="social_media">سوشيال ميديا</option>
+                            <option value="sales">سالز</option>
                             <option value="owner">مالك (Owner)</option>
                         </select>
                     </div>
@@ -213,6 +215,8 @@ const UsersPage: React.FC = () => {
                           <option value="owner">مالك</option>
                           <option value="data_entry">مدخل بيانات</option>
                           <option value="organizer">منظم</option>
+                          <option value="social_media">سوشيال ميديا</option>
+                          <option value="sales">سالز</option>
                         </select>
                         <button
                           onClick={() => handleUpdateRole(u.id)}
@@ -234,11 +238,15 @@ const UsersPage: React.FC = () => {
                         <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-bold border ${
                           u.role === 'owner' ? 'bg-purple-100 text-purple-800 border-purple-200' :
                           u.role === 'data_entry' ? 'bg-blue-100 text-blue-800 border-blue-200' :
+                          u.role === 'social_media' ? 'bg-pink-100 text-pink-800 border-pink-200' :
+                          u.role === 'sales' ? 'bg-orange-100 text-orange-800 border-orange-200' :
                           'bg-green-100 text-green-800 border-green-200'
                         }`}>
                           <Shield className="w-3 h-3 ml-1" />
                           {u.role === 'data_entry' ? 'مدخل بيانات' : 
-                           u.role === 'organizer' ? 'منظم' : 'مالك'}
+                           u.role === 'organizer' ? 'منظم' :
+                           u.role === 'social_media' ? 'سوشيال ميديا' :
+                           u.role === 'sales' ? 'سالز' : 'مالك'}
                         </span>
                         
                         {/* Prevent deleting yourself */}

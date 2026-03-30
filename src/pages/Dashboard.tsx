@@ -14,6 +14,12 @@ const Dashboard: React.FC = () => {
     checkedIn: 0,
     totalRevenue: 0,
     remainingRevenue: 0,
+    commissionTotal: 0,
+    netTicketRevenue: 0,
+    expenseTotal: 0,
+    sponsorPaidTotal: 0,
+    currentBalance: 0,
+    totalRights: 0,
     byClass: [] as { name: string; value: number }[],
     byGovernorate: [] as { name: string; value: number }[],
     activityLogs: [] as any[], // New Activity Logs
@@ -28,12 +34,21 @@ const Dashboard: React.FC = () => {
       const attendees: Attendee[] = await api.get('/attendees');
       // Fetch Activity Logs
       const { data: logs } = await supabase.from('activity_logs').select('*').order('created_at', { ascending: false }).limit(10);
+      const { data: expensesData } = await supabase.from('expenses').select('amount');
+      const { data: sponsorContractsData } = await supabase.from('sponsor_contracts').select('contract_amount, paid_amount');
 
       if (attendees) {
         const totalAttendees = attendees.length;
         const checkedIn = attendees.filter(a => a.attendance_status).length;
         const totalRevenue = attendees.reduce((sum, a) => sum + (Number(a.payment_amount) || 0), 0);
         const remainingRevenue = attendees.reduce((sum, a) => sum + (Number(a.remaining_amount) || 0), 0);
+        const commissionTotal = attendees.reduce((sum, a) => sum + (Number(a.commission_amount) || 0), 0);
+        const netTicketRevenue = Math.max(0, totalRevenue - commissionTotal);
+        const expenseTotal = (expensesData || []).reduce((sum, row: any) => sum + (Number(row.amount) || 0), 0);
+        const sponsorPaidTotal = (sponsorContractsData || []).reduce((sum, row: any) => sum + (Number(row.paid_amount) || 0), 0);
+        const sponsorReceivable = (sponsorContractsData || []).reduce((sum, row: any) => sum + Math.max(0, (Number(row.contract_amount) || 0) - (Number(row.paid_amount) || 0)), 0);
+        const currentBalance = (netTicketRevenue + sponsorPaidTotal) - expenseTotal;
+        const totalRights = currentBalance + remainingRevenue + sponsorReceivable;
 
         // Group by Class
         const classCounts = attendees.reduce((acc, a) => {
@@ -80,6 +95,12 @@ const Dashboard: React.FC = () => {
           checkedIn,
           totalRevenue,
           remainingRevenue,
+          commissionTotal,
+          netTicketRevenue,
+          expenseTotal,
+          sponsorPaidTotal,
+          currentBalance,
+          totalRights,
           byClass,
           byGovernorate,
           activityLogs: logs || [],
@@ -149,7 +170,7 @@ const Dashboard: React.FC = () => {
       </div>
       
       {/* Summary Cards */}
-      <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
         <div className="bg-white dark:bg-gray-800 overflow-hidden shadow rounded-lg transition-colors">
           <div className="p-5">
             <div className="flex items-center">
@@ -211,6 +232,102 @@ const Dashboard: React.FC = () => {
                 <dl>
                   <dt className="text-sm font-medium text-gray-500 dark:text-gray-400 truncate">المبالغ المتبقية</dt>
                   <dd className="text-lg font-medium text-gray-900 dark:text-white">{stats.remainingRevenue.toLocaleString()} ج.م</dd>
+                </dl>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-white dark:bg-gray-800 overflow-hidden shadow rounded-lg transition-colors">
+          <div className="p-5">
+            <div className="flex items-center">
+              <div className="flex-shrink-0">
+                <DollarSign className="h-6 w-6 text-amber-500" />
+              </div>
+              <div className="mr-5 w-0 flex-1">
+                <dl>
+                  <dt className="text-sm font-medium text-gray-500 dark:text-gray-400 truncate">إجمالي العمولات</dt>
+                  <dd className="text-lg font-medium text-gray-900 dark:text-white">{stats.commissionTotal.toLocaleString()} ج.م</dd>
+                </dl>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-white dark:bg-gray-800 overflow-hidden shadow rounded-lg transition-colors">
+          <div className="p-5">
+            <div className="flex items-center">
+              <div className="flex-shrink-0">
+                <DollarSign className="h-6 w-6 text-green-500" />
+              </div>
+              <div className="mr-5 w-0 flex-1">
+                <dl>
+                  <dt className="text-sm font-medium text-gray-500 dark:text-gray-400 truncate">صافي التذاكر بعد العمولة</dt>
+                  <dd className="text-lg font-medium text-gray-900 dark:text-white">{stats.netTicketRevenue.toLocaleString()} ج.م</dd>
+                </dl>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-white dark:bg-gray-800 overflow-hidden shadow rounded-lg transition-colors">
+          <div className="p-5">
+            <div className="flex items-center">
+              <div className="flex-shrink-0">
+                <AlertTriangle className="h-6 w-6 text-rose-500" />
+              </div>
+              <div className="mr-5 w-0 flex-1">
+                <dl>
+                  <dt className="text-sm font-medium text-gray-500 dark:text-gray-400 truncate">مصروفات الفعالية</dt>
+                  <dd className="text-lg font-medium text-gray-900 dark:text-white">{stats.expenseTotal.toLocaleString()} ج.م</dd>
+                </dl>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-white dark:bg-gray-800 overflow-hidden shadow rounded-lg transition-colors">
+          <div className="p-5">
+            <div className="flex items-center">
+              <div className="flex-shrink-0">
+                <DollarSign className="h-6 w-6 text-emerald-600" />
+              </div>
+              <div className="mr-5 w-0 flex-1">
+                <dl>
+                  <dt className="text-sm font-medium text-gray-500 dark:text-gray-400 truncate">محصل الرعاة</dt>
+                  <dd className="text-lg font-medium text-gray-900 dark:text-white">{stats.sponsorPaidTotal.toLocaleString()} ج.م</dd>
+                </dl>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-white dark:bg-gray-800 overflow-hidden shadow rounded-lg transition-colors">
+          <div className="p-5">
+            <div className="flex items-center">
+              <div className="flex-shrink-0">
+                <DollarSign className="h-6 w-6 text-blue-600" />
+              </div>
+              <div className="mr-5 w-0 flex-1">
+                <dl>
+                  <dt className="text-sm font-medium text-gray-500 dark:text-gray-400 truncate">الرصيد الحالي</dt>
+                  <dd className="text-lg font-medium text-gray-900 dark:text-white">{stats.currentBalance.toLocaleString()} ج.م</dd>
+                </dl>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-white dark:bg-gray-800 overflow-hidden shadow rounded-lg transition-colors">
+          <div className="p-5">
+            <div className="flex items-center">
+              <div className="flex-shrink-0">
+                <DollarSign className="h-6 w-6 text-indigo-600" />
+              </div>
+              <div className="mr-5 w-0 flex-1">
+                <dl>
+                  <dt className="text-sm font-medium text-gray-500 dark:text-gray-400 truncate">إجمالي حقوقنا</dt>
+                  <dd className="text-lg font-medium text-gray-900 dark:text-white">{stats.totalRights.toLocaleString()} ج.م</dd>
                 </dl>
               </div>
             </div>

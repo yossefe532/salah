@@ -12,7 +12,11 @@ import {
   X,
   Moon,
   Sun,
-  Home
+  Home,
+  HandCoins,
+  MessageSquareText,
+  PhoneCall,
+  Armchair
 } from 'lucide-react';
 
 const Layout: React.FC = () => {
@@ -43,7 +47,9 @@ const Layout: React.FC = () => {
             break;
           case 'l': // List
             e.preventDefault();
-            navigate('/attendees');
+            if (user?.role === 'social_media') navigate('/social-leads');
+            else if (user?.role === 'sales') navigate('/sales-leads');
+            else navigate('/attendees');
             break;
           case 'h': // Home
             e.preventDefault();
@@ -62,7 +68,7 @@ const Layout: React.FC = () => {
       name: 'الرئيسية',
       path: '/',
       icon: <Home className="w-5 h-5" />,
-      roles: ['owner', 'data_entry', 'organizer']
+      roles: ['owner', 'data_entry', 'organizer', 'social_media', 'sales']
     },
     {
       name: 'قائمة الحضور',
@@ -87,6 +93,30 @@ const Layout: React.FC = () => {
       path: '/users',
       icon: <UserPlus className="w-5 h-5" />,
       roles: ['owner']
+    },
+    {
+      name: 'الحسابات',
+      path: '/finance',
+      icon: <HandCoins className="w-5 h-5" />,
+      roles: ['owner']
+    },
+    {
+      name: 'إدارة المقاعد',
+      path: '/seating',
+      icon: <Armchair className="w-5 h-5" />,
+      roles: ['owner']
+    },
+    {
+      name: 'Leads السوشيال',
+      path: '/social-leads',
+      icon: <MessageSquareText className="w-5 h-5" />,
+      roles: ['social_media']
+    },
+    {
+      name: 'Leads السالز',
+      path: '/sales-leads',
+      icon: <PhoneCall className="w-5 h-5" />,
+      roles: ['sales']
     }
   ];
 
