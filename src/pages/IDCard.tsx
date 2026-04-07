@@ -3,7 +3,6 @@ import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '../lib/api';
 import { Attendee } from '../types';
 import { QRCodeSVG } from 'qrcode.react';
-import Barcode from 'react-barcode';
 import { useReactToPrint } from 'react-to-print';
 import { Printer, ArrowLeft, Ticket, ScanFace, FileBadge2 } from 'lucide-react';
 
@@ -88,6 +87,66 @@ const IDCard: React.FC = () => {
 
   const certificateTemplate = '/templates/certificate-template.png';
 
+  const transliterateArabicToEnglish = (input?: string | null) => {
+    const value = String(input || '').trim();
+    if (!value) return '';
+    const dictionary: Record<string, string> = {
+      'محمد': 'Mohamed', 'أحمد': 'Ahmed', 'محمود': 'Mahmoud', 'مصطفى': 'Mostafa',
+      'حاتم': 'Hatem', 'علي': 'Ali', 'عبدالله': 'Abdullah', 'عبد': 'Abdel',
+      'الرحمن': 'Rahman', 'عبدالرحمن': 'Abdelrahman', 'ربيع': 'Rabie',
+      'حسن': 'Hassan', 'حسين': 'Hussein', 'عمر': 'Omar', 'عمرو': 'Amr',
+      'يوسف': 'Youssef', 'خالد': 'Khaled', 'إبراهيم': 'Ibrahim', 'صلاح': 'Salah',
+      'فاطمة': 'Fatma', 'الله': 'Allah', 'السجان': 'Elsaggan'
+    };
+    const map: Record<string, string> = {
+      'ا': 'a', 'أ': 'a', 'إ': 'e', 'آ': 'aa', 'ء': 'a', 'ؤ': 'o', 'ئ': 'e',
+      'ب': 'b', 'ت': 't', 'ث': 'th', 'ج': 'g', 'ح': 'h', 'خ': 'kh',
+      'د': 'd', 'ذ': 'z', 'ر': 'r', 'ز': 'z', 'س': 's', 'ش': 'sh',
+      'ص': 's', 'ض': 'd', 'ط': 't', 'ظ': 'z', 'ع': 'a', 'غ': 'gh',
+      'ف': 'f', 'ق': 'q', 'ك': 'k', 'ل': 'l', 'م': 'm', 'ن': 'n',
+      'ه': 'h', 'و': 'w', 'ي': 'y', 'ى': 'a', 'ة': 'a',
+      '٠': '0', '١': '1', '٢': '2', '٣': '3', '٤': '4',
+      '٥': '5', '٦': '6', '٧': '7', '٨': '8', '٩': '9'
+    };
+    return value
+      .replace(/\s+/g, ' ')
+      .split(' ')
+      .map((word) => {
+        if (dictionary[word]) return dictionary[word];
+        const raw = word.split('').map((char) => map[char] ?? char).join('').trim();
+        return raw ? raw.charAt(0).toUpperCase() + raw.slice(1).toLowerCase() : '';
+      })
+      .filter(Boolean)
+      .join(' ');
+  };
+
+  const getDisplayName = (person: Attendee) => {
+    const englishName = String(person.full_name_en || '').trim();
+    if (englishName) return englishName;
+    const transliterated = transliterateArabicToEnglish(person.full_name);
+    return transliterated || person.full_name;
+  };
+
+  const getTicketNameFontSize = (name: string) => {
+    if (name.length > 30) return '10.6px';
+    if (name.length > 24) return '11.4px';
+    if (name.length > 18) return '12.2px';
+    return '13.28px';
+  };
+
+  const getJobTitleFontSize = (title: string) => {
+    if (title.length > 22) return '11.2px';
+    if (title.length > 16) return '12.2px';
+    return '13.92px';
+  };
+
+  const getCertificateNameFontSize = (name: string) => {
+    if (name.length > 28) return '28px';
+    if (name.length > 22) return '31px';
+    if (name.length > 18) return '34px';
+    return '36.9px';
+  };
+
   const parseTableFromSeatCode = (barcode?: string | null) => {
     const value = String(barcode || '');
     const match = value.match(/-T(\d+)-/i);
@@ -101,7 +160,8 @@ const IDCard: React.FC = () => {
   const renderTicketFront = () => {
     if (!attendee) return null;
     const frontSrc = frontTemplateByClass[attendee.seat_class || 'C'] || frontTemplateByClass.C;
-    const fullName = attendee.full_name_en || attendee.full_name;
+    const fullName = getDisplayName(attendee);
+    const jobTitle = String(attendee.job_title || '').trim();
     const tableNum = parseTableFromSeatCode(attendee.barcode);
     return (
       <div className="ticket-sheet relative overflow-hidden bg-[#0a0a0a]">
@@ -118,41 +178,67 @@ const IDCard: React.FC = () => {
         </div>
 
         {/* Name - Gold Text Centered */}
-        <div className="absolute z-10 w-full text-center flex flex-col justify-center items-center" style={{ top: '44.5%', height: '5%' }}>
-          <div className="font-bold tracking-wide uppercase text-[#c39d78] px-4" style={{ fontFamily: '"TT Runs Trial", sans-serif', fontSize: '13.28px', lineHeight: '1.2' }}>
+        <div className="absolute z-10 flex justify-center" style={{ top: '46.2%', left: '50%', width: '72%', transform: 'translateX(-50%)' }}>
+          <div
+            className="font-bold uppercase text-[#c39d78] text-center"
+            dir="ltr"
+            style={{
+              fontFamily: '"TT Runs Trial", sans-serif',
+              fontSize: getTicketNameFontSize(fullName),
+              lineHeight: '1',
+              letterSpacing: '0.02em',
+              whiteSpace: 'nowrap',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              width: '100%'
+            }}
+          >
             {fullName}
           </div>
         </div>
 
-        {/* Position - Placed next to the "Position :" label in template */}
-        <div className="absolute z-10 w-full text-center" style={{ top: '50.3%', left: '50%', transform: 'translateX(-50%)' }}>
-          <div className="font-semibold text-[#e0d3c2] whitespace-nowrap" style={{ fontFamily: '"TT Runs Trial", sans-serif', fontSize: '13.92px' }}>
-            Position : {attendee.job_title || 'Participant'}
+        {/* Position value only; label already exists in template */}
+        {jobTitle ? (
+          <div className="absolute z-10" style={{ top: '52.6%', left: '58.3%', width: '21%' }}>
+            <div
+              className="font-semibold text-[#e0d3c2]"
+              dir="ltr"
+              style={{
+                fontFamily: '"TT Runs Trial", sans-serif',
+                fontSize: getJobTitleFontSize(jobTitle),
+                lineHeight: '1',
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                textAlign: 'left'
+              }}
+            >
+              {jobTitle}
+            </div>
           </div>
-        </div>
+        ) : null}
 
         {/* QR Code - Centered on the QR placeholder */}
-        <div className="absolute z-10 w-full flex justify-center" style={{ top: '66%' }}>
-          {attendee.barcode ? (
-            <div className="bg-white p-[3px] rounded-sm shadow-lg">
-               <QRCodeSVG value={attendee.barcode} size={105} level="H" />
+        <div className="absolute z-10 w-full flex justify-center" style={{ top: '63.2%' }}>
+          {attendee.qr_code || attendee.id ? (
+            <div className="bg-white p-[4px] rounded-[2px]">
+               <QRCodeSVG value={attendee.qr_code || attendee.id} size={118} level="H" includeMargin={false} />
             </div>
           ) : (
-            <div className="h-[105px]" />
+            <div className="h-[118px]" />
           )}
         </div>
 
-        {/* Wave / Table Num Value */}
-        <div className="absolute z-10 w-full text-center" style={{ top: '85.5%', left: '16%' }}>
-          <div className="text-[12px] font-bold text-[#e0d3c2] opacity-90" style={{ fontFamily: 'sans-serif' }}>
-            wave part num : <span className="text-white">{tableNum ?? attendee.seat_class ?? '-'}</span>
+        {/* Wave value only; label already exists in template */}
+        <div className="absolute z-10 flex justify-center" style={{ top: '84.9%', left: '50%', width: '58%', transform: 'translateX(-50%)' }}>
+          <div className="font-bold text-[#e0d3c2]" dir="ltr" style={{ fontSize: '11.2px', lineHeight: '1', textAlign: 'center', whiteSpace: 'nowrap' }}>
+            wave part num : {tableNum ?? attendee.seat_class ?? '-'}
           </div>
         </div>
 
-        {/* Seat Num Value */}
-        <div className="absolute z-10 w-full text-center" style={{ top: '89.5%', left: '16%' }}>
-          <div className="text-[12px] font-bold text-[#e0d3c2] opacity-90" style={{ fontFamily: 'sans-serif' }}>
-            Seat num : <span className="text-white">{attendee.seat_number ?? '-'}</span>
+        <div className="absolute z-10 flex justify-center" style={{ top: '88.8%', left: '50%', width: '58%', transform: 'translateX(-50%)' }}>
+          <div className="font-bold text-[#e0d3c2]" dir="ltr" style={{ fontSize: '11.2px', lineHeight: '1', textAlign: 'center', whiteSpace: 'nowrap' }}>
+            Seat num : {attendee.seat_number ?? '-'}
           </div>
         </div>
       </div>
@@ -173,15 +259,27 @@ const IDCard: React.FC = () => {
 
   const renderCertificate = () => {
     if (!attendee) return null;
-    const fullName = attendee.full_name_en || attendee.full_name;
+    const fullName = getDisplayName(attendee);
     return (
       <div className="certificate-sheet relative overflow-hidden bg-[#111]">
         <div className="absolute inset-0 flex items-center justify-center text-gray-800 text-sm border border-gray-800">صورة القالب مفقودة ({certificateTemplate})</div>
         <img src={certificateTemplate} alt="certificate-template" onError={handleImageError} className="absolute inset-0 h-full w-full object-cover z-0 transition-opacity duration-200" />
         
-        {/* Name - Centered higher to avoid overlap */}
-        <div className="absolute z-10 w-full text-center flex flex-col justify-center items-center" style={{ top: '38.5%', left: '50%', transform: 'translate(-50%, -50%)' }}>
-          <div className="font-bold tracking-wider" style={{ color: '#dcb586', fontFamily: 'Roboto, sans-serif', fontSize: '36.9px', letterSpacing: '0.02em' }}>
+        <div className="absolute z-10 flex justify-center" style={{ top: '43.8%', left: '50%', width: '62%', transform: 'translate(-50%, -50%)' }}>
+          <div
+            className="font-bold text-center"
+            dir="ltr"
+            style={{
+              color: '#f5efe7',
+              fontFamily: 'Roboto, sans-serif',
+              fontSize: getCertificateNameFontSize(fullName),
+              lineHeight: '1.05',
+              whiteSpace: 'nowrap',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              width: '100%'
+            }}
+          >
             {fullName}
           </div>
         </div>
@@ -269,24 +367,6 @@ const IDCard: React.FC = () => {
           <span className={`px-3 py-1 rounded-full border ${attendee.certificate_printed ? 'bg-green-100 text-green-700 border-green-200' : 'bg-gray-100 text-gray-600 border-gray-200'}`}>
             الشهادة: {attendee.certificate_printed ? 'اتطبعت' : 'لم تُطبع'}
           </span>
-        </div>
-      </div>
-
-      <div className="mb-4 bg-yellow-50 border-l-4 border-yellow-400 p-4 rounded-md no-print text-yellow-800 text-sm shadow-sm">
-        <h3 className="font-bold text-lg mb-2 text-red-600 flex items-center">
-          <span className="mr-2">⚠️</span> تنبيه هام جداً (الصور لا تظهر؟)
-        </h3>
-        <p className="mb-2 font-semibold">الصور التي أرسلتها في المحادثة لا تدخل في ملفات الكود تلقائياً.</p>
-        <p className="mb-2">لتظهر القوالب بشكل صحيح وتختفي الرسالة السوداء، <strong>يجب عليك يدوياً</strong> وضع ملفات الصور الخاصة بك في مجلد <code>public/templates/</code> داخل المشروع بالأسماء التالية بالضبط:</p>
-        <div className="mt-2 grid grid-cols-1 md:grid-cols-2 gap-2 text-xs font-mono bg-white p-3 rounded border border-yellow-200" dir="ltr">
-          <div className="text-right">ticket-front-a.jpg</div>
-          <div className="text-right">ticket-front-b.jpg</div>
-          <div className="text-right">ticket-front-c.jpg</div>
-          <div className="text-right">ticket-back-minya.jpg</div>
-          <div className="text-right">ticket-back-asyut.jpg</div>
-          <div className="text-right">ticket-back-sohag.jpg</div>
-          <div className="text-right">ticket-back-qena.jpg</div>
-          <div className="text-right">certificate-template.png</div>
         </div>
       </div>
 
