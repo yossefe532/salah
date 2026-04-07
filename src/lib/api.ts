@@ -79,6 +79,46 @@ const getCertificateIncluded = (payload: any) => {
 const transliterateArabicToEnglish = (input?: string | null) => {
   const value = String(input || '').trim();
   if (!value) return '';
+  const dictionary: Record<string, string> = {
+    'محمد': 'Mohamed',
+    'أحمد': 'Ahmed',
+    'محمود': 'Mahmoud',
+    'مصطفى': 'Mostafa',
+    'حاتم': 'Hatem',
+    'علي': 'Ali',
+    'عبدالله': 'Abdullah',
+    'عبد الله': 'Abdullah',
+    'عبدالرحمن': 'Abdelrahman',
+    'عبد الرحمن': 'Abdelrahman',
+    'حسن': 'Hassan',
+    'حسين': 'Hussein',
+    'إبراهيم': 'Ibrahim',
+    'اسماعيل': 'Ismail',
+    'إسماعيل': 'Ismail',
+    'ياسر': 'Yasser',
+    'يوسف': 'Youssef',
+    'خالد': 'Khaled',
+    'هاني': 'Hany',
+    'سعيد': 'Saeed',
+    'طارق': 'Tarek',
+    'عمرو': 'Amr',
+    'عمر': 'Omar',
+    'فاطمة': 'Fatma',
+    'فاطمه': 'Fatma',
+    'سارة': 'Sara',
+    'ساره': 'Sara',
+    'مريم': 'Mariam',
+    'نور': 'Nour',
+    'ايمان': 'Eman',
+    'إيمان': 'Eman',
+    'زينب': 'Zainab',
+    'مي': 'Mai',
+    'منى': 'Mona',
+    'نهى': 'Noha',
+    'رضا': 'Reda',
+    'ربيع': 'Rabie',
+    'صلاح': 'Salah'
+  };
   const map: Record<string, string> = {
     'ا': 'a', 'أ': 'a', 'إ': 'e', 'آ': 'aa', 'ء': 'a', 'ؤ': 'o', 'ئ': 'e',
     'ب': 'b', 'ت': 't', 'ث': 'th', 'ج': 'g', 'ح': 'h', 'خ': 'kh',
@@ -89,16 +129,43 @@ const transliterateArabicToEnglish = (input?: string | null) => {
     '٠': '0', '١': '1', '٢': '2', '٣': '3', '٤': '4',
     '٥': '5', '٦': '6', '٧': '7', '٨': '8', '٩': '9'
   };
-  const raw = value
-    .split('')
-    .map((ch) => map[ch] ?? ch)
-    .join('')
-    .replace(/\s+/g, ' ')
-    .trim();
-  return raw
-    .split(' ')
-    .map((part) => part ? part.charAt(0).toUpperCase() + part.slice(1).toLowerCase() : '')
-    .join(' ');
+  const parts = value.replace(/\s+/g, ' ').trim().split(' ');
+  const normalized = parts.map((part) => {
+    if (dictionary[part]) return dictionary[part];
+    const raw = part
+      .split('')
+      .map((ch) => map[ch] ?? ch)
+      .join('')
+      .trim();
+    return raw ? raw.charAt(0).toUpperCase() + raw.slice(1).toLowerCase() : '';
+  }).filter(Boolean);
+  return normalized.join(' ');
+};
+
+const normalizeAttendeePricing = (attendee: any) => {
+  if (!attendee) return attendee;
+  const classDefault = SEAT_PRICES[attendee.seat_class] || 0;
+  const override = Number(attendee.ticket_price_override || 0);
+  const existingBase = Number(attendee.base_ticket_price || 0);
+  const payment = Number(attendee.payment_amount || 0);
+
+  let base = existingBase > 0 ? existingBase : (override > 0 ? override : classDefault);
+  if (base === classDefault && (!existingBase && !override) && attendee.payment_type === 'full' && payment > 0 && payment < classDefault) {
+    base = payment;
+  }
+
+  const remaining = Math.max(0, base - payment);
+  const hasCustom = override > 0 || (base > 0 && base !== classDefault);
+  const certificate = hasCustom
+    ? (attendee.certificate_included === undefined || attendee.certificate_included === null ? false : Boolean(attendee.certificate_included))
+    : true;
+
+  return {
+    ...attendee,
+    base_ticket_price: base,
+    remaining_amount: remaining,
+    certificate_included: certificate
+  };
 };
 
 const buildSeatBarcode = (seatClass?: string, seatNumber?: number | null) => {
@@ -532,7 +599,7 @@ export const api = {
           error = fallback.error;
         }
         if (error) throw new Error(error.message);
-        return data;
+        return normalizeAttendeePricing(data);
       }
 
       const scoped = applyCompanyScopeToAttendeesQuery(
@@ -550,7 +617,7 @@ export const api = {
         error = fallback.error;
       }
       if (error) throw new Error(error.message);
-      return data || [];
+      return (data || []).map(normalizeAttendeePricing);
     }
 
     if (endpoint.startsWith('/companies')) {

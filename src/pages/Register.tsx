@@ -57,6 +57,13 @@ const smartFormatPhone = (value: string) => {
 const transliterateArabicToEnglish = (input?: string | null) => {
   const value = String(input || '').trim();
   if (!value) return '';
+  const dictionary: Record<string, string> = {
+    'محمد': 'Mohamed', 'أحمد': 'Ahmed', 'محمود': 'Mahmoud', 'مصطفى': 'Mostafa',
+    'حاتم': 'Hatem', 'علي': 'Ali', 'عبدالله': 'Abdullah', 'عبد': 'Abdel',
+    'الرحمن': 'Rahman', 'عبدالرحمن': 'Abdelrahman', 'ربيع': 'Rabie',
+    'حسن': 'Hassan', 'حسين': 'Hussein', 'عمر': 'Omar', 'عمرو': 'Amr',
+    'يوسف': 'Youssef', 'خالد': 'Khaled', 'إبراهيم': 'Ibrahim', 'صلاح': 'Salah'
+  };
   const map: Record<string, string> = {
     'ا': 'a', 'أ': 'a', 'إ': 'e', 'آ': 'aa', 'ء': 'a', 'ؤ': 'o', 'ئ': 'e',
     'ب': 'b', 'ت': 't', 'ث': 'th', 'ج': 'g', 'ح': 'h', 'خ': 'kh',
@@ -67,16 +74,12 @@ const transliterateArabicToEnglish = (input?: string | null) => {
     '٠': '0', '١': '1', '٢': '2', '٣': '3', '٤': '4',
     '٥': '5', '٦': '6', '٧': '7', '٨': '8', '٩': '9'
   };
-  const raw = value
-    .split('')
-    .map((ch) => map[ch] ?? ch)
-    .join('')
-    .replace(/\s+/g, ' ')
-    .trim();
-  return raw
-    .split(' ')
-    .map((part) => part ? part.charAt(0).toUpperCase() + part.slice(1).toLowerCase() : '')
-    .join(' ');
+  const words = value.replace(/\s+/g, ' ').trim().split(' ');
+  return words.map((word) => {
+    if (dictionary[word]) return dictionary[word];
+    const raw = word.split('').map((ch) => map[ch] ?? ch).join('').trim();
+    return raw ? raw.charAt(0).toUpperCase() + raw.slice(1).toLowerCase() : '';
+  }).filter(Boolean).join(' ');
 };
 
 const Register: React.FC = () => {
