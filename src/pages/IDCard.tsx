@@ -94,6 +94,10 @@ const IDCard: React.FC = () => {
     return match ? Number(match[1]) : null;
   };
 
+  const handleImageError = (e: React.SyntheticEvent<HTMLImageElement, Event>) => {
+    e.currentTarget.style.opacity = '0';
+  };
+
   const renderTicketFront = () => {
     if (!attendee) return null;
     const frontSrc = frontTemplateByClass[attendee.seat_class || 'C'] || frontTemplateByClass.C;
@@ -101,7 +105,8 @@ const IDCard: React.FC = () => {
     const tableNum = parseTableFromSeatCode(attendee.barcode);
     return (
       <div className="ticket-sheet relative overflow-hidden bg-[#0a0a0a]">
-        <img src={frontSrc} alt="ticket-front-template" className="absolute inset-0 h-full w-full object-cover z-0" />
+        <div className="absolute inset-0 flex items-center justify-center text-gray-800 text-sm border border-gray-800">صورة القالب مفقودة ({frontSrc})</div>
+        <img src={frontSrc} alt="ticket-front-template" onError={handleImageError} className="absolute inset-0 h-full w-full object-cover z-0 transition-opacity duration-200" />
         
         {/* Profile Photo - Top Box */}
         <div className="absolute z-10" style={{ top: '10.5%', left: '50%', transform: 'translateX(-50%)', width: '42%', aspectRatio: '1/1' }}>
@@ -113,21 +118,21 @@ const IDCard: React.FC = () => {
         </div>
 
         {/* Name - Gold Text Centered */}
-        <div className="absolute z-10 w-full text-center" style={{ top: '44%' }}>
-          <div className="text-[16px] font-extrabold tracking-wide uppercase text-[#c7a57a] px-4">
+        <div className="absolute z-10 w-full text-center flex flex-col justify-center items-center" style={{ top: '44%', height: '5%' }}>
+          <div className="text-[18px] font-extrabold tracking-wide uppercase text-[#c7a57a] px-4">
             {fullName}
           </div>
         </div>
 
         {/* Position - Placed next to the "Position :" label in template */}
-        <div className="absolute z-10" style={{ top: '50.5%', left: '56%', transform: 'translateX(-50%)' }}>
+        <div className="absolute z-10" style={{ top: '50.3%', left: '58%', transform: 'translateY(-50%)' }}>
           <div className="text-[14px] font-bold text-white whitespace-nowrap">
             {attendee.job_title || 'Participant'}
           </div>
         </div>
 
         {/* Barcode - Centered below "BY SALAH ABO ELMAGD" */}
-        <div className="absolute z-10 w-full flex justify-center" style={{ top: '75.5%' }}>
+        <div className="absolute z-10 w-full flex justify-center" style={{ top: '75%' }}>
           {attendee.barcode ? (
             <div className="bg-white p-1 rounded-sm scale-90">
                <Barcode value={attendee.barcode} width={1.2} height={30} displayValue={false} margin={0} background="#fff" lineColor="#000" />
@@ -138,15 +143,15 @@ const IDCard: React.FC = () => {
         </div>
 
         {/* Wave / Table Num Value */}
-        <div className="absolute z-10" style={{ top: '88.5%', left: '55%' }}>
-          <div className="text-[14px] font-bold text-white">
+        <div className="absolute z-10" style={{ top: '88.3%', left: '55%', transform: 'translateY(-50%)' }}>
+          <div className="text-[15px] font-bold text-white">
             {tableNum ?? attendee.seat_class ?? '-'}
           </div>
         </div>
 
         {/* Seat Num Value */}
-        <div className="absolute z-10" style={{ top: '92.3%', left: '55%' }}>
-          <div className="text-[14px] font-bold text-white">
+        <div className="absolute z-10" style={{ top: '92.3%', left: '55%', transform: 'translateY(-50%)' }}>
+          <div className="text-[15px] font-bold text-white">
             {attendee.seat_number ?? '-'}
           </div>
         </div>
@@ -160,8 +165,8 @@ const IDCard: React.FC = () => {
     const backSrc = backTemplateByGovernorate[key] || backTemplateByGovernorate.Minya;
     return (
       <div className="ticket-sheet relative overflow-hidden bg-[#0a0a0a]">
-        <img src={backSrc} alt="ticket-back-template" className="absolute inset-0 h-full w-full object-cover z-0" />
-        {/* The back template has NO dynamic text, it is just the image! */}
+        <div className="absolute inset-0 flex items-center justify-center text-gray-800 text-sm border border-gray-800">صورة القالب مفقودة ({backSrc})</div>
+        <img src={backSrc} alt="ticket-back-template" onError={handleImageError} className="absolute inset-0 h-full w-full object-cover z-0 transition-opacity duration-200" />
       </div>
     );
   };
@@ -171,11 +176,12 @@ const IDCard: React.FC = () => {
     const fullName = attendee.full_name_en || attendee.full_name;
     return (
       <div className="certificate-sheet relative overflow-hidden bg-[#111]">
-        <img src={certificateTemplate} alt="certificate-template" className="absolute inset-0 h-full w-full object-cover z-0" />
+        <div className="absolute inset-0 flex items-center justify-center text-gray-800 text-sm border border-gray-800">صورة القالب مفقودة ({certificateTemplate})</div>
+        <img src={certificateTemplate} alt="certificate-template" onError={handleImageError} className="absolute inset-0 h-full w-full object-cover z-0 transition-opacity duration-200" />
         
         {/* Name - Placed exactly in the empty space between the two lines of text */}
-        <div className="absolute z-10 w-full text-center flex flex-col justify-center items-center" style={{ top: '38%', height: '15%' }}>
-          <div className="text-[44px] font-bold tracking-wider" style={{ color: '#dcb586', fontFamily: 'serif', letterSpacing: '0.05em' }}>
+        <div className="absolute z-10 w-full text-center flex flex-col justify-center items-center" style={{ top: '50%', left: '50%', transform: 'translate(-50%, -50%)' }}>
+          <div className="text-[52px] font-bold tracking-wider" style={{ color: '#dcb586', fontFamily: 'serif', letterSpacing: '0.05em' }}>
             {fullName}
           </div>
         </div>
@@ -267,16 +273,20 @@ const IDCard: React.FC = () => {
       </div>
 
       <div className="mb-4 bg-yellow-50 border-l-4 border-yellow-400 p-4 rounded-md no-print text-yellow-800 text-sm shadow-sm">
-        <strong>تنبيه للمطور:</strong> لتظهر القوالب بشكل صحيح، يجب وضع ملفات الصور في مجلد <code>public/templates/</code> بالأسماء التالية بالضبط:
-        <div className="mt-2 grid grid-cols-1 md:grid-cols-2 gap-2 text-xs font-mono bg-white p-3 rounded border border-yellow-200">
-          <div>ticket-front-a.png</div>
-          <div>ticket-front-b.png</div>
-          <div>ticket-front-c.png</div>
-          <div>ticket-back-minya.png</div>
-          <div>ticket-back-asyut.png</div>
-          <div>ticket-back-sohag.png</div>
-          <div>ticket-back-qena.png</div>
-          <div>certificate-template.png</div>
+        <h3 className="font-bold text-lg mb-2 text-red-600 flex items-center">
+          <span className="mr-2">⚠️</span> تنبيه هام جداً (الصور لا تظهر؟)
+        </h3>
+        <p className="mb-2 font-semibold">الصور التي أرسلتها في المحادثة لا تدخل في ملفات الكود تلقائياً.</p>
+        <p className="mb-2">لتظهر القوالب بشكل صحيح وتختفي الرسالة السوداء، <strong>يجب عليك يدوياً</strong> وضع ملفات الصور الخاصة بك في مجلد <code>public/templates/</code> داخل المشروع بالأسماء التالية بالضبط:</p>
+        <div className="mt-2 grid grid-cols-1 md:grid-cols-2 gap-2 text-xs font-mono bg-white p-3 rounded border border-yellow-200" dir="ltr">
+          <div className="text-right">ticket-front-a.png</div>
+          <div className="text-right">ticket-front-b.png</div>
+          <div className="text-right">ticket-front-c.png</div>
+          <div className="text-right">ticket-back-minya.png</div>
+          <div className="text-right">ticket-back-asyut.png</div>
+          <div className="text-right">ticket-back-sohag.png</div>
+          <div className="text-right">ticket-back-qena.png</div>
+          <div className="text-right">certificate-template.png</div>
         </div>
       </div>
 
