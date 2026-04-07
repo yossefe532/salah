@@ -118,39 +118,39 @@ const IDCard: React.FC = () => {
         </div>
 
         {/* Name - Gold Text Centered */}
-        <div className="absolute z-10 w-full text-center flex flex-col justify-center items-center" style={{ top: '48.5%', height: '5%' }}>
-          <div className="font-bold tracking-wide uppercase text-[#c39d78] px-4" style={{ fontFamily: '"TT Runs Trial", sans-serif', fontSize: '13.28px' }}>
+        <div className="absolute z-10 w-full text-center flex flex-col justify-center items-center" style={{ top: '44.5%', height: '5%' }}>
+          <div className="font-bold tracking-wide uppercase text-[#c39d78] px-4" style={{ fontFamily: '"TT Runs Trial", sans-serif', fontSize: '13.28px', lineHeight: '1.2' }}>
             {fullName}
           </div>
         </div>
 
         {/* Position - Placed next to the "Position :" label in template */}
-        <div className="absolute z-10 w-full text-center" style={{ top: '54.2%', left: '50%', transform: 'translateX(-50%)' }}>
+        <div className="absolute z-10 w-full text-center" style={{ top: '50.3%', left: '50%', transform: 'translateX(-50%)' }}>
           <div className="font-semibold text-[#e0d3c2] whitespace-nowrap" style={{ fontFamily: '"TT Runs Trial", sans-serif', fontSize: '13.92px' }}>
             Position : {attendee.job_title || 'Participant'}
           </div>
         </div>
 
         {/* QR Code - Centered on the QR placeholder */}
-        <div className="absolute z-10 w-full flex justify-center" style={{ top: '70.5%' }}>
+        <div className="absolute z-10 w-full flex justify-center" style={{ top: '66%' }}>
           {attendee.barcode ? (
-            <div className="bg-white p-[2px] rounded-sm shadow-sm">
-               <QRCodeSVG value={attendee.barcode} size={82} level="H" />
+            <div className="bg-white p-[3px] rounded-sm shadow-lg">
+               <QRCodeSVG value={attendee.barcode} size={105} level="H" />
             </div>
           ) : (
-            <div className="h-[82px]" />
+            <div className="h-[105px]" />
           )}
         </div>
 
         {/* Wave / Table Num Value */}
-        <div className="absolute z-10 w-full text-center" style={{ top: '86.4%', left: '16%' }}>
+        <div className="absolute z-10 w-full text-center" style={{ top: '85.5%', left: '16%' }}>
           <div className="text-[12px] font-bold text-[#e0d3c2] opacity-90" style={{ fontFamily: 'sans-serif' }}>
             wave part num : <span className="text-white">{tableNum ?? attendee.seat_class ?? '-'}</span>
           </div>
         </div>
 
         {/* Seat Num Value */}
-        <div className="absolute z-10 w-full text-center" style={{ top: '90.4%', left: '16%' }}>
+        <div className="absolute z-10 w-full text-center" style={{ top: '89.5%', left: '16%' }}>
           <div className="text-[12px] font-bold text-[#e0d3c2] opacity-90" style={{ fontFamily: 'sans-serif' }}>
             Seat num : <span className="text-white">{attendee.seat_number ?? '-'}</span>
           </div>
@@ -179,8 +179,8 @@ const IDCard: React.FC = () => {
         <div className="absolute inset-0 flex items-center justify-center text-gray-800 text-sm border border-gray-800">صورة القالب مفقودة ({certificateTemplate})</div>
         <img src={certificateTemplate} alt="certificate-template" onError={handleImageError} className="absolute inset-0 h-full w-full object-cover z-0 transition-opacity duration-200" />
         
-        {/* Name - Centered in the middle of the certificate space */}
-        <div className="absolute z-10 w-full text-center flex flex-col justify-center items-center" style={{ top: '43.2%', left: '50%', transform: 'translate(-50%, -50%)' }}>
+        {/* Name - Centered higher to avoid overlap */}
+        <div className="absolute z-10 w-full text-center flex flex-col justify-center items-center" style={{ top: '38.5%', left: '50%', transform: 'translate(-50%, -50%)' }}>
           <div className="font-bold tracking-wider" style={{ color: '#dcb586', fontFamily: 'Roboto, sans-serif', fontSize: '36.9px', letterSpacing: '0.02em' }}>
             {fullName}
           </div>

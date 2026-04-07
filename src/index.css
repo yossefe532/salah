@@ -6,18 +6,18 @@
 
 @font-face {
   font-family: 'TT Runs Trial';
-  src: local('TT Runs Trial Bold'), local('TT-Runs-Trial-Bold');
+  src: local('TT Runs Trial Bold'), local('TT Runs Trial'), local('TTRunsTrial-Bold');
   font-weight: bold;
 }
 
 @font-face {
   font-family: 'TT Runs Trial';
-  src: local('TT Runs Trial DemiBold'), local('TT-Runs-Trial-DemiBold');
+  src: local('TT Runs Trial DemiBold'), local('TT Runs Trial Medium'), local('TTRunsTrial-DemiBold');
   font-weight: 600;
 }
 
 :root {
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   line-height: 1.5;
   font-weight: 400;
 }
