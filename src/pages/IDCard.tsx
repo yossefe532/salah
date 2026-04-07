@@ -17,6 +17,7 @@ const IDCard: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const ticketPrintRef = useRef<HTMLDivElement>(null);
   const certificatePrintRef = useRef<HTMLDivElement>(null);
+  const previewModeRef = useRef<HTMLDivElement>(null);
 
   const fetchAttendee = useCallback(async (attendeeId: string) => {
     try {
@@ -72,134 +73,88 @@ const IDCard: React.FC = () => {
     return 'Minya';
   };
 
-  const backConfig: Record<string, { label: string; date: string }> = {
-    Minya: { label: 'EL - Minya Governorate', date: 'MAY 1st 2026' },
-    Asyut: { label: 'Assiut Governorate', date: 'MAY 3rd 2026' },
-    Sohag: { label: 'Sohag Governorate', date: 'MAY 5th 2026' },
-    Qena: { label: 'Qena Governorate', date: 'MAY 7th 2026' }
+  const frontTemplateByClass: Record<string, string> = {
+    A: '/templates/ticket-front-a.png',
+    B: '/templates/ticket-front-b.png',
+    C: '/templates/ticket-front-c.png'
   };
 
-  const getClassStyle = (seatClass?: string) => {
-    if (seatClass === 'A') return 'bg-[#D4AF7A] text-black';
-    if (seatClass === 'B') return 'bg-[#D8D8D8] text-black';
-    return 'bg-[#101010] text-white border border-[#777]';
+  const backTemplateByGovernorate: Record<string, string> = {
+    Minya: '/templates/ticket-back-minya.png',
+    Asyut: '/templates/ticket-back-asyut.png',
+    Sohag: '/templates/ticket-back-sohag.png',
+    Qena: '/templates/ticket-back-qena.png'
   };
 
-  const parseTableFromBarcode = (barcode?: string | null) => {
+  const certificateTemplate = '/templates/certificate-template.png';
+
+  const parseTableFromSeatCode = (barcode?: string | null) => {
     const value = String(barcode || '');
     const match = value.match(/-T(\d+)-/i);
-    return match ? match[1] : '-';
+    return match ? Number(match[1]) : null;
   };
 
   const renderTicketFront = () => {
     if (!attendee) return null;
+    const frontSrc = frontTemplateByClass[attendee.seat_class || 'C'] || frontTemplateByClass.C;
+    const fullName = attendee.full_name_en || attendee.full_name;
+    const tableNum = parseTableFromSeatCode(attendee.barcode);
     return (
-      <div className="ticket-sheet bg-[#060b14] text-white border border-[#2b2f3a] rounded-xl overflow-hidden flex flex-col">
-        <div className="px-4 pt-3 flex justify-between items-center text-xs text-white/70">
-          <span className="font-semibold">SA</span>
-          <span className="font-semibold">Educon academy</span>
+      <div className="ticket-sheet relative overflow-hidden">
+        <img src={frontSrc} alt="ticket-front-template" className="absolute inset-0 h-full w-full object-cover" />
+        <div className="absolute left-[42px] top-[275px] w-[412px] text-center text-[23px] font-bold tracking-wide text-[#dcb586] uppercase">
+          {fullName}
         </div>
-        <div className="px-6 mt-3">
-          <div className="w-full h-[190px] rounded-2xl border-4 border-[#D4AF7A] bg-white overflow-hidden">
-            {attendee.profile_photo_url ? (
-              <img src={attendee.profile_photo_url} alt={attendee.full_name} className="w-full h-full object-cover" />
-            ) : (
-              <div className="w-full h-full flex items-center justify-center text-gray-400 text-sm">Photo</div>
-            )}
-          </div>
+        <div className="absolute left-[58px] top-[334px] w-[380px] text-center text-[34px] leading-[34px] font-black text-[#ffffff]">
+          Position: {attendee.job_title || 'Participant'}
         </div>
-        <div className="px-6 mt-2">
-          <div className="h-7 rounded-md bg-[#0b1220] border border-[#1f2839] flex items-center justify-center text-[13px] font-semibold">
-            {(attendee.full_name_en || attendee.full_name).toUpperCase()}
-          </div>
+        <div className="absolute left-[184px] top-[458px] rounded-md bg-white p-2">
+          <QRCodeSVG value={attendee.qr_code || attendee.id} size={120} />
         </div>
-        <div className="px-6 mt-2 text-[14px] text-[#D4AF7A] text-center">Position: {attendee.job_title || 'Participant'}</div>
-        <div className="px-6 mt-2 text-center">
-          <div className="text-4xl leading-9 font-extrabold tracking-wide">MEGA SALES</div>
-          <div className="text-4xl leading-9 font-extrabold tracking-wide">HACKERS</div>
-          <div className="text-sm mt-1 text-white/80">BY SALAH ABO ELMAGD</div>
+        <div className="absolute left-[138px] top-[660px] text-[31px] font-black text-[#e5e5e5]">
+          Wave num : {attendee.seat_class || '-'}
         </div>
-        <div className="mt-3 flex justify-center">
-          <div className="bg-white p-2 rounded">
-            <QRCodeSVG value={attendee.qr_code || attendee.id} size={78} />
-          </div>
+        <div className="absolute left-[138px] top-[702px] text-[31px] font-black text-[#e5e5e5]">
+          Table num : {tableNum ?? '-'}
         </div>
-        <div className="mt-2 flex justify-center">
-          <div className={`px-6 py-1 rounded-full text-[20px] font-black tracking-wide ${getClassStyle(attendee.seat_class)}`}>
-            CLASS [{attendee.seat_class}]
-          </div>
+        <div className="absolute left-[138px] top-[744px] text-[31px] font-black text-[#e5e5e5]">
+          Seat num : {attendee.seat_number ?? '-'}
         </div>
-        <div className="mt-2 px-7 text-[15px] leading-5 text-[#d9d9d9]">
-          <div>Wave num : {attendee.seat_class || '-'}</div>
-          <div>Table num : {parseTableFromBarcode(attendee.barcode)}</div>
-          <div>Seat num : {attendee.seat_number || '-'}</div>
-        </div>
-        <div className="mt-auto mb-3 flex justify-center">
+        <div className="absolute left-[110px] top-[595px] w-[280px]">
           {attendee.barcode ? (
-            <Barcode value={attendee.barcode} width={1.2} height={34} displayValue={false} margin={0} />
+            <Barcode value={attendee.barcode} width={1.1} height={40} displayValue={false} margin={0} />
           ) : (
-            <span className="text-xs text-white/40">NO BARCODE</span>
+            <div className="h-[40px]" />
           )}
         </div>
+        {attendee.profile_photo_url && (
+          <div className="absolute left-[101px] top-[99px] h-[165px] w-[294px] overflow-hidden rounded-[14px]">
+            <img src={attendee.profile_photo_url} alt={attendee.full_name} className="h-full w-full object-cover" />
+          </div>
+        )}
       </div>
     );
   };
 
   const renderTicketBack = () => {
     if (!attendee) return null;
-    const cfg = backConfig[normalizeGovernorate(attendee.governorate)] || backConfig.Minya;
+    const key = normalizeGovernorate(attendee.governorate);
+    const backSrc = backTemplateByGovernorate[key] || backTemplateByGovernorate.Minya;
     return (
-      <div className="ticket-sheet bg-[#070d17] text-white border border-[#2b2f3a] rounded-xl overflow-hidden flex flex-col">
-        <div className="px-6 pt-4 flex justify-between items-center text-white/85">
-          <span className="text-2xl font-semibold">SA</span>
-          <span className="text-sm font-semibold">Educon academy</span>
-        </div>
-        <div className="mt-3 px-8 flex justify-center">
-          <div className="w-[300px] h-[360px] rounded-xl bg-gradient-to-b from-[#111827] to-[#1f2937] flex items-center justify-center overflow-hidden">
-            {attendee.profile_photo_url ? (
-              <img src={attendee.profile_photo_url} alt={attendee.full_name} className="w-full h-full object-cover" />
-            ) : (
-              <span className="text-white/50">Profile</span>
-            )}
-          </div>
-        </div>
-        <div className="mt-5 h-[18px] bg-gradient-to-r from-[#8a6b48] to-[#2b2f36]" />
-        <div className="px-8 mt-3 text-center">
-          <div className="text-[58px] leading-[56px] font-black text-[#d8b186]">EDUCON</div>
-          <div className="text-[46px] leading-[42px] font-black text-[#d8b186]">&</div>
-          <div className="text-[56px] leading-[54px] font-black text-[#d8b186]">Salah Abo El Magd</div>
-        </div>
-        <div className="mt-auto px-8 pb-5 flex items-end justify-between text-[#e4bc8f]">
-          <div className="text-left">
-            <div className="text-4xl leading-4">⌖</div>
-            <div className="text-[28px] leading-[32px] font-bold mt-3">{cfg.label}</div>
-          </div>
-          <div className="text-right">
-            <div className="text-[58px] leading-7">⌗</div>
-            <div className="text-[28px] leading-[32px] font-bold mt-3">{cfg.date}</div>
-          </div>
-        </div>
+      <div className="ticket-sheet relative overflow-hidden">
+        <img src={backSrc} alt="ticket-back-template" className="absolute inset-0 h-full w-full object-cover" />
       </div>
     );
   };
 
   const renderCertificate = () => {
     if (!attendee) return null;
+    const fullName = attendee.full_name_en || attendee.full_name;
     return (
-      <div className="certificate-sheet bg-white text-[#1f1f1f] rounded-xl border border-gray-300 overflow-hidden p-12 flex flex-col items-center justify-center text-center">
-        <div className="w-full border-2 border-[#c7a57a] rounded-xl p-10">
-          <div className="text-sm tracking-[0.3em] text-gray-500">EDUCON ACADEMY</div>
-          <h1 className="mt-4 text-5xl font-black text-[#6f4f2f]">CERTIFICATE</h1>
-          <div className="mt-2 text-lg text-gray-700">OF ACHIEVEMENT</div>
-          <div className="mt-8 text-lg text-gray-500">This certificate is proudly presented to</div>
-          <div className="mt-3 text-4xl font-bold text-[#2d2d2d]">{(attendee.full_name_en || attendee.full_name).toUpperCase()}</div>
-          <div className="mt-8 text-lg leading-8 text-gray-700 max-w-4xl mx-auto">
-            Your hard work, dedication, and commitment to learning have enabled you to unlock this milestone, and we are honored to recognize your accomplishment.
-          </div>
-          <div className="mt-10 flex justify-between items-center text-sm text-gray-500">
-            <span>Educon & Salah Abo El Magd</span>
-            <span>2026</span>
-          </div>
+      <div className="certificate-sheet relative overflow-hidden">
+        <img src={certificateTemplate} alt="certificate-template" className="absolute inset-0 h-full w-full object-cover" />
+        <div className="absolute left-0 right-0 top-[43.4%] text-center text-[56px] font-extrabold text-white">
+          {fullName}
         </div>
       </div>
     );
@@ -211,9 +166,14 @@ const IDCard: React.FC = () => {
   return (
     <div className="max-w-7xl mx-auto p-6">
       <style>{`
-        .ticket-sheet { width: 8.5cm; height: 14cm; }
-        .certificate-sheet { width: 29.7cm; height: 21cm; }
+        .ticket-sheet { width: 8.5cm; height: 14cm; background: #10141c; }
+        .certificate-sheet { width: 29.7cm; height: 21cm; background: #111; }
+        .preview-wrap { transform-origin: top center; }
+        @media (max-width: 768px) {
+          .preview-wrap { transform: scale(0.7); }
+        }
         @media print {
+          @page { margin: 0; }
           .ticket-sheet, .certificate-sheet {
             border: none !important;
             border-radius: 0 !important;
@@ -281,7 +241,7 @@ const IDCard: React.FC = () => {
       </div>
 
       <div className="flex justify-center">
-        <div className="scale-[0.85] origin-top">
+        <div ref={previewModeRef} className="preview-wrap">
           {previewMode === 'certificate' ? renderCertificate() : previewMode === 'back' ? renderTicketBack() : renderTicketFront()}
         </div>
       </div>
