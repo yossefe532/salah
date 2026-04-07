@@ -121,13 +121,20 @@ const getSessionUser = () => {
 
 const isCompanyScopedRole = (role?: string | null) => role === 'company_admin' || role === 'company_employee';
 const isCoreRole = (role?: string | null) => !role || ['owner', 'data_entry', 'organizer', 'social_media', 'sales'].includes(role);
+const isMissingColumnError = (error: any, column: string) => {
+  const msg = String(error?.message || '').toLowerCase();
+  const col = String(column || '').toLowerCase();
+  return msg.includes(`column ${col} does not exist`)
+    || msg.includes(`'${col}' column`)
+    || msg.includes(`"${col}"`);
+};
 
 const applyCompanyScopeToAttendeesQuery = (query: any, currentUser: any) => {
-  if (!currentUser) return query.is('company_id', null);
+  if (!currentUser) return query;
   if (isCompanyScopedRole(currentUser.role)) {
     return query.eq('company_id', currentUser.company_id || '__none__');
   }
-  return query.is('company_id', null);
+  return query;
 };
 
 const getCompanyIdForCreatedRecords = (currentUser: any) => {
@@ -453,7 +460,17 @@ export const api = {
         supabase.from('attendees').select('*').eq('social_media_user_id', userId),
         currentUser
       );
-      const { data } = await scoped.order('created_at', { ascending: false });
+      let { data, error } = await scoped.order('created_at', { ascending: false });
+      if (error && isMissingColumnError(error, 'company_id')) {
+        const fallback = await supabase
+          .from('attendees')
+          .select('*')
+          .eq('social_media_user_id', userId)
+          .order('created_at', { ascending: false });
+        data = fallback.data;
+        error = fallback.error;
+      }
+      if (error) throw new Error(error.message);
       return data || [];
     }
 
@@ -471,7 +488,30 @@ export const api = {
         supabase.from('attendees').select('*').eq('lead_status', 'sales_completed').eq('sales_user_id', userId).eq('is_deleted', false),
         currentUser
       ).order('sales_verified_at', { ascending: false });
-      const [{ data: underReview }, { data: completedMine }] = await Promise.all([underReviewQuery, completedMineQuery]);
+      let [{ data: underReview, error: underReviewError }, { data: completedMine, error: completedMineError }] = await Promise.all([underReviewQuery, completedMineQuery]);
+      if ((underReviewError && isMissingColumnError(underReviewError, 'company_id')) || (completedMineError && isMissingColumnError(completedMineError, 'company_id'))) {
+        const [legacyUnder, legacyCompleted] = await Promise.all([
+          supabase
+            .from('attendees')
+            .select('*')
+            .eq('lead_status', 'under_review')
+            .eq('is_deleted', false)
+            .order('created_at', { ascending: false }),
+          supabase
+            .from('attendees')
+            .select('*')
+            .eq('lead_status', 'sales_completed')
+            .eq('sales_user_id', userId)
+            .eq('is_deleted', false)
+            .order('sales_verified_at', { ascending: false })
+        ]);
+        underReview = legacyUnder.data;
+        completedMine = legacyCompleted.data;
+        underReviewError = legacyUnder.error;
+        completedMineError = legacyCompleted.error;
+      }
+      if (underReviewError) throw new Error(underReviewError.message);
+      if (completedMineError) throw new Error(completedMineError.message);
 
       return { underReview: underReview || [], completedMine: completedMine || [] };
     }
@@ -485,7 +525,13 @@ export const api = {
           supabase.from('attendees').select('*').eq('id', idMatch[1]),
           currentUser
         );
-        const { data } = await scoped.single();
+        let { data, error } = await scoped.single();
+        if (error && isMissingColumnError(error, 'company_id')) {
+          const fallback = await supabase.from('attendees').select('*').eq('id', idMatch[1]).single();
+          data = (fallback.data as any) || [];
+          error = fallback.error;
+        }
+        if (error) throw new Error(error.message);
         return data;
       }
 
@@ -493,7 +539,17 @@ export const api = {
         supabase.from('attendees').select('*').eq('is_deleted', showTrash),
         currentUser
       );
-      const { data } = await scoped.order('created_at', { ascending: false });
+      let { data, error } = await scoped.order('created_at', { ascending: false });
+      if (error && isMissingColumnError(error, 'company_id')) {
+        const fallback = await supabase
+          .from('attendees')
+          .select('*')
+          .eq('is_deleted', showTrash)
+          .order('created_at', { ascending: false });
+        data = fallback.data;
+        error = fallback.error;
+      }
+      if (error) throw new Error(error.message);
       return data || [];
     }
 
@@ -539,18 +595,36 @@ export const api = {
       if (!currentUser) return [];
       let query = supabase.from('users').select('id, email, full_name, role, company_id, created_at');
       if (currentUser.role === 'owner') {
-        const { data } = await query.order('created_at', { ascending: false });
+        let { data, error } = await query.order('created_at', { ascending: false });
+        if (error && isMissingColumnError(error, 'company_id')) {
+          const fallback = await supabase.from('users').select('id, email, full_name, role, created_at').order('created_at', { ascending: false });
+          data = (fallback.data as any) || [];
+          error = fallback.error;
+        }
+        if (error) throw new Error(error.message);
         return data || [];
       }
       if (currentUser.role === 'company_admin') {
-        const { data } = await query.eq('company_id', currentUser.company_id).order('created_at', { ascending: false });
+        let { data, error } = await query.eq('company_id', currentUser.company_id).order('created_at', { ascending: false });
+        if (error && isMissingColumnError(error, 'company_id')) {
+          const fallback = await supabase.from('users').select('id, email, full_name, role, created_at').eq('id', currentUser.id).limit(1);
+          data = (fallback.data as any) || [];
+          error = fallback.error;
+        }
+        if (error) throw new Error(error.message);
         return data || [];
       }
       if (isCompanyScopedRole(currentUser.role)) {
         const { data } = await query.eq('id', currentUser.id).limit(1);
         return data || [];
       }
-      const { data } = await query.is('company_id', null).order('created_at', { ascending: false });
+      let { data, error } = await query.order('created_at', { ascending: false });
+      if (error && isMissingColumnError(error, 'company_id')) {
+        const fallback = await supabase.from('users').select('id, email, full_name, role, created_at').order('created_at', { ascending: false });
+        data = (fallback.data as any) || [];
+        error = fallback.error;
+      }
+      if (error) throw new Error(error.message);
       return data || [];
     }
     return [];
