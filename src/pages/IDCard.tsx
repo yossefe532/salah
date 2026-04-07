@@ -74,16 +74,16 @@ const IDCard: React.FC = () => {
   };
 
   const frontTemplateByClass: Record<string, string> = {
-    A: '/templates/ticket-front-a.png',
-    B: '/templates/ticket-front-b.png',
-    C: '/templates/ticket-front-c.png'
+    A: '/templates/ticket-front-a.jpg',
+    B: '/templates/ticket-front-b.jpg',
+    C: '/templates/ticket-front-c.jpg'
   };
 
   const backTemplateByGovernorate: Record<string, string> = {
-    Minya: '/templates/ticket-back-minya.png',
-    Asyut: '/templates/ticket-back-asyut.png',
-    Sohag: '/templates/ticket-back-sohag.png',
-    Qena: '/templates/ticket-back-qena.png'
+    Minya: '/templates/ticket-back-minya.jpg',
+    Asyut: '/templates/ticket-back-asyut.jpg',
+    Sohag: '/templates/ticket-back-sohag.jpg',
+    Qena: '/templates/ticket-back-qena.jpg'
   };
 
   const certificateTemplate = '/templates/certificate-template.png';
@@ -279,13 +279,13 @@ const IDCard: React.FC = () => {
         <p className="mb-2 font-semibold">الصور التي أرسلتها في المحادثة لا تدخل في ملفات الكود تلقائياً.</p>
         <p className="mb-2">لتظهر القوالب بشكل صحيح وتختفي الرسالة السوداء، <strong>يجب عليك يدوياً</strong> وضع ملفات الصور الخاصة بك في مجلد <code>public/templates/</code> داخل المشروع بالأسماء التالية بالضبط:</p>
         <div className="mt-2 grid grid-cols-1 md:grid-cols-2 gap-2 text-xs font-mono bg-white p-3 rounded border border-yellow-200" dir="ltr">
-          <div className="text-right">ticket-front-a.png</div>
-          <div className="text-right">ticket-front-b.png</div>
-          <div className="text-right">ticket-front-c.png</div>
-          <div className="text-right">ticket-back-minya.png</div>
-          <div className="text-right">ticket-back-asyut.png</div>
-          <div className="text-right">ticket-back-sohag.png</div>
-          <div className="text-right">ticket-back-qena.png</div>
+          <div className="text-right">ticket-front-a.jpg</div>
+          <div className="text-right">ticket-front-b.jpg</div>
+          <div className="text-right">ticket-front-c.jpg</div>
+          <div className="text-right">ticket-back-minya.jpg</div>
+          <div className="text-right">ticket-back-asyut.jpg</div>
+          <div className="text-right">ticket-back-sohag.jpg</div>
+          <div className="text-right">ticket-back-qena.jpg</div>
           <div className="text-right">certificate-template.png</div>
         </div>
       </div>
