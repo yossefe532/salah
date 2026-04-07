@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '../lib/api';
-import { User, UserRole } from '../types';
+import { Company, User, UserRole } from '../types';
 import { useAuth } from '../context/AuthContext';
 import { Trash2, Edit, Save, X, UserPlus, Shield } from 'lucide-react';
 
@@ -19,9 +19,14 @@ const UsersPage: React.FC = () => {
   const [newUserName, setNewUserName] = useState('');
   const [newUserRole, setNewUserRole] = useState<UserRole>('data_entry');
   const [isCreating, setIsCreating] = useState(false);
+  const [companies, setCompanies] = useState<Company[]>([]);
+  const [newUserCompanyId, setNewUserCompanyId] = useState<string>('');
+  const [newCompanyName, setNewCompanyName] = useState('');
+  const [newCompanyCode, setNewCompanyCode] = useState('');
 
   useEffect(() => {
     fetchUsers();
+    fetchCompanies();
   }, []);
 
   const fetchUsers = async () => {
@@ -34,6 +39,15 @@ const UsersPage: React.FC = () => {
       setMessage({ type: 'error', text: 'فشل تحميل المستخدمين.' });
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchCompanies = async () => {
+    try {
+      const data = await api.get('/companies');
+      setCompanies(Array.isArray(data) ? data : []);
+    } catch (error) {
+      console.error('Error fetching companies:', error);
     }
   };
 
@@ -73,6 +87,9 @@ const UsersPage: React.FC = () => {
             email: newUserEmail,
             full_name: newUserName,
             role: newUserRole,
+            company_id: newUserRole === 'company_admin' || newUserRole === 'company_employee'
+              ? (newUserCompanyId || null)
+              : (currentUser?.role === 'company_admin' ? currentUser.company_id || null : null),
             password: newUserPassword || '123456',
             created_at: new Date().toISOString()
         };
@@ -86,11 +103,29 @@ const UsersPage: React.FC = () => {
         setNewUserName('');
         setNewUserPassword('');
         setNewUserRole('data_entry');
+        setNewUserCompanyId('');
     } catch (error: any) {
         console.error('Error creating user:', error);
         setMessage({ type: 'error', text: error.message || 'فشل إنشاء المستخدم.' });
     } finally {
         setIsCreating(false);
+    }
+  };
+
+  const handleCreateCompany = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      if (!newCompanyName.trim()) throw new Error('اسم الشركة مطلوب');
+      await api.post('/companies', {
+        name: newCompanyName.trim(),
+        code: newCompanyCode.trim() || null
+      });
+      setMessage({ type: 'success', text: 'تم إنشاء الشركة بنجاح.' });
+      setNewCompanyName('');
+      setNewCompanyCode('');
+      await fetchCompanies();
+    } catch (error: any) {
+      setMessage({ type: 'error', text: error.message || 'فشل إنشاء الشركة.' });
     }
   };
 
@@ -144,13 +179,37 @@ const UsersPage: React.FC = () => {
                             value={newUserRole}
                             onChange={(e) => setNewUserRole(e.target.value as UserRole)}
                         >
-                            <option value="data_entry">مدخل بيانات</option>
-                            <option value="organizer">منظم</option>
-                            <option value="social_media">سوشيال ميديا</option>
-                            <option value="sales">سالز</option>
-                            <option value="owner">مالك (Owner)</option>
+                            {currentUser?.role === 'company_admin' ? (
+                              <option value="company_employee">موظف شركة</option>
+                            ) : (
+                              <>
+                                <option value="data_entry">مدخل بيانات</option>
+                                <option value="organizer">منظم</option>
+                                <option value="social_media">سوشيال ميديا</option>
+                                <option value="sales">سالز</option>
+                                <option value="owner">مالك (Owner)</option>
+                                <option value="company_admin">أدمن شركة</option>
+                                <option value="company_employee">موظف شركة</option>
+                              </>
+                            )}
                         </select>
                     </div>
+                    {(newUserRole === 'company_admin' || newUserRole === 'company_employee') && currentUser?.role === 'owner' && (
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">الشركة</label>
+                        <select
+                          required
+                          className="block w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm p-2 border"
+                          value={newUserCompanyId}
+                          onChange={(e) => setNewUserCompanyId(e.target.value)}
+                        >
+                          <option value="">اختر الشركة</option>
+                          {companies.map((company) => (
+                            <option key={company.id} value={company.id}>{company.name}</option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
                      <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1">كلمة المرور</label>
                         <input
@@ -172,6 +231,30 @@ const UsersPage: React.FC = () => {
                     </button>
                 </div>
             </form>
+        </div>
+      )}
+
+      {currentUser?.role === 'owner' && (
+        <div className="bg-white p-6 rounded-lg shadow-md border border-gray-200">
+          <h3 className="text-lg font-medium text-gray-900 mb-4">إضافة شركة فرعية</h3>
+          <form onSubmit={handleCreateCompany} className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <input
+              type="text"
+              value={newCompanyName}
+              onChange={(e) => setNewCompanyName(e.target.value)}
+              placeholder="اسم الشركة"
+              className="block w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm p-2 border"
+              required
+            />
+            <input
+              type="text"
+              value={newCompanyCode}
+              onChange={(e) => setNewCompanyCode(e.target.value)}
+              placeholder="كود الشركة (اختياري)"
+              className="block w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm p-2 border"
+            />
+            <button type="submit" className="px-4 py-2 rounded-md bg-indigo-600 text-white">إنشاء الشركة</button>
+          </form>
         </div>
       )}
 
@@ -201,6 +284,9 @@ const UsersPage: React.FC = () => {
                     <div className="mr-4 truncate">
                       <div className="text-base font-bold text-gray-900 truncate">{u.full_name || 'بدون اسم'}</div>
                       <div className="text-sm text-gray-500 truncate font-mono">{u.email}</div>
+                      {u.company_id && (
+                        <div className="text-xs text-indigo-600">شركة: {companies.find(c => c.id === u.company_id)?.name || 'غير معروفة'}</div>
+                      )}
                     </div>
                   </div>
                   
@@ -217,6 +303,8 @@ const UsersPage: React.FC = () => {
                           <option value="organizer">منظم</option>
                           <option value="social_media">سوشيال ميديا</option>
                           <option value="sales">سالز</option>
+                          <option value="company_admin">أدمن شركة</option>
+                          <option value="company_employee">موظف شركة</option>
                         </select>
                         <button
                           onClick={() => handleUpdateRole(u.id)}
@@ -240,13 +328,17 @@ const UsersPage: React.FC = () => {
                           u.role === 'data_entry' ? 'bg-blue-100 text-blue-800 border-blue-200' :
                           u.role === 'social_media' ? 'bg-pink-100 text-pink-800 border-pink-200' :
                           u.role === 'sales' ? 'bg-orange-100 text-orange-800 border-orange-200' :
+                          u.role === 'company_admin' ? 'bg-violet-100 text-violet-800 border-violet-200' :
+                          u.role === 'company_employee' ? 'bg-cyan-100 text-cyan-800 border-cyan-200' :
                           'bg-green-100 text-green-800 border-green-200'
                         }`}>
                           <Shield className="w-3 h-3 ml-1" />
                           {u.role === 'data_entry' ? 'مدخل بيانات' : 
                            u.role === 'organizer' ? 'منظم' :
                            u.role === 'social_media' ? 'سوشيال ميديا' :
-                           u.role === 'sales' ? 'سالز' : 'مالك'}
+                           u.role === 'sales' ? 'سالز' :
+                           u.role === 'company_admin' ? 'أدمن شركة' :
+                           u.role === 'company_employee' ? 'موظف شركة' : 'مالك'}
                         </span>
                         
                         {/* Prevent deleting yourself */}

@@ -1,9 +1,18 @@
-export type UserRole = 'owner' | 'data_entry' | 'organizer' | 'social_media' | 'sales';
+export type UserRole = 'owner' | 'data_entry' | 'organizer' | 'social_media' | 'sales' | 'company_admin' | 'company_employee';
+
+export interface Company {
+  id: string;
+  name: string;
+  code?: string;
+  owner_user_id?: string | null;
+  created_at: string;
+}
 
 export interface User {
   id: string;
   email: string;
   role: UserRole;
+  company_id?: string | null;
   commission_balance?: number;
   created_at: string;
   updated_at?: string;
@@ -21,6 +30,7 @@ export type SeatStatus = 'available' | 'reserved' | 'booked' | 'vip';
 export interface Attendee {
   id: string;
   full_name: string;
+  full_name_en?: string;
   phone_primary: string;
   phone_secondary?: string;
   email_primary?: string;
@@ -36,6 +46,9 @@ export interface Attendee {
   seat_class: SeatClass;
   seat_number?: number;
   ticket_price_override?: number;
+  base_ticket_price?: number;
+  certificate_included?: boolean;
+  preferred_neighbor_name?: string;
   payment_type: PaymentType;
   payment_amount: number;
   remaining_amount: number;
@@ -46,6 +59,7 @@ export interface Attendee {
   checked_in_at?: string;
   checked_in_by?: string;
   created_by: string;
+  company_id?: string | null;
   created_at: string;
   updated_at: string;
   is_deleted?: boolean;

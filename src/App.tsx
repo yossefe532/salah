@@ -32,19 +32,21 @@ function App() {
             <Route element={<Layout />}>
               <Route path="/" element={<Dashboard />} />
               
-              <Route element={<ProtectedRoute allowedRoles={['owner']} />}>
+              <Route element={<ProtectedRoute allowedRoles={['owner', 'company_admin']} />}>
                 <Route path="/users" element={<UsersPage />} />
+              </Route>
+              <Route element={<ProtectedRoute allowedRoles={['owner']} />}>
                 <Route path="/import" element={<ImportData />} />
                 <Route path="/finance" element={<Finance />} />
                 <Route path="/seating" element={<SeatingManagement />} />
               </Route>
 
-              <Route element={<ProtectedRoute allowedRoles={['owner', 'data_entry']} />}>
+              <Route element={<ProtectedRoute allowedRoles={['owner', 'data_entry', 'company_admin', 'company_employee']} />}>
                 <Route path="/register" element={<Register />} />
                 <Route path="/attendees/:id/edit" element={<EditAttendee />} />
               </Route>
               
-              <Route element={<ProtectedRoute allowedRoles={['owner', 'data_entry', 'organizer']} />}>
+              <Route element={<ProtectedRoute allowedRoles={['owner', 'data_entry', 'organizer', 'company_admin', 'company_employee']} />}>
                 <Route path="/attendees" element={<Attendees />} />
                 <Route path="/attendees/:id/id-card" element={<IDCard />} />
               </Route>
@@ -57,7 +59,7 @@ function App() {
                 <Route path="/sales-leads" element={<SalesLeads />} />
               </Route>
               
-              <Route element={<ProtectedRoute allowedRoles={['owner', 'organizer']} />}>
+              <Route element={<ProtectedRoute allowedRoles={['owner', 'organizer', 'company_admin']} />}>
                 <Route path="/checkin" element={<CheckIn />} />
               </Route>
             </Route>

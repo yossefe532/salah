@@ -25,6 +25,7 @@ const Dashboard: React.FC = () => {
     activityLogs: [] as any[], // New Activity Logs
     salesAnalysis: [] as any[],
     crossAnalysis: [] as any[], // New Cross Analysis
+    companyDaily: [] as any[],
   });
   const [loading, setLoading] = useState(true);
   const [isRealtime, setIsRealtime] = useState(false);
@@ -32,6 +33,7 @@ const Dashboard: React.FC = () => {
   const fetchStats = useCallback(async () => {
     try {
       const attendees: Attendee[] = await api.get('/attendees');
+      const companyDaily = await api.get('/company-daily-report');
       // Fetch Activity Logs
       const { data: logs } = await supabase.from('activity_logs').select('*').order('created_at', { ascending: false }).limit(10);
       const { data: expensesData } = await supabase.from('expenses').select('amount');
@@ -105,7 +107,8 @@ const Dashboard: React.FC = () => {
           byGovernorate,
           activityLogs: logs || [],
           salesAnalysis: salesAnalysisData,
-          crossAnalysis: crossAnalysisData
+          crossAnalysis: crossAnalysisData,
+          companyDaily: Array.isArray(companyDaily) ? companyDaily : []
         });
       }
     } catch (error) {
@@ -333,6 +336,38 @@ const Dashboard: React.FC = () => {
             </div>
           </div>
         </div>
+      </div>
+
+      <div className="bg-white dark:bg-gray-800 shadow rounded-lg p-4 transition-colors">
+        <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-3">متابعة يومية للشركات الفرعية</h2>
+        {stats.companyDaily.length === 0 ? (
+          <p className="text-sm text-gray-500 dark:text-gray-400">لا توجد بيانات شركات فرعية اليوم.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-sm">
+              <thead>
+                <tr className="border-b dark:border-gray-700 text-right">
+                  <th className="py-2">الشركة</th>
+                  <th className="py-2">عدد المسجلين اليوم</th>
+                  <th className="py-2">إيراد اليوم</th>
+                  <th className="py-2">آخر الأسماء المضافة</th>
+                </tr>
+              </thead>
+              <tbody>
+                {stats.companyDaily.map((row: any) => (
+                  <tr key={row.company_id} className="border-b dark:border-gray-700">
+                    <td className="py-2 font-medium text-gray-900 dark:text-white">{row.company_name}</td>
+                    <td className="py-2">{Number(row.today_count || 0)}</td>
+                    <td className="py-2">{Number(row.today_revenue || 0).toLocaleString()} ج.م</td>
+                    <td className="py-2 text-xs text-gray-600 dark:text-gray-300">
+                      {(row.today_people || []).slice(0, 5).map((p: any) => p.full_name).join('، ') || '—'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
 
       {/* Charts */}

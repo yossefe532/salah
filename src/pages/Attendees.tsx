@@ -363,7 +363,17 @@ const Attendees: React.FC = () => {
                     <td className="px-6 py-4">
                       <div className="flex items-center">
                         <div>
-                          <div className="text-base font-bold text-gray-900">{attendee.full_name}</div>
+                          <div className="text-base font-bold text-gray-900 flex flex-wrap items-center gap-2">
+                            <span>{attendee.full_name}</span>
+                            {attendee.preferred_neighbor_name && (
+                              <span className="text-xs px-2 py-0.5 rounded bg-indigo-50 text-indigo-700 border border-indigo-200">
+                                يريد الجلوس بجوار: {attendee.preferred_neighbor_name}
+                              </span>
+                            )}
+                          </div>
+                          {attendee.full_name_en && (
+                            <div className="text-xs text-gray-500 mt-0.5">{attendee.full_name_en}</div>
+                          )}
                           <div className="text-sm text-gray-500 mt-1 font-mono flex items-center gap-2">
                              {attendee.phone_primary}
                              {/* Communication Buttons */}
@@ -412,6 +422,16 @@ const Attendees: React.FC = () => {
                       </div>
                       <div className="text-xs text-indigo-600 mt-1">
                         صافي: {Math.max(0, Number(attendee.payment_amount || 0) - Number(attendee.commission_amount || 0)).toLocaleString()} ج.م
+                      </div>
+                      <div className="text-xs text-blue-700 mt-1">
+                        السعر الأساسي: {Number(attendee.base_ticket_price || attendee.ticket_price_override || (attendee.seat_class === 'A' ? 2000 : attendee.seat_class === 'B' ? 1700 : 1500)).toLocaleString()} ج.م
+                      </div>
+                      <div className="text-xs mt-1">
+                        {attendee.certificate_included ? (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded bg-green-100 text-green-700 border border-green-200">بشهادة</span>
+                        ) : (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded bg-gray-100 text-gray-600 border border-gray-200">بدون شهادة</span>
+                        )}
                       </div>
                       <div className="text-xs text-gray-500 mt-1">
                         المصدر: {attendee.sales_source_name || attendee.sales_channel || 'مباشر'}

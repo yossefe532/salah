@@ -59,12 +59,82 @@ const getEffectiveTicketPrice = (seatClass: string, override?: number | null) =>
   return SEAT_PRICES[seatClass] || 0;
 };
 
+const getBaseTicketPrice = (payload: any) => {
+  if (payload?.base_ticket_price !== undefined && payload?.base_ticket_price !== null && Number(payload.base_ticket_price) > 0) {
+    return Number(payload.base_ticket_price);
+  }
+  if (payload?.ticket_price_override !== undefined && payload?.ticket_price_override !== null && Number(payload.ticket_price_override) > 0) {
+    return Number(payload.ticket_price_override);
+  }
+  return SEAT_PRICES[payload?.seat_class] || 0;
+};
+
+const getCertificateIncluded = (payload: any) => {
+  const hasCustomPrice = payload?.ticket_price_override !== undefined && payload?.ticket_price_override !== null && Number(payload.ticket_price_override) > 0;
+  if (!hasCustomPrice) return true;
+  if (payload?.certificate_included === undefined || payload?.certificate_included === null) return false;
+  return Boolean(payload.certificate_included);
+};
+
+const transliterateArabicToEnglish = (input?: string | null) => {
+  const value = String(input || '').trim();
+  if (!value) return '';
+  const map: Record<string, string> = {
+    'ا': 'a', 'أ': 'a', 'إ': 'e', 'آ': 'aa', 'ء': 'a', 'ؤ': 'o', 'ئ': 'e',
+    'ب': 'b', 'ت': 't', 'ث': 'th', 'ج': 'g', 'ح': 'h', 'خ': 'kh',
+    'د': 'd', 'ذ': 'z', 'ر': 'r', 'ز': 'z', 'س': 's', 'ش': 'sh',
+    'ص': 's', 'ض': 'd', 'ط': 't', 'ظ': 'z', 'ع': 'a', 'غ': 'gh',
+    'ف': 'f', 'ق': 'q', 'ك': 'k', 'ل': 'l', 'م': 'm', 'ن': 'n',
+    'ه': 'h', 'و': 'w', 'ي': 'y', 'ى': 'a', 'ة': 'a',
+    '٠': '0', '١': '1', '٢': '2', '٣': '3', '٤': '4',
+    '٥': '5', '٦': '6', '٧': '7', '٨': '8', '٩': '9'
+  };
+  const raw = value
+    .split('')
+    .map((ch) => map[ch] ?? ch)
+    .join('')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return raw
+    .split(' ')
+    .map((part) => part ? part.charAt(0).toUpperCase() + part.slice(1).toLowerCase() : '')
+    .join(' ');
+};
+
 const buildSeatBarcode = (seatClass?: string, seatNumber?: number | null) => {
   if (!seatClass || !seatNumber || Number(seatNumber) <= 0) return null;
   return `${seatClass}-${String(Number(seatNumber)).padStart(3, '0')}`;
 };
 
 const isMissingTable = (error: any) => String(error?.message || '').includes('Could not find the table');
+
+const getSessionUser = () => {
+  try {
+    const raw = localStorage.getItem('local_session');
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return parsed?.user || null;
+  } catch {
+    return null;
+  }
+};
+
+const isCompanyScopedRole = (role?: string | null) => role === 'company_admin' || role === 'company_employee';
+const isCoreRole = (role?: string | null) => !role || ['owner', 'data_entry', 'organizer', 'social_media', 'sales'].includes(role);
+
+const applyCompanyScopeToAttendeesQuery = (query: any, currentUser: any) => {
+  if (!currentUser) return query.is('company_id', null);
+  if (isCompanyScopedRole(currentUser.role)) {
+    return query.eq('company_id', currentUser.company_id || '__none__');
+  }
+  return query.is('company_id', null);
+};
+
+const getCompanyIdForCreatedRecords = (currentUser: any) => {
+  if (!currentUser) return null;
+  if (isCompanyScopedRole(currentUser.role)) return currentUser.company_id || null;
+  return null;
+};
 
 const buildSeatCode = (seatClass: 'A' | 'B' | 'C', rowNumber: number, side: 'left' | 'right', tableOrder: number | null, seatNumber: number) => {
   if (seatClass === 'C') return `C-R${rowNumber}-S${seatNumber}`;
@@ -288,7 +358,7 @@ window.addEventListener('online', processOfflineQueue);
 // This client-side API now talks directly to Supabase when online
 export const api = {
   async get(endpoint: string) {
-    // ... existing get code ...
+    const currentUser = getSessionUser();
     if (endpoint.startsWith('/seating/config')) {
       return {
         event_id: DEFAULT_EVENT_ID,
@@ -379,11 +449,11 @@ export const api = {
       const userId = params.get('userId');
       if (!userId) return [];
 
-      const { data } = await supabase
-        .from('attendees')
-        .select('*')
-        .eq('social_media_user_id', userId)
-        .order('created_at', { ascending: false });
+      const scoped = applyCompanyScopeToAttendeesQuery(
+        supabase.from('attendees').select('*').eq('social_media_user_id', userId),
+        currentUser
+      );
+      const { data } = await scoped.order('created_at', { ascending: false });
       return data || [];
     }
 
@@ -393,21 +463,15 @@ export const api = {
       const userId = params.get('userId');
       if (!userId) return { underReview: [], completedMine: [] };
 
-      const [{ data: underReview }, { data: completedMine }] = await Promise.all([
-        supabase
-          .from('attendees')
-          .select('*')
-          .eq('lead_status', 'under_review')
-          .eq('is_deleted', false)
-          .order('created_at', { ascending: false }),
-        supabase
-          .from('attendees')
-          .select('*')
-          .eq('lead_status', 'sales_completed')
-          .eq('sales_user_id', userId)
-          .eq('is_deleted', false)
-          .order('sales_verified_at', { ascending: false }),
-      ]);
+      const underReviewQuery = applyCompanyScopeToAttendeesQuery(
+        supabase.from('attendees').select('*').eq('lead_status', 'under_review').eq('is_deleted', false),
+        currentUser
+      ).order('created_at', { ascending: false });
+      const completedMineQuery = applyCompanyScopeToAttendeesQuery(
+        supabase.from('attendees').select('*').eq('lead_status', 'sales_completed').eq('sales_user_id', userId).eq('is_deleted', false),
+        currentUser
+      ).order('sales_verified_at', { ascending: false });
+      const [{ data: underReview }, { data: completedMine }] = await Promise.all([underReviewQuery, completedMineQuery]);
 
       return { underReview: underReview || [], completedMine: completedMine || [] };
     }
@@ -417,30 +481,102 @@ export const api = {
       const idMatch = endpoint.match(/\/attendees\/([^\/?]+)/);
       
       if (idMatch) {
-        const { data } = await supabase.from('attendees').select('*').eq('id', idMatch[1]).single();
+        const scoped = applyCompanyScopeToAttendeesQuery(
+          supabase.from('attendees').select('*').eq('id', idMatch[1]),
+          currentUser
+        );
+        const { data } = await scoped.single();
         return data;
       }
 
-      const { data } = await supabase
-        .from('attendees')
-        .select('*')
-        .eq('is_deleted', showTrash)
-        .order('created_at', { ascending: false });
+      const scoped = applyCompanyScopeToAttendeesQuery(
+        supabase.from('attendees').select('*').eq('is_deleted', showTrash),
+        currentUser
+      );
+      const { data } = await scoped.order('created_at', { ascending: false });
       return data || [];
     }
 
+    if (endpoint.startsWith('/companies')) {
+      if (!currentUser) return [];
+      if (currentUser.role === 'owner') {
+        const { data } = await supabase.from('companies').select('*').order('created_at', { ascending: false });
+        return data || [];
+      }
+      if (isCompanyScopedRole(currentUser.role)) {
+        const { data } = await supabase.from('companies').select('*').eq('id', currentUser.company_id).limit(1);
+        return data || [];
+      }
+      return [];
+    }
+
+    if (endpoint.startsWith('/company-daily-report')) {
+      if (currentUser?.role !== 'owner') return [];
+      const since = new Date();
+      since.setHours(0, 0, 0, 0);
+      const sinceIso = since.toISOString();
+      const [{ data: companies }, { data: attendees }] = await Promise.all([
+        supabase.from('companies').select('id, name').order('name', { ascending: true }),
+        supabase
+          .from('attendees')
+          .select('id, full_name, created_at, payment_amount, company_id, created_by')
+          .gte('created_at', sinceIso)
+          .eq('is_deleted', false)
+      ]);
+      return (companies || []).map((company: any) => {
+        const items = (attendees || []).filter((a: any) => a.company_id === company.id);
+        return {
+          company_id: company.id,
+          company_name: company.name,
+          today_count: items.length,
+          today_revenue: items.reduce((sum: number, row: any) => sum + (Number(row.payment_amount) || 0), 0),
+          today_people: items
+        };
+      });
+    }
+
     if (endpoint === '/users') {
-      const { data } = await supabase.from('users').select('id, email, full_name, role, created_at');
+      if (!currentUser) return [];
+      let query = supabase.from('users').select('id, email, full_name, role, company_id, created_at');
+      if (currentUser.role === 'owner') {
+        const { data } = await query.order('created_at', { ascending: false });
+        return data || [];
+      }
+      if (currentUser.role === 'company_admin') {
+        const { data } = await query.eq('company_id', currentUser.company_id).order('created_at', { ascending: false });
+        return data || [];
+      }
+      if (isCompanyScopedRole(currentUser.role)) {
+        const { data } = await query.eq('id', currentUser.id).limit(1);
+        return data || [];
+      }
+      const { data } = await query.is('company_id', null).order('created_at', { ascending: false });
       return data || [];
     }
     return [];
   },
   
   async post(endpoint: string, body: any) {
+    const currentUser = getSessionUser();
     // Offline Handling for Check-in
     if (endpoint === '/checkin' && !navigator.onLine) {
         addToQueue(endpoint, body);
         return { success: true, offline: true, message: 'تم التسجيل وضع الأوفلاين (سيتم الرفع عند عودة النت)' };
+    }
+
+    if (endpoint === '/companies') {
+      if (currentUser?.role !== 'owner') throw new Error('غير مسموح بإنشاء شركة');
+      const payload = {
+        id: body.id || crypto.randomUUID(),
+        name: String(body.name || '').trim(),
+        code: body.code || null,
+        owner_user_id: body.owner_user_id || null,
+        created_at: new Date().toISOString()
+      };
+      if (!payload.name) throw new Error('اسم الشركة مطلوب');
+      const { data, error } = await supabase.from('companies').insert([payload]).select().single();
+      if (error) throw new Error(error.message);
+      return data;
     }
 
     if (endpoint === '/seating/init') {
@@ -916,10 +1052,21 @@ export const api = {
           throw new Error('السعر المخصص للتذكرة مسموح للمالك فقط');
         }
       }
-      const resolvedSeat = await resolveSeat(body);
+      const companyId = getCompanyIdForCreatedRecords(currentUser);
+      const resolvedSeat = await resolveSeat({ ...body, company_id: companyId });
       const generatedBarcode = buildSeatBarcode(body.seat_class, resolvedSeat);
+      const baseTicketPrice = getBaseTicketPrice(body);
+      const paidAmount = Number(body.payment_amount || 0);
+      const remainingAmount = Math.max(0, baseTicketPrice - paidAmount);
+      const certificateIncluded = getCertificateIncluded(body);
+      const fullNameEn = String(body.full_name_en || '').trim() || transliterateArabicToEnglish(body.full_name);
       const { data, error } = await insertAttendeeSafely({
         ...body,
+        company_id: body.company_id ?? companyId,
+        full_name_en: fullNameEn,
+        base_ticket_price: baseTicketPrice,
+        certificate_included: certificateIncluded,
+        remaining_amount: remainingAmount,
         seat_number: resolvedSeat,
         barcode: generatedBarcode || body.barcode || null,
         is_deleted: false
@@ -937,7 +1084,8 @@ export const api = {
               action_type: 'register',
               details: `تسجيل جديد (${data.seat_class}) - مدفوع ${paid} ج.م - عمولة ${commission} ج.م - صافي ${net} ج.م`,
               amount_change: net,
-              performed_by: data.created_by
+              performed_by: data.created_by,
+              company_id: data.company_id ?? null
           }]);
       }
       return data;
@@ -946,9 +1094,13 @@ export const api = {
     if (endpoint === '/social-leads') {
       const leadId = body.id || crypto.randomUUID();
       const isStudent = body.occupation_type === 'student';
+      const baseTicketPrice = getBaseTicketPrice(body);
+      const certificateIncluded = getCertificateIncluded(body);
+      const fullNameEn = String(body.full_name_en || '').trim() || transliterateArabicToEnglish(body.full_name);
       const payload = {
         id: leadId,
         full_name: body.full_name,
+        full_name_en: fullNameEn,
         phone_primary: body.phone_primary,
         governorate: body.governorate,
         seat_class: body.seat_class,
@@ -961,7 +1113,10 @@ export const api = {
         status: 'interested',
         payment_type: 'deposit',
         payment_amount: 0,
-        remaining_amount: SEAT_PRICES[body.seat_class] || 0,
+        remaining_amount: baseTicketPrice,
+        base_ticket_price: baseTicketPrice,
+        certificate_included: certificateIncluded,
+        preferred_neighbor_name: body.preferred_neighbor_name || null,
         attendance_status: false,
         qr_code: leadId,
         barcode: leadId.substring(0, 8),
@@ -976,6 +1131,7 @@ export const api = {
         sales_commission_amount: 50,
         commission_distributed: false,
         notes: body.notes || null,
+        company_id: getCompanyIdForCreatedRecords(currentUser),
       };
 
       const { data, error } = await insertAttendeeSafely(payload);
@@ -988,6 +1144,7 @@ export const api = {
         details: `Lead جديد من السوشيال - تحت المراجعة`,
         amount_change: 0,
         performed_by: data.created_by,
+        company_id: data.company_id ?? null
       }]);
 
       return data;
@@ -1014,7 +1171,7 @@ export const api = {
       const paidAmount = Number(body.payment_amount || 0);
       if (paidAmount <= 0) throw new Error('يجب تسجيل قيمة العربون');
 
-      const totalPrice = getEffectiveTicketPrice(oldRecord.seat_class, oldRecord.ticket_price_override);
+      const totalPrice = Number(oldRecord.base_ticket_price || getEffectiveTicketPrice(oldRecord.seat_class, oldRecord.ticket_price_override));
       const remainingAmount = Math.max(0, totalPrice - paidAmount);
       const commissionSocial = 70;
       const resolvedSeat = await resolveSeat({
@@ -1030,6 +1187,7 @@ export const api = {
         sales_user_id: null,
         payment_type: 'deposit',
         payment_amount: paidAmount,
+        base_ticket_price: totalPrice,
         remaining_amount: remainingAmount,
         seat_number: resolvedSeat,
         sales_verified_full_name: !!body.sales_verified_full_name,
@@ -1098,7 +1256,7 @@ export const api = {
       const paidAmount = Number(body.payment_amount || 0);
       if (paidAmount <= 0) throw new Error('يجب تسجيل دفع عربون أو دفع كامل');
 
-      const totalPrice = getEffectiveTicketPrice(oldRecord.seat_class, oldRecord.ticket_price_override);
+      const totalPrice = Number(oldRecord.base_ticket_price || getEffectiveTicketPrice(oldRecord.seat_class, oldRecord.ticket_price_override));
       const remainingAmount = Math.max(0, totalPrice - paidAmount);
       const totalCommission = 100;
       const socialShare = 50;
@@ -1116,6 +1274,7 @@ export const api = {
         sales_user_id: salesUserId,
         payment_type: body.payment_type || 'deposit',
         payment_amount: paidAmount,
+        base_ticket_price: totalPrice,
         remaining_amount: remainingAmount,
         phone_secondary: body.phone_secondary || oldRecord.phone_secondary || null,
         email_secondary: body.email_secondary || oldRecord.email_secondary || null,
@@ -1215,6 +1374,12 @@ export const api = {
       }
 
       if (!attendee) throw new Error('المشارك غير موجود');
+      if (isCompanyScopedRole(currentUser?.role) && attendee.company_id !== currentUser?.company_id) {
+        throw new Error('لا يمكنك تسجيل حضور مشارك من شركة أخرى');
+      }
+      if (isCoreRole(currentUser?.role) && attendee.company_id) {
+        throw new Error('لا يمكنك تسجيل حضور مشارك يتبع شركة فرعية');
+      }
       
       if (attendee.attendance_status) {
           // Return the attendee data even if already checked in, so UI can show "Already Checked In"
@@ -1229,7 +1394,8 @@ export const api = {
           attendee_name: attendee.full_name,
           action_type: 'check_in',
           details: 'تم تسجيل الحضور',
-          performed_by: userId 
+          performed_by: userId,
+          company_id: attendee.company_id ?? null
       }]);
       
       await supabase.from('logs').insert([{ attendee_id: attendee.id, recorded_by: userId, action: 'check_in' }]);
@@ -1237,19 +1403,38 @@ export const api = {
     }
 
     if (endpoint === '/users') {
-      const { data, error } = await supabase.from('users').insert([body]).select().single();
+      if (!currentUser) throw new Error('غير مصرح');
+      let payload = { ...body };
+      if (currentUser.role === 'company_admin') {
+        if (payload.role !== 'company_employee') {
+          throw new Error('أدمن الشركة يمكنه إضافة موظفي شركته فقط');
+        }
+        payload = { ...payload, company_id: currentUser.company_id };
+      } else if (currentUser.role === 'owner') {
+        if ((payload.role === 'company_admin' || payload.role === 'company_employee') && !payload.company_id) {
+          throw new Error('اختيار الشركة مطلوب لهذا الدور');
+        }
+      } else {
+        throw new Error('غير مسموح بإضافة مستخدمين');
+      }
+      const { data, error } = await supabase.from('users').insert([payload]).select().single();
       if (error) throw new Error(error.message);
       return data;
     }
   },
 
   async put(endpoint: string, body: any) {
+    const currentUser = getSessionUser();
     const id = endpoint.split('/').pop();
     const table = endpoint.includes('/users/') ? 'users' : 'attendees';
     
     // Smart Logging Logic for Attendees
     if (table === 'attendees') {
-        const { data: oldRecord } = await supabase.from('attendees').select('*').eq('id', id).single();
+        const scopedRecord = applyCompanyScopeToAttendeesQuery(
+          supabase.from('attendees').select('*').eq('id', id),
+          currentUser
+        );
+        const { data: oldRecord } = await scopedRecord.single();
         
         if (oldRecord) {
             const logs = [];
@@ -1315,7 +1500,11 @@ export const api = {
 
     let bodyToSave: any = body;
     if (table === 'attendees') {
-      const { data: oldRecord } = await supabase.from('attendees').select('governorate, seat_class, status, seat_number, barcode').eq('id', id).single();
+      const scopedRecord = applyCompanyScopeToAttendeesQuery(
+        supabase.from('attendees').select('full_name, full_name_en, governorate, seat_class, status, seat_number, barcode, ticket_price_override, base_ticket_price, certificate_included, remaining_amount').eq('id', id),
+        currentUser
+      );
+      const { data: oldRecord } = await scopedRecord.single();
       if (oldRecord) {
         const merged = {
           governorate: body.governorate ?? oldRecord.governorate,
@@ -1324,8 +1513,28 @@ export const api = {
           seat_number: body.seat_number ?? oldRecord.seat_number ?? null,
         };
         const resolvedSeat = await resolveSeat(merged, String(id));
+        const baseTicketPrice = getBaseTicketPrice({
+          seat_class: merged.seat_class,
+          ticket_price_override: body.ticket_price_override ?? oldRecord.ticket_price_override ?? null,
+          base_ticket_price: body.base_ticket_price ?? oldRecord.base_ticket_price ?? null
+        });
+        const paymentAmount = body.payment_amount !== undefined ? Number(body.payment_amount || 0) : null;
+        const remainingAmount = paymentAmount === null
+          ? (body.remaining_amount ?? oldRecord.remaining_amount ?? null)
+          : Math.max(0, baseTicketPrice - paymentAmount);
+        const certificateIncluded = getCertificateIncluded({
+          ticket_price_override: body.ticket_price_override ?? oldRecord.ticket_price_override ?? null,
+          certificate_included: body.certificate_included ?? oldRecord.certificate_included ?? null
+        });
+        const nextFullName = body.full_name ?? oldRecord.full_name ?? '';
+        const nextFullNameEn = String(body.full_name_en || '').trim()
+          || (body.full_name !== undefined ? transliterateArabicToEnglish(nextFullName) : (oldRecord.full_name_en || transliterateArabicToEnglish(nextFullName)));
         bodyToSave = {
           ...body,
+          full_name_en: nextFullNameEn,
+          base_ticket_price: baseTicketPrice,
+          certificate_included: certificateIncluded,
+          remaining_amount: remainingAmount,
           seat_number: resolvedSeat,
           barcode: buildSeatBarcode(merged.seat_class, resolvedSeat) || body.barcode || oldRecord.barcode || null
         };
@@ -1333,7 +1542,7 @@ export const api = {
     }
 
     const result = table === 'attendees'
-      ? await updateAttendeeSafely(String(id), bodyToSave)
+      ? await updateAttendeeSafely(String(id), { ...bodyToSave, company_id: getCompanyIdForCreatedRecords(currentUser) })
       : await supabase.from(table).update(bodyToSave).eq('id', id).select().single();
     const { data, error } = result as any;
     if (error) throw new Error(error.message);
@@ -1341,25 +1550,39 @@ export const api = {
   },
 
   async patch(endpoint: string, body: any = {}) {
+    const currentUser = getSessionUser();
     const parts = endpoint.split('/');
     const id = parts[2];
     if (endpoint.includes('restore')) {
-      await supabase.from('attendees').update({ is_deleted: false }).eq('id', id);
+      const scoped = applyCompanyScopeToAttendeesQuery(
+        supabase.from('attendees').update({ is_deleted: false }).eq('id', id),
+        currentUser
+      );
+      await scoped;
       return { success: true };
     }
     if (endpoint.includes('toggle-attendance')) {
-      const { data: att } = await supabase.from('attendees').select('attendance_status').eq('id', id).single();
+      const scopedRead = applyCompanyScopeToAttendeesQuery(
+        supabase.from('attendees').select('attendance_status').eq('id', id),
+        currentUser
+      );
+      const { data: att } = await scopedRead.single();
       const newStatus = !att.attendance_status;
-      const { data } = await supabase.from('attendees').update({ 
+      const scopedUpdate = applyCompanyScopeToAttendeesQuery(
+        supabase.from('attendees').update({ 
         attendance_status: newStatus, 
         checked_in_at: newStatus ? new Date().toISOString() : null,
         checked_in_by: newStatus ? 'manual' : null
-      }).eq('id', id).select().single();
+      }).eq('id', id),
+        currentUser
+      );
+      const { data } = await scopedUpdate.select().single();
       return data;
     }
   },
 
   async delete(endpoint: string) {
+    const currentUser = getSessionUser();
     const parts = endpoint.split('/');
     const id = parts[2];
     if (endpoint.includes('permanent')) {
@@ -1367,7 +1590,11 @@ export const api = {
     } else if (endpoint.includes('/users/')) {
       throw new Error('حذف المستخدمين معطّل للحفاظ على البيانات');
     } else {
-      await supabase.from('attendees').update({ is_deleted: true }).eq('id', id);
+      const scoped = applyCompanyScopeToAttendeesQuery(
+        supabase.from('attendees').update({ is_deleted: true }).eq('id', id),
+        currentUser
+      );
+      await scoped;
     }
     return { success: true };
   }

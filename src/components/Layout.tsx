@@ -39,11 +39,11 @@ const Layout: React.FC = () => {
         switch (e.key.toLowerCase()) {
           case 'n': // New
             e.preventDefault();
-            if (user?.role === 'owner' || user?.role === 'data_entry') navigate('/register');
+            if (user?.role === 'owner' || user?.role === 'data_entry' || user?.role === 'company_admin' || user?.role === 'company_employee') navigate('/register');
             break;
           case 's': // Scan
             e.preventDefault();
-            if (user?.role === 'owner' || user?.role === 'organizer') navigate('/checkin');
+            if (user?.role === 'owner' || user?.role === 'organizer' || user?.role === 'company_admin') navigate('/checkin');
             break;
           case 'l': // List
             e.preventDefault();
@@ -68,25 +68,25 @@ const Layout: React.FC = () => {
       name: 'الرئيسية',
       path: '/',
       icon: <Home className="w-5 h-5" />,
-      roles: ['owner', 'data_entry', 'organizer', 'social_media', 'sales']
+      roles: ['owner', 'data_entry', 'organizer', 'social_media', 'sales', 'company_admin', 'company_employee']
     },
     {
       name: 'قائمة الحضور',
       path: '/attendees',
       icon: <Users className="w-5 h-5" />,
-      roles: ['owner', 'data_entry', 'organizer']
+      roles: ['owner', 'data_entry', 'organizer', 'company_admin', 'company_employee']
     },
     {
       name: 'المسح الضوئي',
       path: '/checkin',
       icon: <Scan className="w-5 h-5" />,
-      roles: ['owner', 'organizer']
+      roles: ['owner', 'organizer', 'company_admin']
     },
     {
       name: 'شاشة العرض',
       path: '/live',
       icon: <LayoutDashboard className="w-5 h-5" />,
-      roles: ['owner']
+      roles: ['owner', 'company_admin']
     },
     {
       name: 'المستخدمين',

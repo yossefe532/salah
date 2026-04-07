@@ -9,6 +9,7 @@ import { useNavigate } from 'react-router-dom';
 
 const schema = z.object({
   full_name: z.string().min(3, 'Full name must be at least 3 characters'),
+  full_name_en: z.string().optional(),
   occupation_type: z.enum(['student', 'employee', 'business_owner', 'executive']),
   organization_name: z.string().optional(),
   job_title: z.string().optional(),
@@ -25,6 +26,8 @@ const schema = z.object({
   seat_class: z.enum(['A', 'B', 'C']),
   seat_number: z.number().int().positive().optional(),
   ticket_price_override: z.number().min(0).optional(),
+  certificate_included: z.boolean().optional(),
+  preferred_neighbor_name: z.string().optional(),
   status: z.enum(['interested', 'registered']),
   payment_type: z.enum(['deposit', 'full']).optional(),
   payment_amount: z.number().min(0).optional(),
@@ -51,6 +54,31 @@ const smartFormatPhone = (value: string) => {
   return englishDigits.replace(/\D/g, '');
 };
 
+const transliterateArabicToEnglish = (input?: string | null) => {
+  const value = String(input || '').trim();
+  if (!value) return '';
+  const map: Record<string, string> = {
+    'ا': 'a', 'أ': 'a', 'إ': 'e', 'آ': 'aa', 'ء': 'a', 'ؤ': 'o', 'ئ': 'e',
+    'ب': 'b', 'ت': 't', 'ث': 'th', 'ج': 'g', 'ح': 'h', 'خ': 'kh',
+    'د': 'd', 'ذ': 'z', 'ر': 'r', 'ز': 'z', 'س': 's', 'ش': 'sh',
+    'ص': 's', 'ض': 'd', 'ط': 't', 'ظ': 'z', 'ع': 'a', 'غ': 'gh',
+    'ف': 'f', 'ق': 'q', 'ك': 'k', 'ل': 'l', 'م': 'm', 'ن': 'n',
+    'ه': 'h', 'و': 'w', 'ي': 'y', 'ى': 'a', 'ة': 'a',
+    '٠': '0', '١': '1', '٢': '2', '٣': '3', '٤': '4',
+    '٥': '5', '٦': '6', '٧': '7', '٨': '8', '٩': '9'
+  };
+  const raw = value
+    .split('')
+    .map((ch) => map[ch] ?? ch)
+    .join('')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return raw
+    .split(' ')
+    .map((part) => part ? part.charAt(0).toUpperCase() + part.slice(1).toLowerCase() : '')
+    .join(' ');
+};
+
 const Register: React.FC = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -59,6 +87,7 @@ const Register: React.FC = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [occupiedSeats, setOccupiedSeats] = useState<number[]>([]);
+  const [englishNameEdited, setEnglishNameEdited] = useState(false);
 
   const { register, handleSubmit, watch, setValue, formState: { errors }, trigger } = useForm<FormData>({
     resolver: zodResolver(schema),
@@ -72,6 +101,8 @@ const Register: React.FC = () => {
       occupation_type: 'employee',
       sales_channel: 'direct',
       commission_amount: 0,
+      certificate_included: true,
+      full_name_en: '',
     },
   });
 
@@ -96,6 +127,8 @@ const Register: React.FC = () => {
   };
 
   const status = watch('status');
+  const fullName = watch('full_name');
+  const fullNameEn = watch('full_name_en');
   const governorate = watch('governorate');
   const seatClass = watch('seat_class');
   const paymentType = watch('payment_type');
@@ -106,8 +139,9 @@ const Register: React.FC = () => {
   const netTicketAmount = Math.max(0, paymentAmount - commissionAmount);
   const selectedSeatNumber = watch('seat_number');
   const ticketPriceOverride = watch('ticket_price_override') as number | undefined;
+  const isCustomPrice = !!(ticketPriceOverride && user?.role === 'owner' && Number(ticketPriceOverride) > 0);
   const currentGovCapacity = (GOVERNORATE_CAPACITIES[governorate] as any)?.[seatClass] || 0;
-  const effectiveSeatPrice = ticketPriceOverride && user?.role === 'owner' ? Number(ticketPriceOverride) : SEAT_PRICES[seatClass];
+  const effectiveSeatPrice = isCustomPrice ? Number(ticketPriceOverride) : SEAT_PRICES[seatClass];
   const availableSeatNumbers = useMemo(() => {
     if (status !== 'registered' || currentGovCapacity <= 0) return [];
     const occupied = new Set(occupiedSeats);
@@ -117,6 +151,16 @@ const Register: React.FC = () => {
     }
     return result;
   }, [currentGovCapacity, occupiedSeats, status]);
+
+  useEffect(() => {
+    if (!fullName) {
+      if (!englishNameEdited) setValue('full_name_en', '');
+      return;
+    }
+    if (!englishNameEdited || !fullNameEn) {
+      setValue('full_name_en', transliterateArabicToEnglish(fullName));
+    }
+  }, [fullName, fullNameEn, englishNameEdited, setValue]);
 
   // Auto-fill full payment amount
   useEffect(() => {
@@ -180,12 +224,16 @@ const Register: React.FC = () => {
       
       const newAttendeeId = crypto.randomUUID();
       const safeCommission = Math.max(0, Math.min(Number(data.commission_amount || 0), Number(data.payment_amount || 0)));
+      const baseTicketPrice = isCustomPrice ? Number(data.ticket_price_override) : SEAT_PRICES[data.seat_class];
+      const certificateIncluded = isCustomPrice ? !!data.certificate_included : true;
+      const fullNameEnFinal = String(data.full_name_en || '').trim() || transliterateArabicToEnglish(data.full_name);
       
       // We will let the API handle seat resolution if not provided
       const newAttendee = {
           id: newAttendeeId,
           created_at: new Date().toISOString(),
           ...data,
+          full_name_en: fullNameEnFinal,
           created_by: user.id,
           // Handle optional/nulls
           payment_type: data.status === 'registered' ? data.payment_type : 'deposit',
@@ -198,6 +246,9 @@ const Register: React.FC = () => {
           year: data.occupation_type === 'student' ? (data.year || null) : null,
           sales_channel: data.sales_channel,
           seat_number: data.status === 'registered' && capacity > 0 && data.seat_number ? Number(data.seat_number) : null,
+          base_ticket_price: baseTicketPrice,
+          certificate_included: certificateIncluded,
+          preferred_neighbor_name: data.preferred_neighbor_name || null,
           sales_source_name: data.sales_source_name || null,
           commission_amount: data.status === 'registered' ? safeCommission : 0,
           commission_notes: data.commission_notes || null,
@@ -208,8 +259,8 @@ const Register: React.FC = () => {
           
           // Calculated fields for display
           remaining_amount: (data.status === 'registered') 
-            ? Math.max(0, effectiveSeatPrice - (Number(data.payment_amount) || 0))
-            : effectiveSeatPrice,
+            ? Math.max(0, baseTicketPrice - (Number(data.payment_amount) || 0))
+            : baseTicketPrice,
             
           attendance_status: false,
           qr_code: newAttendeeId, // Use ID as QR content
@@ -263,6 +314,25 @@ const Register: React.FC = () => {
                   placeholder="مثال: أحمد محمد علي"
                 />
                 {errors.full_name && <p className="mt-1 text-sm text-red-600">{errors.full_name.message}</p>}
+              </div>
+            </div>
+
+            <div className="sm:col-span-6">
+              <label htmlFor="full_name_en" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                الاسم بالإنجليزي
+              </label>
+              <div className="mt-1">
+                <input
+                  id="full_name_en"
+                  type="text"
+                  {...register('full_name_en')}
+                  onChange={(e) => {
+                    setEnglishNameEdited(true);
+                    setValue('full_name_en', e.target.value);
+                  }}
+                  className="shadow-sm focus:ring-indigo-500 focus:border-indigo-500 block w-full sm:text-sm border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-md p-2 border"
+                  placeholder="Automatic English name (editable)"
+                />
               </div>
             </div>
 
@@ -634,6 +704,43 @@ const Register: React.FC = () => {
                         </p>
                       </div>
                     )}
+
+                    <div className="sm:col-span-3">
+                      <label htmlFor="certificate_included" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                        الشهادة
+                      </label>
+                      {isCustomPrice ? (
+                        <div className="mt-1">
+                          <select
+                            id="certificate_included"
+                            {...register('certificate_included', { setValueAs: (v) => String(v) === 'true' })}
+                            className="shadow-sm focus:ring-indigo-500 focus:border-indigo-500 block w-full sm:text-sm border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-md p-2 border"
+                          >
+                            <option value="true">بشهادة</option>
+                            <option value="false">بدون شهادة</option>
+                          </select>
+                        </div>
+                      ) : (
+                        <div className="mt-1 p-2 rounded-md border border-green-200 bg-green-50 text-green-700 text-sm">
+                          إجباري بشهادة للفئات الأساسية A / B / C
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="sm:col-span-3">
+                      <label htmlFor="preferred_neighbor_name" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                        يريد الجلوس بجانب
+                      </label>
+                      <div className="mt-1">
+                        <input
+                          id="preferred_neighbor_name"
+                          type="text"
+                          {...register('preferred_neighbor_name')}
+                          className="shadow-sm focus:ring-indigo-500 focus:border-indigo-500 block w-full sm:text-sm border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-md p-2 border"
+                          placeholder="اكتب اسم شخص من الحاضرين"
+                        />
+                      </div>
+                    </div>
 
                     {currentGovCapacity > 0 && (
                       <div className="sm:col-span-3">
