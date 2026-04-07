@@ -11,6 +11,13 @@ import { Attendee, Governorate, SeatClass, PaymentType } from '../types';
 const schema = z.object({
   full_name: z.string().min(3, 'الاسم يجب أن يكون 3 أحرف على الأقل'),
   full_name_en: z.string().optional(),
+  occupation_type: z.enum(['student', 'employee', 'business_owner', 'executive']).optional(),
+  organization_name: z.string().optional().or(z.literal('')),
+  job_title: z.string().optional().or(z.literal('')),
+  university: z.string().optional().or(z.literal('')),
+  faculty: z.string().optional().or(z.literal('')),
+  year: z.string().optional().or(z.literal('')),
+  notes: z.string().optional().or(z.literal('')),
   phone_primary: z.string().min(10, 'رقم الهاتف غير صالح'),
   phone_secondary: z.string().optional().or(z.literal('')),
   email_primary: z.string().email('بريد إلكتروني غير صالح').optional().or(z.literal('')),
@@ -87,14 +94,22 @@ const EditAttendee: React.FC = () => {
         status: 'registered',
         payment_type: 'deposit',
         payment_amount: 0,
+        occupation_type: 'employee',
         sales_channel: 'direct',
         commission_amount: 0,
         certificate_included: true,
         full_name_en: '',
+        organization_name: '',
+        job_title: '',
+        university: '',
+        faculty: '',
+        year: '',
+        notes: '',
     }
   });
 
   const status = watch('status');
+  const occupationType = watch('occupation_type');
   const fullName = watch('full_name');
   const fullNameEn = watch('full_name_en');
   const governorate = watch('governorate');
@@ -144,6 +159,13 @@ const EditAttendee: React.FC = () => {
           seat_class: data.seat_class,
           seat_number: data.seat_number || undefined,
           status: data.status,
+          occupation_type: data.occupation_type || 'employee',
+          organization_name: data.organization_name || '',
+          job_title: data.job_title || '',
+          university: data.university || '',
+          faculty: data.faculty || '',
+          year: data.year || '',
+          notes: data.notes || '',
           payment_type: data.payment_type || 'deposit',
           payment_amount: data.payment_amount || 0,
           sales_channel: data.sales_channel || 'direct',
@@ -298,6 +320,78 @@ const EditAttendee: React.FC = () => {
                 className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm p-2 border"
               />
               {errors.full_name_en && <p className="mt-1 text-sm text-red-600">{errors.full_name_en.message}</p>}
+            </div>
+
+            <div className="sm:col-span-3">
+              <label className="block text-sm font-medium text-gray-700">صفة العميل</label>
+              <select
+                {...register('occupation_type')}
+                className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm p-2 border"
+              >
+                <option value="student">طالب</option>
+                <option value="employee">موظف</option>
+                <option value="business_owner">صاحب عمل</option>
+                <option value="executive">تنفيذي</option>
+              </select>
+            </div>
+
+            {occupationType === 'student' ? (
+              <>
+                <div className="sm:col-span-3">
+                  <label className="block text-sm font-medium text-gray-700">الجامعة</label>
+                  <input
+                    type="text"
+                    {...register('university')}
+                    className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm p-2 border"
+                  />
+                </div>
+                <div className="sm:col-span-3">
+                  <label className="block text-sm font-medium text-gray-700">الكلية</label>
+                  <input
+                    type="text"
+                    {...register('faculty')}
+                    className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm p-2 border"
+                  />
+                </div>
+                <div className="sm:col-span-3">
+                  <label className="block text-sm font-medium text-gray-700">السنة الدراسية</label>
+                  <input
+                    type="text"
+                    {...register('year')}
+                    className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm p-2 border"
+                  />
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="sm:col-span-3">
+                  <label className="block text-sm font-medium text-gray-700">جهة العمل</label>
+                  <input
+                    type="text"
+                    {...register('organization_name')}
+                    className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm p-2 border"
+                    placeholder="اسم الشركة أو المؤسسة"
+                  />
+                </div>
+                <div className="sm:col-span-3">
+                  <label className="block text-sm font-medium text-gray-700">المسمى الوظيفي</label>
+                  <input
+                    type="text"
+                    {...register('job_title')}
+                    className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm p-2 border"
+                    placeholder="مهندس / مدير / CEO"
+                  />
+                </div>
+              </>
+            )}
+
+            <div className="sm:col-span-6">
+              <label className="block text-sm font-medium text-gray-700">ملاحظات إضافية</label>
+              <textarea
+                {...register('notes')}
+                rows={3}
+                className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm p-2 border"
+              />
             </div>
 
             <div className="sm:col-span-3">

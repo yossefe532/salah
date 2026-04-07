@@ -118,41 +118,41 @@ const IDCard: React.FC = () => {
         </div>
 
         {/* Name - Gold Text Centered */}
-        <div className="absolute z-10 w-full text-center flex flex-col justify-center items-center" style={{ top: '46.5%', height: '5%' }}>
+        <div className="absolute z-10 w-full text-center flex flex-col justify-center items-center" style={{ top: '48.5%', height: '5%' }}>
           <div className="font-bold tracking-wide uppercase text-[#c39d78] px-4" style={{ fontFamily: '"TT Runs Trial", sans-serif', fontSize: '13.28px' }}>
             {fullName}
           </div>
         </div>
 
         {/* Position - Placed next to the "Position :" label in template */}
-        <div className="absolute z-10" style={{ top: '50.3%', left: '58.5%', transform: 'translateY(-50%)' }}>
+        <div className="absolute z-10 w-full text-center" style={{ top: '54.2%', left: '50%', transform: 'translateX(-50%)' }}>
           <div className="font-semibold text-[#e0d3c2] whitespace-nowrap" style={{ fontFamily: '"TT Runs Trial", sans-serif', fontSize: '13.92px' }}>
-            {attendee.job_title || 'Participant'}
+            Position : {attendee.job_title || 'Participant'}
           </div>
         </div>
 
-        {/* QR Code - Centered on the QR placeholder above "MEGA SALES HACKERS" */}
-        <div className="absolute z-10 w-full flex justify-center" style={{ top: '69.5%' }}>
+        {/* QR Code - Centered on the QR placeholder */}
+        <div className="absolute z-10 w-full flex justify-center" style={{ top: '70.5%' }}>
           {attendee.barcode ? (
-            <div className="bg-white p-[2px] rounded-sm">
-               <QRCodeSVG value={attendee.barcode} size={42} level="M" />
+            <div className="bg-white p-[2px] rounded-sm shadow-sm">
+               <QRCodeSVG value={attendee.barcode} size={82} level="H" />
             </div>
           ) : (
-            <div className="h-[42px]" />
+            <div className="h-[82px]" />
           )}
         </div>
 
         {/* Wave / Table Num Value */}
-        <div className="absolute z-10" style={{ top: '88.3%', left: '55%', transform: 'translateY(-50%)' }}>
-          <div className="text-[15px] font-bold text-white">
-            {tableNum ?? attendee.seat_class ?? '-'}
+        <div className="absolute z-10 w-full text-center" style={{ top: '86.4%', left: '16%' }}>
+          <div className="text-[12px] font-bold text-[#e0d3c2] opacity-90" style={{ fontFamily: 'sans-serif' }}>
+            wave part num : <span className="text-white">{tableNum ?? attendee.seat_class ?? '-'}</span>
           </div>
         </div>
 
         {/* Seat Num Value */}
-        <div className="absolute z-10" style={{ top: '92.3%', left: '55%', transform: 'translateY(-50%)' }}>
-          <div className="text-[15px] font-bold text-white">
-            {attendee.seat_number ?? '-'}
+        <div className="absolute z-10 w-full text-center" style={{ top: '90.4%', left: '16%' }}>
+          <div className="text-[12px] font-bold text-[#e0d3c2] opacity-90" style={{ fontFamily: 'sans-serif' }}>
+            Seat num : <span className="text-white">{attendee.seat_number ?? '-'}</span>
           </div>
         </div>
       </div>
@@ -180,7 +180,7 @@ const IDCard: React.FC = () => {
         <img src={certificateTemplate} alt="certificate-template" onError={handleImageError} className="absolute inset-0 h-full w-full object-cover z-0 transition-opacity duration-200" />
         
         {/* Name - Centered in the middle of the certificate space */}
-        <div className="absolute z-10 w-full text-center flex flex-col justify-center items-center" style={{ top: '51.5%', left: '50%', transform: 'translate(-50%, -50%)' }}>
+        <div className="absolute z-10 w-full text-center flex flex-col justify-center items-center" style={{ top: '43.2%', left: '50%', transform: 'translate(-50%, -50%)' }}>
           <div className="font-bold tracking-wider" style={{ color: '#dcb586', fontFamily: 'Roboto, sans-serif', fontSize: '36.9px', letterSpacing: '0.02em' }}>
             {fullName}
           </div>
