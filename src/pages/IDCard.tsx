@@ -118,27 +118,27 @@ const IDCard: React.FC = () => {
         </div>
 
         {/* Name - Gold Text Centered */}
-        <div className="absolute z-10 w-full text-center flex flex-col justify-center items-center" style={{ top: '44%', height: '5%' }}>
-          <div className="text-[18px] font-extrabold tracking-wide uppercase text-[#c7a57a] px-4">
+        <div className="absolute z-10 w-full text-center flex flex-col justify-center items-center" style={{ top: '46.5%', height: '5%' }}>
+          <div className="font-bold tracking-wide uppercase text-[#c39d78] px-4" style={{ fontFamily: '"TT Runs Trial", sans-serif', fontSize: '13.28px' }}>
             {fullName}
           </div>
         </div>
 
         {/* Position - Placed next to the "Position :" label in template */}
-        <div className="absolute z-10" style={{ top: '50.3%', left: '58%', transform: 'translateY(-50%)' }}>
-          <div className="text-[14px] font-bold text-white whitespace-nowrap">
+        <div className="absolute z-10" style={{ top: '50.3%', left: '58.5%', transform: 'translateY(-50%)' }}>
+          <div className="font-semibold text-[#e0d3c2] whitespace-nowrap" style={{ fontFamily: '"TT Runs Trial", sans-serif', fontSize: '13.92px' }}>
             {attendee.job_title || 'Participant'}
           </div>
         </div>
 
-        {/* Barcode - Centered below "BY SALAH ABO ELMAGD" */}
-        <div className="absolute z-10 w-full flex justify-center" style={{ top: '75%' }}>
+        {/* QR Code - Centered on the QR placeholder above "MEGA SALES HACKERS" */}
+        <div className="absolute z-10 w-full flex justify-center" style={{ top: '69.5%' }}>
           {attendee.barcode ? (
-            <div className="bg-white p-1 rounded-sm scale-90">
-               <Barcode value={attendee.barcode} width={1.2} height={30} displayValue={false} margin={0} background="#fff" lineColor="#000" />
+            <div className="bg-white p-[2px] rounded-sm">
+               <QRCodeSVG value={attendee.barcode} size={42} level="M" />
             </div>
           ) : (
-            <div className="h-[30px]" />
+            <div className="h-[42px]" />
           )}
         </div>
 
@@ -179,9 +179,9 @@ const IDCard: React.FC = () => {
         <div className="absolute inset-0 flex items-center justify-center text-gray-800 text-sm border border-gray-800">صورة القالب مفقودة ({certificateTemplate})</div>
         <img src={certificateTemplate} alt="certificate-template" onError={handleImageError} className="absolute inset-0 h-full w-full object-cover z-0 transition-opacity duration-200" />
         
-        {/* Name - Placed exactly in the empty space between the two lines of text */}
-        <div className="absolute z-10 w-full text-center flex flex-col justify-center items-center" style={{ top: '50%', left: '50%', transform: 'translate(-50%, -50%)' }}>
-          <div className="text-[52px] font-bold tracking-wider" style={{ color: '#dcb586', fontFamily: 'serif', letterSpacing: '0.05em' }}>
+        {/* Name - Centered in the middle of the certificate space */}
+        <div className="absolute z-10 w-full text-center flex flex-col justify-center items-center" style={{ top: '51.5%', left: '50%', transform: 'translate(-50%, -50%)' }}>
+          <div className="font-bold tracking-wider" style={{ color: '#dcb586', fontFamily: 'Roboto, sans-serif', fontSize: '36.9px', letterSpacing: '0.02em' }}>
             {fullName}
           </div>
         </div>
