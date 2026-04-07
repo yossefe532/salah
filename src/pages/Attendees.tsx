@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { api, supabase } from '../lib/api';
 import { Attendee } from '../types';
-import { Search, Eye, QrCode, CheckCircle, XCircle, UserCheck, UserX, Trash2, RefreshCcw, AlertTriangle, MessageCircle, Phone, Upload, Edit2, FileSpreadsheet, Copy, Zap } from 'lucide-react';
+import { Search, Eye, QrCode, CheckCircle, XCircle, UserCheck, UserX, Trash2, RefreshCcw, AlertTriangle, MessageCircle, Phone, Upload, Edit2, FileSpreadsheet, Copy, Zap, Ticket, FileBadge2 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import * as XLSX from 'xlsx';
@@ -371,6 +371,14 @@ const Attendees: React.FC = () => {
                               </span>
                             )}
                           </div>
+                          <div className="mt-1 flex flex-wrap items-center gap-2">
+                            <span className={`text-[11px] px-2 py-0.5 rounded border ${attendee.ticket_printed ? 'bg-green-100 text-green-700 border-green-200' : 'bg-gray-100 text-gray-600 border-gray-200'}`}>
+                              التيكت: {attendee.ticket_printed ? 'اتطبع' : 'لسه'}
+                            </span>
+                            <span className={`text-[11px] px-2 py-0.5 rounded border ${attendee.certificate_printed ? 'bg-green-100 text-green-700 border-green-200' : 'bg-gray-100 text-gray-600 border-gray-200'}`}>
+                              الشهادة: {attendee.certificate_printed ? 'اتطبعت' : 'لسه'}
+                            </span>
+                          </div>
                           {attendee.full_name_en && (
                             <div className="text-xs text-gray-500 mt-0.5">{attendee.full_name_en}</div>
                           )}
@@ -472,7 +480,23 @@ const Attendees: React.FC = () => {
                             <Link 
                               to={`/attendees/${attendee.id}/id-card`} 
                               className="p-2 bg-indigo-50 text-indigo-600 hover:bg-indigo-100 rounded-full border border-indigo-200 transition-colors shadow-sm"
-                              title="عرض التفاصيل"
+                              title="معاينة التيكت"
+                            >
+                              <Ticket className="h-5 w-5" />
+                            </Link>
+
+                            <Link 
+                              to={`/attendees/${attendee.id}/id-card?template=certificate`} 
+                              className="p-2 bg-emerald-50 text-emerald-600 hover:bg-emerald-100 rounded-full border border-emerald-200 transition-colors shadow-sm"
+                              title="معاينة الشهادة"
+                            >
+                              <FileBadge2 className="h-5 w-5" />
+                            </Link>
+
+                            <Link 
+                              to={`/attendees/${attendee.id}/id-card?template=back`} 
+                              className="p-2 bg-slate-50 text-slate-600 hover:bg-slate-100 rounded-full border border-slate-200 transition-colors shadow-sm"
+                              title="معاينة ظهر التيكت"
                             >
                               <Eye className="h-5 w-5" />
                             </Link>

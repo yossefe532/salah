@@ -1210,6 +1210,10 @@ export const api = {
         remaining_amount: remainingAmount,
         seat_number: resolvedSeat,
         barcode: generatedBarcode || body.barcode || null,
+        ticket_printed: false,
+        ticket_printed_at: null,
+        certificate_printed: false,
+        certificate_printed_at: null,
         is_deleted: false
       });
       if (error) throw new Error(error.message);
@@ -1271,6 +1275,10 @@ export const api = {
         social_commission_amount: 50,
         sales_commission_amount: 50,
         commission_distributed: false,
+        ticket_printed: false,
+        ticket_printed_at: null,
+        certificate_printed: false,
+        certificate_printed_at: null,
         notes: body.notes || null,
         company_id: getCompanyIdForCreatedRecords(currentUser),
       };
@@ -1719,6 +1727,20 @@ export const api = {
       );
       const { data } = await scopedUpdate.select().single();
       return data;
+    }
+    if (endpoint.includes('mark-printed')) {
+      const documentType = String(body?.document_type || '').toLowerCase();
+      if (documentType !== 'ticket' && documentType !== 'certificate') {
+        throw new Error('نوع المستند غير صحيح');
+      }
+      const now = new Date().toISOString();
+      const payload = documentType === 'ticket'
+        ? { ticket_printed: true, ticket_printed_at: now }
+        : { certificate_printed: true, certificate_printed_at: now };
+      const result = await updateAttendeeSafely(String(id), payload);
+      const { data, error } = result as any;
+      if (error) throw new Error(error.message);
+      return normalizeAttendeePricing(data);
     }
   },
 

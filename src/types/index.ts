@@ -78,6 +78,10 @@ export interface Attendee {
   sales_verified_photo?: boolean;
   sales_verified_job?: boolean;
   profile_photo_url?: string;
+  ticket_printed?: boolean;
+  ticket_printed_at?: string | null;
+  certificate_printed?: boolean;
+  certificate_printed_at?: string | null;
   job_title?: string;
   sales_verified_at?: string;
 }
