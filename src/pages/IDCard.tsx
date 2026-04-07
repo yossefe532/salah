@@ -113,40 +113,40 @@ const IDCard: React.FC = () => {
         </div>
 
         {/* Name - Gold Text Centered */}
-        <div className="absolute z-10 w-full text-center" style={{ top: '38%' }}>
-          <div className="text-[17px] font-extrabold tracking-wide uppercase text-[#c7a57a] px-4">
+        <div className="absolute z-10 w-full text-center" style={{ top: '44%' }}>
+          <div className="text-[16px] font-extrabold tracking-wide uppercase text-[#c7a57a] px-4">
             {fullName}
           </div>
         </div>
 
         {/* Position - Placed next to the "Position :" label in template */}
-        <div className="absolute z-10" style={{ top: '44.8%', left: '56%', transform: 'translateX(-50%)' }}>
+        <div className="absolute z-10" style={{ top: '50.5%', left: '56%', transform: 'translateX(-50%)' }}>
           <div className="text-[14px] font-bold text-white whitespace-nowrap">
             {attendee.job_title || 'Participant'}
           </div>
         </div>
 
         {/* Barcode - Centered below "BY SALAH ABO ELMAGD" */}
-        <div className="absolute z-10" style={{ top: '74%', left: '50%', transform: 'translateX(-50%)' }}>
+        <div className="absolute z-10 w-full flex justify-center" style={{ top: '75.5%' }}>
           {attendee.barcode ? (
-            <div className="bg-white p-1 rounded-sm">
-               <Barcode value={attendee.barcode} width={1.2} height={35} displayValue={false} margin={0} background="#fff" lineColor="#000" />
+            <div className="bg-white p-1 rounded-sm scale-90">
+               <Barcode value={attendee.barcode} width={1.2} height={30} displayValue={false} margin={0} background="#fff" lineColor="#000" />
             </div>
           ) : (
-            <div className="h-[35px]" />
+            <div className="h-[30px]" />
           )}
         </div>
 
-        {/* Table / Wave Num Value - Placed next to the label */}
-        <div className="absolute z-10" style={{ top: '88%', left: '56%' }}>
-          <div className="text-[15px] font-bold text-white">
+        {/* Wave / Table Num Value */}
+        <div className="absolute z-10" style={{ top: '88.5%', left: '55%' }}>
+          <div className="text-[14px] font-bold text-white">
             {tableNum ?? attendee.seat_class ?? '-'}
           </div>
         </div>
 
-        {/* Seat Num Value - Placed next to the label */}
-        <div className="absolute z-10" style={{ top: '91.8%', left: '56%' }}>
-          <div className="text-[15px] font-bold text-white">
+        {/* Seat Num Value */}
+        <div className="absolute z-10" style={{ top: '92.3%', left: '55%' }}>
+          <div className="text-[14px] font-bold text-white">
             {attendee.seat_number ?? '-'}
           </div>
         </div>
@@ -173,9 +173,9 @@ const IDCard: React.FC = () => {
       <div className="certificate-sheet relative overflow-hidden bg-[#111]">
         <img src={certificateTemplate} alt="certificate-template" className="absolute inset-0 h-full w-full object-cover z-0" />
         
-        {/* Name - Placed exactly in the empty space */}
-        <div className="absolute z-10 w-full text-center" style={{ top: '42%' }}>
-          <div className="text-[48px] font-bold tracking-wide" style={{ color: '#dcb586', fontFamily: 'serif' }}>
+        {/* Name - Placed exactly in the empty space between the two lines of text */}
+        <div className="absolute z-10 w-full text-center flex flex-col justify-center items-center" style={{ top: '38%', height: '15%' }}>
+          <div className="text-[44px] font-bold tracking-wider" style={{ color: '#dcb586', fontFamily: 'serif', letterSpacing: '0.05em' }}>
             {fullName}
           </div>
         </div>
@@ -197,6 +197,9 @@ const IDCard: React.FC = () => {
         }
         @media print {
           @page { margin: 0; }
+          body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+          .ticket-sheet { width: 8.5cm !important; height: 14cm !important; page-break-after: always; }
+          .certificate-sheet { width: 29.7cm !important; height: 21cm !important; page-break-after: always; }
           .ticket-sheet, .certificate-sheet {
             border: none !important;
             border-radius: 0 !important;
