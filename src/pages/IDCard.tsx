@@ -100,38 +100,56 @@ const IDCard: React.FC = () => {
     const fullName = attendee.full_name_en || attendee.full_name;
     const tableNum = parseTableFromSeatCode(attendee.barcode);
     return (
-      <div className="ticket-sheet relative overflow-hidden">
-        <img src={frontSrc} alt="ticket-front-template" className="absolute inset-0 h-full w-full object-cover" />
-        <div className="absolute left-[42px] top-[275px] w-[412px] text-center text-[23px] font-bold tracking-wide text-[#dcb586] uppercase">
-          {fullName}
-        </div>
-        <div className="absolute left-[58px] top-[334px] w-[380px] text-center text-[34px] leading-[34px] font-black text-[#ffffff]">
-          Position: {attendee.job_title || 'Participant'}
-        </div>
-        <div className="absolute left-[184px] top-[458px] rounded-md bg-white p-2">
-          <QRCodeSVG value={attendee.qr_code || attendee.id} size={120} />
-        </div>
-        <div className="absolute left-[138px] top-[660px] text-[31px] font-black text-[#e5e5e5]">
-          Wave num : {attendee.seat_class || '-'}
-        </div>
-        <div className="absolute left-[138px] top-[702px] text-[31px] font-black text-[#e5e5e5]">
-          Table num : {tableNum ?? '-'}
-        </div>
-        <div className="absolute left-[138px] top-[744px] text-[31px] font-black text-[#e5e5e5]">
-          Seat num : {attendee.seat_number ?? '-'}
-        </div>
-        <div className="absolute left-[110px] top-[595px] w-[280px]">
-          {attendee.barcode ? (
-            <Barcode value={attendee.barcode} width={1.1} height={40} displayValue={false} margin={0} />
+      <div className="ticket-sheet relative overflow-hidden bg-[#0a0a0a]">
+        <img src={frontSrc} alt="ticket-front-template" className="absolute inset-0 h-full w-full object-cover z-0" />
+        
+        {/* Profile Photo - Top Box */}
+        <div className="absolute z-10" style={{ top: '10.5%', left: '50%', transform: 'translateX(-50%)', width: '42%', aspectRatio: '1/1' }}>
+          {attendee.profile_photo_url ? (
+            <img src={attendee.profile_photo_url} alt={attendee.full_name} className="h-full w-full object-cover rounded-xl border-[3px] border-[#c7a57a]" />
           ) : (
-            <div className="h-[40px]" />
+            <div className="h-full w-full rounded-xl border-[3px] border-[#c7a57a] bg-white/10 flex items-center justify-center text-white/50 text-xs">صورة شخصية</div>
           )}
         </div>
-        {attendee.profile_photo_url && (
-          <div className="absolute left-[101px] top-[99px] h-[165px] w-[294px] overflow-hidden rounded-[14px]">
-            <img src={attendee.profile_photo_url} alt={attendee.full_name} className="h-full w-full object-cover" />
+
+        {/* Name - Gold Text Centered */}
+        <div className="absolute z-10 w-full text-center" style={{ top: '38%' }}>
+          <div className="text-[17px] font-extrabold tracking-wide uppercase text-[#c7a57a] px-4">
+            {fullName}
           </div>
-        )}
+        </div>
+
+        {/* Position - Placed next to the "Position :" label in template */}
+        <div className="absolute z-10" style={{ top: '44.8%', left: '56%', transform: 'translateX(-50%)' }}>
+          <div className="text-[14px] font-bold text-white whitespace-nowrap">
+            {attendee.job_title || 'Participant'}
+          </div>
+        </div>
+
+        {/* Barcode - Centered below "BY SALAH ABO ELMAGD" */}
+        <div className="absolute z-10" style={{ top: '74%', left: '50%', transform: 'translateX(-50%)' }}>
+          {attendee.barcode ? (
+            <div className="bg-white p-1 rounded-sm">
+               <Barcode value={attendee.barcode} width={1.2} height={35} displayValue={false} margin={0} background="#fff" lineColor="#000" />
+            </div>
+          ) : (
+            <div className="h-[35px]" />
+          )}
+        </div>
+
+        {/* Table / Wave Num Value - Placed next to the label */}
+        <div className="absolute z-10" style={{ top: '88%', left: '56%' }}>
+          <div className="text-[15px] font-bold text-white">
+            {tableNum ?? attendee.seat_class ?? '-'}
+          </div>
+        </div>
+
+        {/* Seat Num Value - Placed next to the label */}
+        <div className="absolute z-10" style={{ top: '91.8%', left: '56%' }}>
+          <div className="text-[15px] font-bold text-white">
+            {attendee.seat_number ?? '-'}
+          </div>
+        </div>
       </div>
     );
   };
@@ -141,8 +159,9 @@ const IDCard: React.FC = () => {
     const key = normalizeGovernorate(attendee.governorate);
     const backSrc = backTemplateByGovernorate[key] || backTemplateByGovernorate.Minya;
     return (
-      <div className="ticket-sheet relative overflow-hidden">
-        <img src={backSrc} alt="ticket-back-template" className="absolute inset-0 h-full w-full object-cover" />
+      <div className="ticket-sheet relative overflow-hidden bg-[#0a0a0a]">
+        <img src={backSrc} alt="ticket-back-template" className="absolute inset-0 h-full w-full object-cover z-0" />
+        {/* The back template has NO dynamic text, it is just the image! */}
       </div>
     );
   };
@@ -151,10 +170,14 @@ const IDCard: React.FC = () => {
     if (!attendee) return null;
     const fullName = attendee.full_name_en || attendee.full_name;
     return (
-      <div className="certificate-sheet relative overflow-hidden">
-        <img src={certificateTemplate} alt="certificate-template" className="absolute inset-0 h-full w-full object-cover" />
-        <div className="absolute left-0 right-0 top-[43.4%] text-center text-[56px] font-extrabold text-white">
-          {fullName}
+      <div className="certificate-sheet relative overflow-hidden bg-[#111]">
+        <img src={certificateTemplate} alt="certificate-template" className="absolute inset-0 h-full w-full object-cover z-0" />
+        
+        {/* Name - Placed exactly in the empty space */}
+        <div className="absolute z-10 w-full text-center" style={{ top: '42%' }}>
+          <div className="text-[48px] font-bold tracking-wide" style={{ color: '#dcb586', fontFamily: 'serif' }}>
+            {fullName}
+          </div>
         </div>
       </div>
     );
@@ -237,6 +260,20 @@ const IDCard: React.FC = () => {
           <span className={`px-3 py-1 rounded-full border ${attendee.certificate_printed ? 'bg-green-100 text-green-700 border-green-200' : 'bg-gray-100 text-gray-600 border-gray-200'}`}>
             الشهادة: {attendee.certificate_printed ? 'اتطبعت' : 'لم تُطبع'}
           </span>
+        </div>
+      </div>
+
+      <div className="mb-4 bg-yellow-50 border-l-4 border-yellow-400 p-4 rounded-md no-print text-yellow-800 text-sm shadow-sm">
+        <strong>تنبيه للمطور:</strong> لتظهر القوالب بشكل صحيح، يجب وضع ملفات الصور في مجلد <code>public/templates/</code> بالأسماء التالية بالضبط:
+        <div className="mt-2 grid grid-cols-1 md:grid-cols-2 gap-2 text-xs font-mono bg-white p-3 rounded border border-yellow-200">
+          <div>ticket-front-a.png</div>
+          <div>ticket-front-b.png</div>
+          <div>ticket-front-c.png</div>
+          <div>ticket-back-minya.png</div>
+          <div>ticket-back-asyut.png</div>
+          <div>ticket-back-sohag.png</div>
+          <div>ticket-back-qena.png</div>
+          <div>certificate-template.png</div>
         </div>
       </div>
 
