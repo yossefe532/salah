@@ -7,6 +7,7 @@ import { useAuth } from '../context/AuthContext';
 import { Loader2, Save, ArrowRight, Plus, Minus } from 'lucide-react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { Attendee, Governorate, SeatClass, PaymentType } from '../types';
+import { optimizeProfilePhoto } from '../lib/profilePhoto';
 
 const schema = z.object({
   full_name: z.string().min(3, 'الاسم يجب أن يكون 3 أحرف على الأقل'),
@@ -18,6 +19,7 @@ const schema = z.object({
   faculty: z.string().optional().or(z.literal('')),
   year: z.string().optional().or(z.literal('')),
   notes: z.string().optional().or(z.literal('')),
+  profile_photo_url: z.string().optional().or(z.literal('')),
   phone_primary: z.string().min(10, 'رقم الهاتف غير صالح'),
   phone_secondary: z.string().optional().or(z.literal('')),
   email_primary: z.string().email('بريد إلكتروني غير صالح').optional().or(z.literal('')),
@@ -85,6 +87,7 @@ const EditAttendee: React.FC = () => {
   const [showSecondaryEmail, setShowSecondaryEmail] = useState(false);
   const [occupiedSeats, setOccupiedSeats] = useState<number[]>([]);
   const [englishNameEdited, setEnglishNameEdited] = useState(false);
+  const [photoProcessing, setPhotoProcessing] = useState(false);
 
   const { register, handleSubmit, watch, setValue, reset, formState: { errors } } = useForm<FormData>({
     resolver: zodResolver(schema),
@@ -105,6 +108,7 @@ const EditAttendee: React.FC = () => {
         faculty: '',
         year: '',
         notes: '',
+        profile_photo_url: '',
     }
   });
 
@@ -112,6 +116,7 @@ const EditAttendee: React.FC = () => {
   const occupationType = watch('occupation_type');
   const fullName = watch('full_name');
   const fullNameEn = watch('full_name_en');
+  const profilePhotoUrl = watch('profile_photo_url');
   const governorate = watch('governorate');
   const seatClass = watch('seat_class');
   const paymentType = watch('payment_type');
@@ -166,6 +171,7 @@ const EditAttendee: React.FC = () => {
           faculty: data.faculty || '',
           year: data.year || '',
           notes: data.notes || '',
+          profile_photo_url: data.profile_photo_url || '',
           payment_type: data.payment_type || 'deposit',
           payment_amount: data.payment_amount || 0,
           sales_channel: data.sales_channel || 'direct',
@@ -218,6 +224,24 @@ const EditAttendee: React.FC = () => {
     loadSeats();
   }, [governorate, id, seatClass, selectedSeatNumber, setValue, status]);
 
+  const handleProfilePhotoChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    setPhotoProcessing(true);
+    setSubmitError(null);
+
+    try {
+      const optimized = await optimizeProfilePhoto(file);
+      setValue('profile_photo_url', optimized, { shouldDirty: true, shouldValidate: true });
+    } catch (error) {
+      setSubmitError((error as Error).message || 'فشل تجهيز الصورة الشخصية');
+    } finally {
+      setPhotoProcessing(false);
+      event.target.value = '';
+    }
+  };
+
   const onSubmit = async (data: FormData) => {
     if (!user || !id) return;
     setIsSubmitting(true);
@@ -245,6 +269,7 @@ const EditAttendee: React.FC = () => {
             : 0,
           commission_notes: data.commission_notes || null,
           phone_secondary: data.phone_secondary || null,
+          profile_photo_url: data.profile_photo_url || null,
           email_primary: data.email_primary || null,
           email_secondary: data.email_secondary || null,
           facebook_link: data.facebook_link || null,
@@ -320,6 +345,42 @@ const EditAttendee: React.FC = () => {
                 className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm p-2 border"
               />
               {errors.full_name_en && <p className="mt-1 text-sm text-red-600">{errors.full_name_en.message}</p>}
+            </div>
+
+            <div className="sm:col-span-6">
+              <input type="hidden" {...register('profile_photo_url')} />
+              <label className="block text-sm font-medium text-gray-700">الصورة الشخصية</label>
+              <div className="mt-2 flex flex-col gap-3 rounded-lg border border-gray-200 p-4">
+                <div className="flex items-center gap-4">
+                  <div className="h-28 w-28 overflow-hidden rounded-2xl border border-gray-300 bg-gray-100">
+                    {profilePhotoUrl ? (
+                      <img src={profilePhotoUrl} alt="profile-preview" className="h-full w-full object-cover" />
+                    ) : (
+                      <div className="flex h-full w-full items-center justify-center text-xs text-gray-500">
+                        لا توجد صورة
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <label className="inline-flex cursor-pointer items-center rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700">
+                      {photoProcessing ? 'جاري تجهيز الصورة...' : 'رفع صورة'}
+                      <input type="file" accept="image/*" className="hidden" onChange={handleProfilePhotoChange} disabled={photoProcessing} />
+                    </label>
+                    {profilePhotoUrl ? (
+                      <button
+                        type="button"
+                        onClick={() => setValue('profile_photo_url', '', { shouldDirty: true, shouldValidate: true })}
+                        className="inline-flex items-center rounded-md border border-red-200 bg-red-50 px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-100"
+                      >
+                        حذف الصورة
+                      </button>
+                    ) : null}
+                  </div>
+                </div>
+                <p className="text-xs text-gray-500">
+                  يتم قص الصورة تلقائياً بشكل مربع وتجهيزها لتظهر مباشرة في التيكت.
+                </p>
+              </div>
             </div>
 
             <div className="sm:col-span-3">

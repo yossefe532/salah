@@ -163,22 +163,21 @@ const IDCard: React.FC = () => {
     const fullName = getDisplayName(attendee);
     const jobTitle = String(attendee.job_title || '').trim();
     const tableNum = parseTableFromSeatCode(attendee.barcode);
+    const waveValue = attendee.seat_class || (tableNum ? String(tableNum) : '-');
     return (
       <div className="ticket-sheet relative overflow-hidden bg-[#0a0a0a]">
         <div className="absolute inset-0 flex items-center justify-center text-gray-800 text-sm border border-gray-800">صورة القالب مفقودة ({frontSrc})</div>
         <img src={frontSrc} alt="ticket-front-template" onError={handleImageError} className="absolute inset-0 h-full w-full object-cover z-0 transition-opacity duration-200" />
         
-        {/* Profile Photo - Top Box */}
-        <div className="absolute z-10" style={{ top: '10.5%', left: '50%', transform: 'translateX(-50%)', width: '42%', aspectRatio: '1/1' }}>
+        <div className="absolute z-10" style={{ top: '11.1%', left: '50%', transform: 'translateX(-50%)', width: '32.5%', aspectRatio: '1 / 1' }}>
           {attendee.profile_photo_url ? (
-            <img src={attendee.profile_photo_url} alt={attendee.full_name} className="h-full w-full object-cover rounded-xl border-[3px] border-[#c7a57a]" />
+            <img src={attendee.profile_photo_url} alt={attendee.full_name} className="h-full w-full object-cover rounded-[18px] border-[3px] border-[#c7a57a]" />
           ) : (
-            <div className="h-full w-full rounded-xl border-[3px] border-[#c7a57a] bg-white/10 flex items-center justify-center text-white/50 text-xs">صورة شخصية</div>
+            <div className="h-full w-full rounded-[18px] border-[3px] border-[#c7a57a] bg-white/10 flex items-center justify-center text-white/50 text-xs">صورة شخصية</div>
           )}
         </div>
 
-        {/* Name - Gold Text Centered */}
-        <div className="absolute z-10 flex justify-center" style={{ top: '46.2%', left: '50%', width: '72%', transform: 'translateX(-50%)' }}>
+        <div className="absolute z-10 flex justify-center" style={{ top: '48.7%', left: '50%', width: '64%', transform: 'translateX(-50%)' }}>
           <div
             className="font-bold uppercase text-[#c39d78] text-center"
             dir="ltr"
@@ -197,9 +196,8 @@ const IDCard: React.FC = () => {
           </div>
         </div>
 
-        {/* Position value only; label already exists in template */}
         {jobTitle ? (
-          <div className="absolute z-10" style={{ top: '52.6%', left: '58.3%', width: '21%' }}>
+          <div className="absolute z-10" style={{ top: '54.45%', left: '57.2%', width: '25%' }}>
             <div
               className="font-semibold text-[#e0d3c2]"
               dir="ltr"
@@ -218,26 +216,24 @@ const IDCard: React.FC = () => {
           </div>
         ) : null}
 
-        {/* QR Code - Centered on the QR placeholder */}
-        <div className="absolute z-10 w-full flex justify-center" style={{ top: '63.2%' }}>
+        <div className="absolute z-10 w-full flex justify-center" style={{ top: '68.3%' }}>
           {attendee.qr_code || attendee.id ? (
-            <div className="bg-white p-[4px] rounded-[2px]">
-               <QRCodeSVG value={attendee.qr_code || attendee.id} size={118} level="H" includeMargin={false} />
+            <div className="bg-white p-[3px] rounded-[2px]">
+               <QRCodeSVG value={attendee.qr_code || attendee.id} size={66} level="H" includeMargin={false} />
             </div>
           ) : (
-            <div className="h-[118px]" />
+            <div className="h-[66px]" />
           )}
         </div>
 
-        {/* Wave value only; label already exists in template */}
-        <div className="absolute z-10 flex justify-center" style={{ top: '84.9%', left: '50%', width: '58%', transform: 'translateX(-50%)' }}>
-          <div className="font-bold text-[#e0d3c2]" dir="ltr" style={{ fontSize: '11.2px', lineHeight: '1', textAlign: 'center', whiteSpace: 'nowrap' }}>
-            wave part num : {tableNum ?? attendee.seat_class ?? '-'}
+        <div className="absolute z-10 flex justify-center" style={{ top: '84.2%', left: '50%', width: '50%', transform: 'translateX(-50%)' }}>
+          <div className="font-bold text-[#e0d3c2]" dir="ltr" style={{ fontSize: '10.8px', lineHeight: '1', textAlign: 'center', whiteSpace: 'nowrap' }}>
+            wave part num : {waveValue}
           </div>
         </div>
 
-        <div className="absolute z-10 flex justify-center" style={{ top: '88.8%', left: '50%', width: '58%', transform: 'translateX(-50%)' }}>
-          <div className="font-bold text-[#e0d3c2]" dir="ltr" style={{ fontSize: '11.2px', lineHeight: '1', textAlign: 'center', whiteSpace: 'nowrap' }}>
+        <div className="absolute z-10 flex justify-center" style={{ top: '88.1%', left: '50%', width: '50%', transform: 'translateX(-50%)' }}>
+          <div className="font-bold text-[#e0d3c2]" dir="ltr" style={{ fontSize: '10.8px', lineHeight: '1', textAlign: 'center', whiteSpace: 'nowrap' }}>
             Seat num : {attendee.seat_number ?? '-'}
           </div>
         </div>

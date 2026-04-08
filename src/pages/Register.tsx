@@ -6,6 +6,7 @@ import { api, GOVERNORATE_CAPACITIES } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
 import { Plus, Minus, Loader2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { optimizeProfilePhoto } from '../lib/profilePhoto';
 
 const schema = z.object({
   full_name: z.string().min(3, 'Full name must be at least 3 characters'),
@@ -17,6 +18,7 @@ const schema = z.object({
   faculty: z.string().optional(),
   year: z.string().optional(),
   notes: z.string().optional(),
+  profile_photo_url: z.string().optional().or(z.literal('')),
   phone_primary: z.string().min(10, 'Phone number must be valid'),
   phone_secondary: z.string().optional(),
   email_primary: z.string().email('Invalid email address').optional().or(z.literal('')),
@@ -91,6 +93,7 @@ const Register: React.FC = () => {
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [occupiedSeats, setOccupiedSeats] = useState<number[]>([]);
   const [englishNameEdited, setEnglishNameEdited] = useState(false);
+  const [photoProcessing, setPhotoProcessing] = useState(false);
 
   const { register, handleSubmit, watch, setValue, formState: { errors }, trigger } = useForm<FormData>({
     resolver: zodResolver(schema),
@@ -106,6 +109,7 @@ const Register: React.FC = () => {
       commission_amount: 0,
       certificate_included: true,
       full_name_en: '',
+      profile_photo_url: '',
     },
   });
 
@@ -132,6 +136,7 @@ const Register: React.FC = () => {
   const status = watch('status');
   const fullName = watch('full_name');
   const fullNameEn = watch('full_name_en');
+  const profilePhotoUrl = watch('profile_photo_url');
   const governorate = watch('governorate');
   const seatClass = watch('seat_class');
   const paymentType = watch('payment_type');
@@ -194,6 +199,24 @@ const Register: React.FC = () => {
     loadSeats();
   }, [governorate, seatClass, selectedSeatNumber, setValue, status]);
 
+  const handleProfilePhotoChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    setPhotoProcessing(true);
+    setSubmitError(null);
+
+    try {
+      const optimized = await optimizeProfilePhoto(file);
+      setValue('profile_photo_url', optimized, { shouldDirty: true, shouldValidate: true });
+    } catch (error) {
+      setSubmitError((error as Error).message || 'فشل تجهيز الصورة الشخصية');
+    } finally {
+      setPhotoProcessing(false);
+      event.target.value = '';
+    }
+  };
+
   const onSubmit = async (data: FormData) => {
     if (!user) return;
     setIsSubmitting(true);
@@ -237,6 +260,7 @@ const Register: React.FC = () => {
           created_at: new Date().toISOString(),
           ...data,
           full_name_en: fullNameEnFinal,
+          profile_photo_url: data.profile_photo_url || null,
           created_by: user.id,
           // Handle optional/nulls
           payment_type: data.status === 'registered' ? data.payment_type : 'deposit',
@@ -336,6 +360,44 @@ const Register: React.FC = () => {
                   className="shadow-sm focus:ring-indigo-500 focus:border-indigo-500 block w-full sm:text-sm border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-md p-2 border"
                   placeholder="Automatic English name (editable)"
                 />
+              </div>
+            </div>
+
+            <div className="sm:col-span-6">
+              <input type="hidden" {...register('profile_photo_url')} />
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                الصورة الشخصية
+              </label>
+              <div className="mt-2 flex flex-col gap-3 rounded-lg border border-gray-200 dark:border-gray-600 p-4">
+                <div className="flex items-center gap-4">
+                  <div className="h-28 w-28 overflow-hidden rounded-2xl border border-gray-300 dark:border-gray-600 bg-gray-100 dark:bg-gray-700">
+                    {profilePhotoUrl ? (
+                      <img src={profilePhotoUrl} alt="profile-preview" className="h-full w-full object-cover" />
+                    ) : (
+                      <div className="flex h-full w-full items-center justify-center text-xs text-gray-500 dark:text-gray-400">
+                        لا توجد صورة
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <label className="inline-flex cursor-pointer items-center rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700">
+                      {photoProcessing ? 'جاري تجهيز الصورة...' : 'رفع صورة'}
+                      <input type="file" accept="image/*" className="hidden" onChange={handleProfilePhotoChange} disabled={photoProcessing} />
+                    </label>
+                    {profilePhotoUrl ? (
+                      <button
+                        type="button"
+                        onClick={() => setValue('profile_photo_url', '', { shouldDirty: true, shouldValidate: true })}
+                        className="inline-flex items-center rounded-md border border-red-200 bg-red-50 px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-100"
+                      >
+                        حذف الصورة
+                      </button>
+                    ) : null}
+                  </div>
+                </div>
+                <p className="text-xs text-gray-500 dark:text-gray-400">
+                  يتم قص الصورة تلقائياً بشكل مربع وتجهيزها لتظهر مباشرة في التيكت.
+                </p>
               </div>
             </div>
 
