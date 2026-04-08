@@ -328,6 +328,115 @@ const buildSeatCode = (seatClass: 'A' | 'B' | 'C', rowNumber: number, side: 'lef
   return `${seatClass}-R${rowNumber}-T${tableOrder}-S${seatNumber}`;
 };
 
+export const generateMinyaCustomPlan = (eventId: string) => {
+  const tables: any[] = [];
+  const seats: any[] = [];
+  const gov = 'Minya';
+  
+  // Class A: 2 rows. Right: 3 tables, Left: 3 tables. Each table = 10 chairs.
+  const aRows = 2;
+  const tablesPerSide = 3;
+  const aSeatsPerTable = 10;
+  
+  // Class B: 2 rows. Right: 3 tables, Left: 3 tables. Each table = 12 chairs.
+  const bRows = 2;
+  const bSeatsPerTable = 12;
+  
+  // Class C: 11 waves (rows). 20 left, 20 right.
+  const cRows = 11;
+  const cSeatsPerSide = 20;
+  
+  const leftTableCenters = [20, 35, 50];
+  const rightTableCenters = [70, 85, 100];
+  const tableSeatDx = 2.5;
+  const tableSeatDy = 2.5;
+  
+  let currentY = 30;
+  
+  // Generate A
+  for (let row = 1; row <= aRows; row++) {
+    for (let sideIdx = 0; sideIdx < 2; sideIdx++) {
+      const side = sideIdx === 0 ? 'left' : 'right';
+      for (let t = 1; t <= tablesPerSide; t++) {
+        const tableOrder = sideIdx * tablesPerSide + t;
+        const tableId = `${gov}-A-R${row}-T${tableOrder}`;
+        const xCenter = side === 'left' ? leftTableCenters[t-1] : rightTableCenters[t-1];
+        
+        tables.push({
+          id: tableId, event_id: eventId, governorate: gov, seat_class: 'A',
+          row_number: row, side, table_order: tableOrder, seats_count: aSeatsPerTable
+        });
+        
+        for (let s = 1; s <= aSeatsPerTable; s++) {
+          const localRow = Math.floor((s - 1) / (aSeatsPerTable / 2));
+          const localCol = (s - 1) % (aSeatsPerTable / 2);
+          seats.push({
+            id: `${tableId}-S${s}`, event_id: eventId, governorate: gov, seat_class: 'A',
+            row_number: row, side, table_id: tableId, seat_number: s,
+            seat_code: `A-R${row}-T${tableOrder}-S${s}`, status: 'available',
+            position_x: xCenter + (localCol - (aSeatsPerTable/4 - 0.5)) * tableSeatDx,
+            position_y: currentY + (localRow - 0.5) * tableSeatDy
+          });
+        }
+      }
+    }
+    currentY += 15;
+  }
+  
+  currentY += 10;
+  // Generate B
+  for (let row = 1; row <= bRows; row++) {
+    for (let sideIdx = 0; sideIdx < 2; sideIdx++) {
+      const side = sideIdx === 0 ? 'left' : 'right';
+      for (let t = 1; t <= tablesPerSide; t++) {
+        const tableOrder = sideIdx * tablesPerSide + t;
+        const tableId = `${gov}-B-R${row}-T${tableOrder}`;
+        const xCenter = side === 'left' ? leftTableCenters[t-1] : rightTableCenters[t-1];
+        
+        tables.push({
+          id: tableId, event_id: eventId, governorate: gov, seat_class: 'B',
+          row_number: row, side, table_order: tableOrder, seats_count: bSeatsPerTable
+        });
+        
+        for (let s = 1; s <= bSeatsPerTable; s++) {
+          const localRow = Math.floor((s - 1) / (bSeatsPerTable / 2));
+          const localCol = (s - 1) % (bSeatsPerTable / 2);
+          seats.push({
+            id: `${tableId}-S${s}`, event_id: eventId, governorate: gov, seat_class: 'B',
+            row_number: row, side, table_id: tableId, seat_number: s,
+            seat_code: `B-R${row}-T${tableOrder}-S${s}`, status: 'available',
+            position_x: xCenter + (localCol - (bSeatsPerTable/4 - 0.5)) * tableSeatDx,
+            position_y: currentY + (localRow - 0.5) * tableSeatDy
+          });
+        }
+      }
+    }
+    currentY += 15;
+  }
+  
+  currentY += 20;
+  // Generate C
+  for (let row = 1; row <= cRows; row++) {
+    for (let sideIdx = 0; sideIdx < 2; sideIdx++) {
+      const side = sideIdx === 0 ? 'left' : 'right';
+      const startX = side === 'left' ? 5 : 65;
+      for (let s = 1; s <= cSeatsPerSide; s++) {
+        const seatNum = sideIdx * cSeatsPerSide + s;
+        seats.push({
+            id: `${gov}-C-R${row}-S${seatNum}`, event_id: eventId, governorate: gov, seat_class: 'C',
+            row_number: row, side, table_id: null, seat_number: seatNum,
+            seat_code: `C-R${row}-S${seatNum}`, status: 'available',
+            position_x: startX + (s * 2.5),
+            position_y: currentY
+        });
+      }
+    }
+    currentY += 8;
+  }
+  
+  return { tables, seats };
+};
+
 export const generateExactHallPlan = (eventId: string, governorate: string, counts: {A: number, B: number, C: number}) => {
   const plan = generateHallPlan(eventId, governorate);
   
@@ -885,6 +994,108 @@ export const api = {
       return data;
     }
 
+    if (endpoint === '/seating/delete-element') {
+      const eventId = body?.event_id || DEFAULT_EVENT_ID;
+      const id = body?.id;
+      const type = body?.type;
+      
+      if (!id || !type) throw new Error('ID and Type required');
+      
+      if (type === 'table') {
+        await supabase.from('seats').delete().eq('table_id', id);
+        await supabase.from('seat_tables').delete().eq('id', id);
+      } else if (type === 'element') {
+        // do nothing
+      } else if (type === 'wave') {
+         // wave uses row_number for C
+         await supabase.from('seats').delete().eq('row_number', id).eq('seat_class', 'C').eq('event_id', eventId);
+      } else if (type === 'seat') {
+         await supabase.from('seats').delete().eq('id', id);
+      }
+      
+      return { success: true };
+    }
+    
+    if (endpoint === '/seating/add-element') {
+      const eventId = body?.event_id || DEFAULT_EVENT_ID;
+      const type = body?.type;
+      const cls = body?.seat_class;
+      const gov = body?.governorate || 'Minya';
+      
+      // Generate slightly random offset so they don't overlap perfectly
+      const offsetX = 40 + Math.floor(Math.random() * 20);
+      const offsetY = 40 + Math.floor(Math.random() * 20);
+      const uniqueSuffix = Math.floor(Math.random() * 1000000);
+      
+      if (['stage', 'blocked', 'allowed'].includes(type)) {
+        // Skip layout elements for now
+      } else if (type === 'table') {
+        const tableId = `${gov}-${cls}-T${uniqueSuffix}`;
+        
+        const { data: maxSeats } = await supabase.from('seats').select('row_number, seat_code').eq('event_id', eventId).eq('seat_class', cls).order('row_number', { ascending: false }).limit(1);
+        const nextRow = (maxSeats?.[0]?.row_number || 0) + 1;
+        const tableOrder = uniqueSuffix % 1000;
+        
+        await supabase.from('seat_tables').insert([{
+          id: tableId,
+          event_id: eventId,
+          governorate: gov,
+          seat_class: cls,
+          row_number: nextRow,
+          side: 'left',
+          table_order: tableOrder,
+          seats_count: 12
+        }]);
+        
+        const seats = [];
+        for(let i = 1; i <= 12; i++) {
+          const localRow = Math.floor((i - 1) / 4);
+          const localCol = (i - 1) % 4;
+          const seatX = offsetX + (localCol - 1.5) * 2.2;
+          const seatY = offsetY + (localRow - 1) * 2.2;
+          seats.push({
+            id: `${tableId}-S${i}`,
+            event_id: eventId,
+            governorate: gov,
+            seat_class: cls,
+            row_number: nextRow,
+            side: 'left',
+            table_id: tableId,
+            seat_number: i,
+            seat_code: buildSeatCode(cls, nextRow, 'left', tableOrder, i),
+            status: 'available',
+            position_x: seatX,
+            position_y: seatY
+          });
+        }
+        await supabase.from('seats').insert(seats);
+      } else if (type === 'wave') {
+        const waveNo = uniqueSuffix % 10000;
+        
+        const { data: maxSeats } = await supabase.from('seats').select('row_number').eq('event_id', eventId).eq('seat_class', 'C').order('row_number', { ascending: false }).limit(1);
+        const nextRow = (maxSeats?.[0]?.row_number || 0) + 1;
+        
+        const seats = [];
+        for(let i = 1; i <= 8; i++) {
+          seats.push({
+            id: `${gov}-C-W${waveNo}-S${i}`,
+            event_id: eventId,
+            governorate: gov,
+            seat_class: 'C',
+            row_number: nextRow,
+            side: 'left',
+            seat_number: i,
+            seat_code: `C-W${waveNo}-S${i}`,
+            status: 'available',
+            position_x: offsetX + (i * 3),
+            position_y: offsetY
+          });
+        }
+        await supabase.from('seats').insert(seats);
+      }
+      return { success: true };
+    }
+    
     if (endpoint === '/seating/init') {
       const eventId = body?.event_id || DEFAULT_EVENT_ID;
       const rowsA = Number(body?.classA?.rows || 3);
@@ -896,8 +1107,9 @@ export const api = {
       const classCRows = Number(body?.classC?.rows || 23);
       const classCSeatsPerSidePerRow = Number(body?.classC?.seats_per_side_per_row || 8);
 
-      const { tables, seats } = generateHallPlan(eventId, body?.governorate || 'Minya');
-      const adjustedTables = tables.map((t: any) => {
+      const { tables, seats } = body?.governorate === 'Minya' ? generateMinyaCustomPlan(eventId) : generateHallPlan(eventId, body?.governorate || 'Minya');
+      const isMinyaCustom = body?.governorate === 'Minya';
+        const adjustedTables = isMinyaCustom ? tables : tables.map((t: any) => {
         if (t.seat_class === 'A') return { ...t, seats_count: seatsPerTableA };
         if (t.seat_class === 'B') return { ...t, seats_count: seatsPerTableB };
         return t;
@@ -908,7 +1120,7 @@ export const api = {
       });
 
       const validTableIds = new Set(adjustedTables.map((t: any) => t.id));
-      const adjustedSeats = seats.filter((s: any) => {
+      const adjustedSeats = isMinyaCustom ? seats : seats.filter((s: any) => {
         if (s.seat_class === 'A') return s.row_number <= rowsA && s.table_id && validTableIds.has(s.table_id) && s.seat_number <= seatsPerTableA;
         if (s.seat_class === 'B') return s.row_number <= rowsB && s.table_id && validTableIds.has(s.table_id) && s.seat_number <= seatsPerTableB;
         if (s.seat_class === 'C') return s.row_number <= classCRows && s.seat_number <= classCSeatsPerSidePerRow;
@@ -920,9 +1132,9 @@ export const api = {
       await supabase.from('seat_tables').delete().eq('event_id', eventId);
 
       const { error: insertTablesError } = await supabase.from('seat_tables').insert(adjustedTables);
-      if (insertTablesError && !isMissingTable(insertTablesError)) throw new Error(insertTablesError.message);
+      if (insertTablesError && !isMissingTable(insertTablesError)) { console.error('Tables Insert Error:', insertTablesError); throw new Error(insertTablesError.message); }
       const { error: insertSeatsError } = await supabase.from('seats').insert(adjustedSeats);
-      if (insertSeatsError && !isMissingTable(insertSeatsError)) throw new Error(insertSeatsError.message);
+      if (insertSeatsError && !isMissingTable(insertSeatsError)) { console.error('Seats Insert Error:', insertSeatsError); throw new Error(insertSeatsError.message); }
       return { event_id: eventId, tables: adjustedTables.length, seats: adjustedSeats.length };
     }
 
@@ -1901,9 +2113,16 @@ export const api = {
         throw new Error('نوع المستند غير صحيح');
       }
       const now = new Date().toISOString();
-      const payload = documentType === 'ticket'
+      const payload: any = documentType === 'ticket'
         ? { ticket_printed: true, ticket_printed_at: now }
         : { certificate_printed: true, certificate_printed_at: now };
+         
+      // Fetch the old record first to preserve metadata in warnings array
+      const { data: oldRecordRaw } = await supabase.from('attendees').select('*').eq('id', id).single();
+      if (oldRecordRaw) {
+          payload.warnings = oldRecordRaw.warnings;
+      }
+         
       const result = await updateAttendeeSafely(String(id), payload);
       const { data, error } = result as any;
       if (error) throw new Error(error.message);
