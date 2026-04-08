@@ -13,6 +13,7 @@ const IDCard: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const previewMode = (searchParams.get('template') || 'ticket') as 'ticket' | 'back' | 'certificate';
   const [attendee, setAttendee] = useState<Attendee | null>(null);
+  const [seatInfo, setSeatInfo] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const ticketPrintRef = useRef<HTMLDivElement>(null);
   const certificatePrintRef = useRef<HTMLDivElement>(null);
@@ -22,6 +23,16 @@ const IDCard: React.FC = () => {
     try {
       const data = await api.get(`/attendees/${attendeeId}`);
       setAttendee(data);
+      if (data.seat_number && data.seat_class) {
+        try {
+           const mapData = await api.get(`/seating/map?eventId=${normalizeGovernorate(data.governorate).toUpperCase()}-2026-MAIN`);
+           const seat = mapData.seats?.find((s: any) => s.attendee_id === attendeeId || (s.seat_number === data.seat_number && s.seat_class === data.seat_class && s.status === 'booked'));
+           if (seat) {
+              const table = mapData.tables?.find((t: any) => t.id === seat.table_id);
+              setSeatInfo({ seat, table });
+           }
+        } catch(e) { console.error(e); }
+      }
     } catch (error) {
       console.error('Error fetching attendee:', error);
       alert('Attendee not found');
@@ -218,7 +229,7 @@ const IDCard: React.FC = () => {
           </div>
         ) : null}
 
-        <div className="absolute z-10 flex justify-center" style={{ top: '70%', left: '49.5%', width: '100%', transform: 'translateX(-50%)' }}>
+        <div className="absolute z-10 flex justify-center" style={{ top: '70.5%', left: '49.5%', width: '100%', transform: 'translateX(-50%)' }}>
           {attendee.qr_code || attendee.id ? (
             <div className="bg-white p-[3px] rounded-[3px]">
                <QRCodeSVG value={attendee.qr_code || attendee.id} size={62} level="H" includeMargin={false} />
@@ -230,7 +241,7 @@ const IDCard: React.FC = () => {
 
         <div className="absolute z-10 flex justify-end" style={{ top: '89%', right: '10%', width: '30%' }}>
           <div className="font-bold text-[#e0d3c2]" dir="ltr" style={{ fontSize: '13px', lineHeight: '1', textAlign: 'right', whiteSpace: 'nowrap' }}>
-            {waveValue}
+            {attendee.seat_class === 'C' ? (seatInfo?.seat?.wave_number || '-') : (seatInfo?.table?.table_order || '-')}
           </div>
         </div>
 
