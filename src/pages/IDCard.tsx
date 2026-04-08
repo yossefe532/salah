@@ -182,7 +182,7 @@ const IDCard: React.FC = () => {
         
         <div className="absolute z-10" style={{ top: '17.5%', left: '50.5%', transform: 'translateX(-50%)', width: '41%', aspectRatio: '1 / 1' }}>
           {attendee.profile_photo_url ? (
-            <img src={attendee.profile_photo_url} alt={attendee.full_name} className="h-full w-full object-cover rounded-[18px] border-[3px] border-[#c7a57a]" />
+            <img src={attendee.profile_photo_url} alt={attendee.full_name} crossOrigin="anonymous" className="h-full w-full object-cover rounded-[18px] border-[3px] border-[#c7a57a]" />
           ) : (
             <div className="h-full w-full rounded-[18px] border-[3px] border-[#c7a57a] bg-white/10 flex items-center justify-center text-white/50 text-xs">صورة شخصية</div>
           )}
@@ -229,7 +229,7 @@ const IDCard: React.FC = () => {
           </div>
         ) : null}
 
-        <div className="absolute z-10 flex justify-center" style={{ top: '70.5%', left: '49.5%', width: '100%', transform: 'translateX(-50%)' }}>
+        <div className="absolute z-10 flex justify-center" style={{ top: '71%', left: '49.5%', width: '100%', transform: 'translateX(-50%)' }}>
           {attendee.qr_code || attendee.id ? (
             <div className="bg-white p-[3px] rounded-[3px]">
                <QRCodeSVG value={attendee.qr_code || attendee.id} size={62} level="H" includeMargin={false} />
@@ -245,7 +245,7 @@ const IDCard: React.FC = () => {
           </div>
         </div>
 
-        <div className="absolute z-10 flex justify-end" style={{ top: '93%', right: '10%', width: '30%' }}>
+        <div className="absolute z-10 flex justify-end" style={{ top: '91%', right: '10%', width: '30%' }}>
           <div className="font-bold text-[#e0d3c2]" dir="ltr" style={{ fontSize: '13px', lineHeight: '1', textAlign: 'right', whiteSpace: 'nowrap' }}>
             {attendee.seat_number ?? '-'}
           </div>
@@ -311,7 +311,7 @@ const IDCard: React.FC = () => {
         @media print {
           @page { margin: 0; }
           body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-          .ticket-sheet { width: 8.5cm !important; height: 14cm !important; page-break-after: always; }
+          .ticket-sheet { width: 8.5cm !important; height: 14cm !important; page-break-after: avoid; }
           .certificate-sheet { width: 29.7cm !important; height: 21cm !important; page-break-after: always; }
           .ticket-sheet, .certificate-sheet {
             border: none !important;
@@ -388,8 +388,6 @@ const IDCard: React.FC = () => {
       <div className="absolute -left-[99999px] top-0">
         <div ref={ticketPrintRef}>
           {renderTicketFront()}
-          <div style={{ pageBreakAfter: 'always' }} />
-          {renderTicketBack()}
         </div>
         <div ref={certificatePrintRef}>
           {renderCertificate()}
