@@ -13,6 +13,25 @@ export const GOVERNORATE_CAPACITIES: Record<string, Record<string, number>> = {
 const SCHEMA_COLUMN_ERROR = /(Could not find the '([^']+)' column of 'attendees')|(column attendees\.([^ ]+) does not exist)|(column "([^"]+)" of relation "attendees" does not exist)|(column "([^"]+)" does not exist)/;
 const DEFAULT_EVENT_ID = 'MINYA-MAIN-HALL';
 const SEAT_RESERVED_MINUTES = 5;
+const ATTENDEE_META_PREFIX = '__attendee_meta__:';
+const ATTENDEE_METADATA_FIELDS = [
+  'full_name_en',
+  'occupation_type',
+  'organization_name',
+  'job_title',
+  'ticket_price_override',
+  'base_ticket_price',
+  'certificate_included',
+  'preferred_neighbor_name',
+  'preferred_neighbor_ids',
+  'profile_photo_url',
+  'sales_channel',
+  'sales_source_name',
+  'commission_amount',
+  'commission_notes',
+  'company_id',
+  'notes'
+] as const;
 
 const getMissingAttendeeColumn = (error: any) => {
   const errorMsg = String(error?.message || '');
@@ -21,8 +40,77 @@ const getMissingAttendeeColumn = (error: any) => {
   return match[2] || match[4] || match[6] || match[8] || null;
 };
 
+const normalizeWarningsArray = (warnings: any) => Array.isArray(warnings)
+  ? warnings.filter((item) => typeof item === 'string')
+  : [];
+
+const stripAttendeeMetaWarning = (warnings: any) => normalizeWarningsArray(warnings)
+  .filter((item) => !item.startsWith(ATTENDEE_META_PREFIX));
+
+const parseAttendeeMeta = (warnings: any) => {
+  const raw = normalizeWarningsArray(warnings).find((item) => item.startsWith(ATTENDEE_META_PREFIX));
+  if (!raw) return {} as Record<string, any>;
+  try {
+    return JSON.parse(raw.slice(ATTENDEE_META_PREFIX.length));
+  } catch {
+    return {} as Record<string, any>;
+  }
+};
+
+const buildAttendeeMeta = (payload: any, existingWarnings: any = []) => {
+  const meta = { ...parseAttendeeMeta(existingWarnings) } as Record<string, any>;
+
+  for (const field of ATTENDEE_METADATA_FIELDS) {
+    if (!Object.prototype.hasOwnProperty.call(payload, field)) continue;
+    const value = payload[field];
+    if (value === undefined) continue;
+    if (value === null || value === '' || (Array.isArray(value) && value.length === 0)) {
+      delete meta[field];
+      continue;
+    }
+    meta[field] = value;
+  }
+
+  return meta;
+};
+
+const attachAttendeeMetaToPayload = (payload: any, existingWarnings: any = []) => {
+  const baseWarnings = stripAttendeeMetaWarning(payload.warnings ?? existingWarnings);
+  const meta = buildAttendeeMeta(payload, existingWarnings);
+  const warnings = Object.keys(meta).length > 0
+    ? [...baseWarnings, `${ATTENDEE_META_PREFIX}${JSON.stringify(meta)}`]
+    : baseWarnings;
+  return { ...payload, warnings };
+};
+
+const applyAttendeeMeta = (attendee: any) => {
+  if (!attendee) return attendee;
+  const meta = parseAttendeeMeta(attendee.warnings);
+  const plainWarnings = stripAttendeeMetaWarning(attendee.warnings);
+  const merged = { ...attendee, warnings: plainWarnings } as Record<string, any>;
+
+  for (const field of ATTENDEE_METADATA_FIELDS) {
+    const metaValue = meta[field];
+    if (metaValue === undefined) continue;
+    const currentValue = merged[field];
+    const shouldUseMeta = currentValue === undefined
+      || currentValue === null
+      || currentValue === ''
+      || (typeof currentValue === 'number' && Number(currentValue) === 0 && typeof metaValue === 'number');
+    if (shouldUseMeta) {
+      merged[field] = metaValue;
+    }
+  }
+
+  if (!Array.isArray(merged.preferred_neighbor_ids)) {
+    merged.preferred_neighbor_ids = Array.isArray(meta.preferred_neighbor_ids) ? meta.preferred_neighbor_ids : [];
+  }
+
+  return merged;
+};
+
 const insertAttendeeSafely = async (payload: any) => {
-  let currentPayload = { ...payload };
+  let currentPayload = attachAttendeeMetaToPayload(payload, payload.warnings);
   for (let i = 0; i < 50; i += 1) {
     const { data, error } = await supabase.from('attendees').insert([currentPayload]).select().single();
     if (!error) return { data, error: null };
@@ -35,7 +123,7 @@ const insertAttendeeSafely = async (payload: any) => {
 };
 
 const updateAttendeeSafely = async (id: string, payload: any) => {
-  let currentPayload = { ...payload };
+  let currentPayload = attachAttendeeMetaToPayload(payload, payload.warnings);
   for (let i = 0; i < 50; i += 1) {
     const { data, error } = await supabase.from('attendees').update(currentPayload).eq('id', id).select().single();
     if (!error) return { data, error: null };
@@ -144,28 +232,53 @@ const transliterateArabicToEnglish = (input?: string | null) => {
 
 const normalizeAttendeePricing = (attendee: any) => {
   if (!attendee) return attendee;
-  const classDefault = SEAT_PRICES[attendee.seat_class] || 0;
-  const override = Number(attendee.ticket_price_override || 0);
-  const existingBase = Number(attendee.base_ticket_price || 0);
-  const payment = Number(attendee.payment_amount || 0);
+  const hydrated = applyAttendeeMeta(attendee);
+  const classDefault = SEAT_PRICES[hydrated.seat_class] || 0;
+  const override = Number(hydrated.ticket_price_override || 0);
+  const existingBase = Number(hydrated.base_ticket_price || 0);
+  const payment = Number(hydrated.payment_amount || 0);
 
   let base = existingBase > 0 ? existingBase : (override > 0 ? override : classDefault);
-  if (base === classDefault && (!existingBase && !override) && attendee.payment_type === 'full' && payment > 0 && payment < classDefault) {
+  if (base === classDefault && (!existingBase && !override) && hydrated.payment_type === 'full' && payment > 0 && payment < classDefault) {
     base = payment;
   }
 
   const remaining = Math.max(0, base - payment);
   const hasCustom = override > 0 || (base > 0 && base !== classDefault);
   const certificate = hasCustom
-    ? (attendee.certificate_included === undefined || attendee.certificate_included === null ? false : Boolean(attendee.certificate_included))
+    ? (hydrated.certificate_included === undefined || hydrated.certificate_included === null ? false : Boolean(hydrated.certificate_included))
     : true;
 
   return {
-    ...attendee,
+    ...hydrated,
     base_ticket_price: base,
     remaining_amount: remaining,
     certificate_included: certificate
   };
+};
+
+const enrichAttendeesNeighborLabels = (items: any[]) => {
+  const attendees = (items || []).map(normalizeAttendeePricing);
+  const byId = new Map(attendees.map((attendee: any) => [attendee.id, attendee]));
+
+  return attendees.map((attendee: any) => {
+    const forwardIds = Array.isArray(attendee.preferred_neighbor_ids) ? attendee.preferred_neighbor_ids : [];
+    const reverseIds = attendees
+      .filter((other: any) => other.id !== attendee.id && Array.isArray(other.preferred_neighbor_ids) && other.preferred_neighbor_ids.includes(attendee.id))
+      .map((other: any) => other.id);
+    const allIds = [...new Set([...forwardIds, ...reverseIds])];
+    const names = allIds
+      .map((id: string) => byId.get(id))
+      .filter(Boolean)
+      .map((neighbor: any) => neighbor.full_name)
+      .filter(Boolean);
+
+    return {
+      ...attendee,
+      preferred_neighbor_ids: allIds,
+      preferred_neighbor_name: names.join('، ')
+    };
+  });
 };
 
 const buildSeatBarcode = (seatClass?: string, seatNumber?: number | null) => {
@@ -213,6 +326,40 @@ const getCompanyIdForCreatedRecords = (currentUser: any) => {
 const buildSeatCode = (seatClass: 'A' | 'B' | 'C', rowNumber: number, side: 'left' | 'right', tableOrder: number | null, seatNumber: number) => {
   if (seatClass === 'C') return `C-R${rowNumber}-S${seatNumber}`;
   return `${seatClass}-R${rowNumber}-T${tableOrder}-S${seatNumber}`;
+};
+
+export const generateExactHallPlan = (eventId: string, governorate: string, counts: {A: number, B: number, C: number}) => {
+  const plan = generateHallPlan(eventId, governorate);
+  
+  // Now trim the generated plan to exactly match the requested counts
+  const trimSeats = (cls: string, count: number) => {
+    let clsSeats = plan.seats.filter(s => s.seat_class === cls);
+    // Sort by row, then table, then seat to trim from the back
+    clsSeats.sort((a, b) => {
+      if (a.row_number !== b.row_number) return a.row_number - b.row_number;
+      if (a.seat_class !== 'C') {
+         const tA = Number((a.table_id || '').split('-T')[1] || 0);
+         const tB = Number((b.table_id || '').split('-T')[1] || 0);
+         if (tA !== tB) return tA - tB;
+      }
+      return a.seat_number - b.seat_number;
+    });
+    
+    const keep = new Set(clsSeats.slice(0, count).map(s => s.id));
+    plan.seats = plan.seats.filter(s => s.seat_class !== cls || keep.has(s.id));
+    
+    // For A and B, also remove empty tables
+    if (cls !== 'C') {
+      const activeTableIds = new Set(plan.seats.filter(s => s.seat_class === cls).map(s => s.table_id));
+      plan.tables = plan.tables.filter(t => t.seat_class !== cls || activeTableIds.has(t.id));
+    }
+  };
+
+  trimSeats('A', counts.A);
+  trimSeats('B', counts.B);
+  trimSeats('C', counts.C);
+  
+  return plan;
 };
 
 const generateHallPlan = (eventId: string, governorate: string = 'Minya') => {
@@ -446,25 +593,37 @@ export const api = {
     }
 
     if (endpoint.startsWith('/seating/map')) {
-      const query = endpoint.split('?')[1] || '';
-      const params = new URLSearchParams(query);
-      const eventId = params.get('eventId') || DEFAULT_EVENT_ID;
-      const nowIso = new Date().toISOString();
-      await supabase
-        .from('seats')
-        .update({ status: 'available', reserved_by: null, reserved_until: null })
-        .eq('event_id', eventId)
-        .eq('status', 'reserved')
-        .lt('reserved_until', nowIso);
+        const query = endpoint.split('?')[1] || '';
+        const params = new URLSearchParams(query);
+        const eventId = params.get('eventId') || DEFAULT_EVENT_ID;
+        const nowIso = new Date().toISOString();
+        await supabase
+          .from('seats')
+          .update({ status: 'available', reserved_by: null, reserved_until: null })
+          .eq('event_id', eventId)
+          .eq('status', 'reserved')
+          .lt('reserved_until', nowIso);
 
-      const [{ data: tables, error: tablesError }, { data: seats, error: seatsError }] = await Promise.all([
-        supabase.from('seat_tables').select('*').eq('event_id', eventId).order('row_number', { ascending: true }),
-        supabase.from('seats').select('*').eq('event_id', eventId).order('row_number', { ascending: true })
-      ]);
-      if (tablesError && !isMissingTable(tablesError)) throw new Error(tablesError.message);
-      if (seatsError && !isMissingTable(seatsError)) throw new Error(seatsError.message);
-      return { event_id: eventId, tables: tables || [], seats: seats || [] };
-    }
+        const [
+          { data: tables, error: tablesError },
+          { data: seats, error: seatsError },
+          { data: layoutElements, error: layoutError }
+        ] = await Promise.all([
+          supabase.from('seat_tables').select('*').eq('event_id', eventId).order('row_number', { ascending: true }),
+          supabase.from('seats').select('*').eq('event_id', eventId).order('row_number', { ascending: true }),
+          supabase.from('layout_elements').select('*').eq('event_id', eventId)
+        ]);
+
+        if (tablesError && !isMissingTable(tablesError)) throw new Error(tablesError.message);
+        if (seatsError && !isMissingTable(seatsError)) throw new Error(seatsError.message);
+        
+        return { 
+          event_id: eventId, 
+          tables: tables || [], 
+          seats: seats || [],
+          layout_elements: layoutElements || [] 
+        };
+      }
 
     if (endpoint.startsWith('/seating/recommend')) {
       const query = endpoint.split('?')[1] || '';
@@ -505,7 +664,7 @@ export const api = {
       if (seatClass) attendeesQuery = attendeesQuery.eq('seat_class', seatClass);
       const { data, error } = await attendeesQuery;
       if (error) throw new Error(error.message);
-      return data || [];
+      return enrichAttendeesNeighborLabels(data || []);
     }
 
     if (endpoint.startsWith('/seating/layout-versions')) {
@@ -599,7 +758,13 @@ export const api = {
           error = fallback.error;
         }
         if (error) throw new Error(error.message);
-        return normalizeAttendeePricing(data);
+        const normalized = normalizeAttendeePricing(data);
+        const related = await applyCompanyScopeToAttendeesQuery(
+          supabase.from('attendees').select('id, full_name, warnings, is_deleted').eq('is_deleted', false),
+          currentUser
+        );
+        const { data: relatedAttendees } = await related;
+        return enrichAttendeesNeighborLabels([normalized, ...(relatedAttendees || []).filter((item: any) => item.id !== normalized.id)])[0];
       }
 
       const scoped = applyCompanyScopeToAttendeesQuery(
@@ -617,7 +782,7 @@ export const api = {
         error = fallback.error;
       }
       if (error) throw new Error(error.message);
-      return (data || []).map(normalizeAttendeePricing);
+      return enrichAttendeesNeighborLabels(data || []);
     }
 
     if (endpoint.startsWith('/companies')) {
@@ -1650,10 +1815,11 @@ export const api = {
     let bodyToSave: any = body;
     if (table === 'attendees') {
       const scopedRecord = applyCompanyScopeToAttendeesQuery(
-        supabase.from('attendees').select('full_name, full_name_en, governorate, seat_class, status, seat_number, barcode, ticket_price_override, base_ticket_price, certificate_included, remaining_amount').eq('id', id),
+        supabase.from('attendees').select('*').eq('id', id),
         currentUser
       );
-      const { data: oldRecord } = await scopedRecord.single();
+      const { data: oldRecordRaw } = await scopedRecord.single();
+      const oldRecord = normalizeAttendeePricing(oldRecordRaw);
       if (oldRecord) {
         const merged = {
           governorate: body.governorate ?? oldRecord.governorate,
@@ -1680,6 +1846,7 @@ export const api = {
           || (body.full_name !== undefined ? transliterateArabicToEnglish(nextFullName) : (oldRecord.full_name_en || transliterateArabicToEnglish(nextFullName)));
         bodyToSave = {
           ...body,
+          warnings: oldRecordRaw?.warnings ?? body.warnings,
           full_name_en: nextFullNameEn,
           base_ticket_price: baseTicketPrice,
           certificate_included: certificateIncluded,

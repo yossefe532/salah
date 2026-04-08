@@ -49,6 +49,7 @@ export interface Attendee {
   base_ticket_price?: number;
   certificate_included?: boolean;
   preferred_neighbor_name?: string;
+  preferred_neighbor_ids?: string[];
   payment_type: PaymentType;
   payment_amount: number;
   remaining_amount: number;
@@ -78,6 +79,7 @@ export interface Attendee {
   sales_verified_photo?: boolean;
   sales_verified_job?: boolean;
   profile_photo_url?: string;
+  warnings?: string[];
   ticket_printed?: boolean;
   ticket_printed_at?: string | null;
   certificate_printed?: boolean;
@@ -164,6 +166,23 @@ export interface SeatTable {
   side: 'left' | 'right';
   table_order: number;
   seats_count: number;
+  position_x?: number;
+  position_y?: number;
+  width?: number;
+  height?: number;
+  max_seats?: number;
+}
+
+export interface LayoutElement {
+  id: string;
+  event_id: string;
+  element_type: 'stage' | 'blocked' | 'allowed';
+  position_x: number;
+  position_y: number;
+  width: number;
+  height: number;
+  label?: string;
+  governorate?: string;
 }
 
 export interface Seat {
@@ -181,4 +200,7 @@ export interface Seat {
   reserved_by?: string | null;
   reserved_until?: string | null;
   attendee_id?: string | null;
+  wave_number?: number | null;
+  relative_x?: number | null;
+  relative_y?: number | null;
 }

@@ -128,16 +128,16 @@ const IDCard: React.FC = () => {
   };
 
   const getTicketNameFontSize = (name: string) => {
-    if (name.length > 30) return '10.6px';
-    if (name.length > 24) return '11.4px';
-    if (name.length > 18) return '12.2px';
-    return '13.28px';
+    if (name.length > 30) return '11.5px';
+    if (name.length > 24) return '12.5px';
+    if (name.length > 18) return '13.28px'; // approx 9.96pt
+    return '13.28px'; // 9.96pt * 1.333 = 13.28px
   };
 
   const getJobTitleFontSize = (title: string) => {
-    if (title.length > 22) return '11.2px';
-    if (title.length > 16) return '12.2px';
-    return '13.92px';
+    if (title.length > 22) return '12px';
+    if (title.length > 16) return '13px';
+    return '13.92px'; // 10.44pt * 1.333 = 13.92px
   };
 
   const getCertificateNameFontSize = (name: string) => {
@@ -169,7 +169,7 @@ const IDCard: React.FC = () => {
         <div className="absolute inset-0 flex items-center justify-center text-gray-800 text-sm border border-gray-800">صورة القالب مفقودة ({frontSrc})</div>
         <img src={frontSrc} alt="ticket-front-template" onError={handleImageError} className="absolute inset-0 h-full w-full object-cover z-0 transition-opacity duration-200" />
         
-        <div className="absolute z-10" style={{ top: '11.1%', left: '50%', transform: 'translateX(-50%)', width: '32.5%', aspectRatio: '1 / 1' }}>
+        <div className="absolute z-10" style={{ top: '17.5%', left: '50.5%', transform: 'translateX(-50%)', width: '41%', aspectRatio: '1 / 1' }}>
           {attendee.profile_photo_url ? (
             <img src={attendee.profile_photo_url} alt={attendee.full_name} className="h-full w-full object-cover rounded-[18px] border-[3px] border-[#c7a57a]" />
           ) : (
@@ -177,12 +177,13 @@ const IDCard: React.FC = () => {
           )}
         </div>
 
-        <div className="absolute z-10 flex justify-center" style={{ top: '48.7%', left: '50%', width: '64%', transform: 'translateX(-50%)' }}>
+        <div className="absolute z-10 flex justify-center" style={{ top: '45%', left: '50.5%', width: '64%', transform: 'translateX(-50%)' }}>
           <div
-            className="font-bold uppercase text-[#c39d78] text-center"
+            className="font-bold text-[#c39d78] text-center"
             dir="ltr"
             style={{
               fontFamily: '"TT Runs Trial", sans-serif',
+              fontWeight: 700,
               fontSize: getTicketNameFontSize(fullName),
               lineHeight: '1',
               letterSpacing: '0.02em',
@@ -197,12 +198,13 @@ const IDCard: React.FC = () => {
         </div>
 
         {jobTitle ? (
-          <div className="absolute z-10" style={{ top: '54.45%', left: '57.2%', width: '25%' }}>
+          <div className="absolute z-10" style={{ top: '49.5%', left: '57.7%', width: '25%' }}>
             <div
-              className="font-semibold text-[#e0d3c2]"
+              className="text-[#e0d3c2]"
               dir="ltr"
               style={{
                 fontFamily: '"TT Runs Trial", sans-serif',
+                fontWeight: 600,
                 fontSize: getJobTitleFontSize(jobTitle),
                 lineHeight: '1',
                 whiteSpace: 'nowrap',
@@ -216,25 +218,25 @@ const IDCard: React.FC = () => {
           </div>
         ) : null}
 
-        <div className="absolute z-10 w-full flex justify-center" style={{ top: '68.3%' }}>
+        <div className="absolute z-10 flex justify-center" style={{ top: '70%', left: '49.5%', width: '100%', transform: 'translateX(-50%)' }}>
           {attendee.qr_code || attendee.id ? (
-            <div className="bg-white p-[3px] rounded-[2px]">
-               <QRCodeSVG value={attendee.qr_code || attendee.id} size={66} level="H" includeMargin={false} />
+            <div className="bg-white p-[3px] rounded-[3px]">
+               <QRCodeSVG value={attendee.qr_code || attendee.id} size={62} level="H" includeMargin={false} />
             </div>
           ) : (
-            <div className="h-[66px]" />
+            <div className="h-[62px]" />
           )}
         </div>
 
-        <div className="absolute z-10 flex justify-center" style={{ top: '84.2%', left: '50%', width: '50%', transform: 'translateX(-50%)' }}>
-          <div className="font-bold text-[#e0d3c2]" dir="ltr" style={{ fontSize: '10.8px', lineHeight: '1', textAlign: 'center', whiteSpace: 'nowrap' }}>
-            wave part num : {waveValue}
+        <div className="absolute z-10 flex justify-end" style={{ top: '89%', right: '10%', width: '30%' }}>
+          <div className="font-bold text-[#e0d3c2]" dir="ltr" style={{ fontSize: '13px', lineHeight: '1', textAlign: 'right', whiteSpace: 'nowrap' }}>
+            {waveValue}
           </div>
         </div>
 
-        <div className="absolute z-10 flex justify-center" style={{ top: '88.1%', left: '50%', width: '50%', transform: 'translateX(-50%)' }}>
-          <div className="font-bold text-[#e0d3c2]" dir="ltr" style={{ fontSize: '10.8px', lineHeight: '1', textAlign: 'center', whiteSpace: 'nowrap' }}>
-            Seat num : {attendee.seat_number ?? '-'}
+        <div className="absolute z-10 flex justify-end" style={{ top: '93%', right: '10%', width: '30%' }}>
+          <div className="font-bold text-[#e0d3c2]" dir="ltr" style={{ fontSize: '13px', lineHeight: '1', textAlign: 'right', whiteSpace: 'nowrap' }}>
+            {attendee.seat_number ?? '-'}
           </div>
         </div>
       </div>

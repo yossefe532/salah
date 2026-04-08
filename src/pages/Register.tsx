@@ -7,6 +7,8 @@ import { useAuth } from '../context/AuthContext';
 import { Plus, Minus, Loader2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { optimizeProfilePhoto } from '../lib/profilePhoto';
+import NeighborSelector from '../components/NeighborSelector';
+import { Attendee } from '../types';
 
 const schema = z.object({
   full_name: z.string().min(3, 'Full name must be at least 3 characters'),
@@ -30,6 +32,7 @@ const schema = z.object({
   ticket_price_override: z.number().min(0).optional(),
   certificate_included: z.boolean().optional(),
   preferred_neighbor_name: z.string().optional(),
+  preferred_neighbor_ids: z.array(z.string()).optional(),
   status: z.enum(['interested', 'registered']),
   payment_type: z.enum(['deposit', 'full']).optional(),
   payment_amount: z.number().min(0).optional(),
@@ -94,6 +97,7 @@ const Register: React.FC = () => {
   const [occupiedSeats, setOccupiedSeats] = useState<number[]>([]);
   const [englishNameEdited, setEnglishNameEdited] = useState(false);
   const [photoProcessing, setPhotoProcessing] = useState(false);
+  const [attendeesOptions, setAttendeesOptions] = useState<Attendee[]>([]);
 
   const { register, handleSubmit, watch, setValue, formState: { errors }, trigger } = useForm<FormData>({
     resolver: zodResolver(schema),
@@ -110,6 +114,7 @@ const Register: React.FC = () => {
       certificate_included: true,
       full_name_en: '',
       profile_photo_url: '',
+      preferred_neighbor_ids: [],
     },
   });
 
@@ -137,6 +142,7 @@ const Register: React.FC = () => {
   const fullName = watch('full_name');
   const fullNameEn = watch('full_name_en');
   const profilePhotoUrl = watch('profile_photo_url');
+  const preferredNeighborIds = watch('preferred_neighbor_ids') || [];
   const governorate = watch('governorate');
   const seatClass = watch('seat_class');
   const paymentType = watch('payment_type');
@@ -198,6 +204,19 @@ const Register: React.FC = () => {
     };
     loadSeats();
   }, [governorate, seatClass, selectedSeatNumber, setValue, status]);
+
+  useEffect(() => {
+    register('preferred_neighbor_name');
+    register('preferred_neighbor_ids');
+  }, [register]);
+
+  useEffect(() => {
+    const loadAttendeesOptions = async () => {
+      const response = await api.get('/attendees');
+      setAttendeesOptions(Array.isArray(response) ? response : []);
+    };
+    loadAttendeesOptions();
+  }, []);
 
   const handleProfilePhotoChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -261,6 +280,7 @@ const Register: React.FC = () => {
           ...data,
           full_name_en: fullNameEnFinal,
           profile_photo_url: data.profile_photo_url || null,
+          preferred_neighbor_ids: Array.isArray(data.preferred_neighbor_ids) ? data.preferred_neighbor_ids : [],
           created_by: user.id,
           // Handle optional/nulls
           payment_type: data.status === 'registered' ? data.payment_type : 'deposit',
@@ -797,12 +817,17 @@ const Register: React.FC = () => {
                         يريد الجلوس بجانب
                       </label>
                       <div className="mt-1">
-                        <input
-                          id="preferred_neighbor_name"
-                          type="text"
-                          {...register('preferred_neighbor_name')}
-                          className="shadow-sm focus:ring-indigo-500 focus:border-indigo-500 block w-full sm:text-sm border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-md p-2 border"
-                          placeholder="اكتب اسم شخص من الحاضرين"
+                        <NeighborSelector
+                          attendees={attendeesOptions}
+                          selectedIds={preferredNeighborIds}
+                          onChange={(ids) => {
+                            setValue('preferred_neighbor_ids', ids, { shouldDirty: true, shouldValidate: true });
+                            const selectedNames = attendeesOptions
+                              .filter((attendee) => ids.includes(attendee.id))
+                              .map((attendee) => attendee.full_name)
+                              .join('، ');
+                            setValue('preferred_neighbor_name', selectedNames, { shouldDirty: true });
+                          }}
                         />
                       </div>
                     </div>

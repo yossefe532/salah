@@ -8,6 +8,7 @@ import { Loader2, Save, ArrowRight, Plus, Minus } from 'lucide-react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { Attendee, Governorate, SeatClass, PaymentType } from '../types';
 import { optimizeProfilePhoto } from '../lib/profilePhoto';
+import NeighborSelector from '../components/NeighborSelector';
 
 const schema = z.object({
   full_name: z.string().min(3, 'الاسم يجب أن يكون 3 أحرف على الأقل'),
@@ -38,6 +39,7 @@ const schema = z.object({
   ticket_price_override: z.number().min(0).optional(),
   certificate_included: z.boolean().optional(),
   preferred_neighbor_name: z.string().optional(),
+  preferred_neighbor_ids: z.array(z.string()).optional(),
 });
 
 type FormData = z.infer<typeof schema>;
@@ -88,6 +90,7 @@ const EditAttendee: React.FC = () => {
   const [occupiedSeats, setOccupiedSeats] = useState<number[]>([]);
   const [englishNameEdited, setEnglishNameEdited] = useState(false);
   const [photoProcessing, setPhotoProcessing] = useState(false);
+  const [attendeesOptions, setAttendeesOptions] = useState<Attendee[]>([]);
 
   const { register, handleSubmit, watch, setValue, reset, formState: { errors } } = useForm<FormData>({
     resolver: zodResolver(schema),
@@ -109,6 +112,7 @@ const EditAttendee: React.FC = () => {
         year: '',
         notes: '',
         profile_photo_url: '',
+        preferred_neighbor_ids: [],
     }
   });
 
@@ -117,6 +121,7 @@ const EditAttendee: React.FC = () => {
   const fullName = watch('full_name');
   const fullNameEn = watch('full_name_en');
   const profilePhotoUrl = watch('profile_photo_url');
+  const preferredNeighborIds = watch('preferred_neighbor_ids') || [];
   const governorate = watch('governorate');
   const seatClass = watch('seat_class');
   const paymentType = watch('payment_type');
@@ -172,6 +177,7 @@ const EditAttendee: React.FC = () => {
           year: data.year || '',
           notes: data.notes || '',
           profile_photo_url: data.profile_photo_url || '',
+          preferred_neighbor_ids: Array.isArray(data.preferred_neighbor_ids) ? data.preferred_neighbor_ids : [],
           payment_type: data.payment_type || 'deposit',
           payment_amount: data.payment_amount || 0,
           sales_channel: data.sales_channel || 'direct',
@@ -224,6 +230,19 @@ const EditAttendee: React.FC = () => {
     loadSeats();
   }, [governorate, id, seatClass, selectedSeatNumber, setValue, status]);
 
+  useEffect(() => {
+    register('preferred_neighbor_name');
+    register('preferred_neighbor_ids');
+  }, [register]);
+
+  useEffect(() => {
+    const loadAttendeesOptions = async () => {
+      const response = await api.get('/attendees');
+      setAttendeesOptions(Array.isArray(response) ? response : []);
+    };
+    loadAttendeesOptions();
+  }, []);
+
   const handleProfilePhotoChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -262,7 +281,11 @@ const EditAttendee: React.FC = () => {
           seat_number: data.status === 'registered' && capacity > 0 ? Number(data.seat_number) : null,
           base_ticket_price: baseTicketPrice,
           certificate_included: certificateIncluded,
-          preferred_neighbor_name: data.preferred_neighbor_name || null,
+          preferred_neighbor_ids: Array.isArray(data.preferred_neighbor_ids) ? data.preferred_neighbor_ids : [],
+          preferred_neighbor_name: attendeesOptions
+            .filter((attendee) => (data.preferred_neighbor_ids || []).includes(attendee.id))
+            .map((attendee) => attendee.full_name)
+            .join('، ') || null,
           sales_source_name: data.sales_source_name || null,
           commission_amount: data.status === 'registered'
             ? Math.max(0, Math.min(Number(data.commission_amount || 0), Number(data.payment_amount || 0)))
@@ -655,12 +678,21 @@ const EditAttendee: React.FC = () => {
 
                     <div>
                       <label className="block text-sm font-medium text-gray-700">يريد الجلوس بجانب</label>
-                      <input
-                        type="text"
-                        {...register('preferred_neighbor_name')}
-                        className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm p-2 border"
-                        placeholder="اكتب اسم شخص من الحاضرين"
-                      />
+                      <div className="mt-1">
+                        <NeighborSelector
+                          attendees={attendeesOptions}
+                          currentAttendeeId={id}
+                          selectedIds={preferredNeighborIds}
+                          onChange={(ids) => {
+                            setValue('preferred_neighbor_ids', ids, { shouldDirty: true, shouldValidate: true });
+                            const selectedNames = attendeesOptions
+                              .filter((attendee) => ids.includes(attendee.id))
+                              .map((attendee) => attendee.full_name)
+                              .join('، ');
+                            setValue('preferred_neighbor_name', selectedNames, { shouldDirty: true });
+                          }}
+                        />
+                      </div>
                     </div>
 
                     <div className="sm:col-span-2 bg-indigo-50 border border-indigo-100 rounded-md p-3 text-sm">

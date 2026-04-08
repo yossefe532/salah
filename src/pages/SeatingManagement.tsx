@@ -2,10 +2,13 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { api } from '../lib/api';
 import { Seat, SeatTable } from '../types';
 
+import { LayoutElement } from '../types';
+
 type SeatingMapPayload = {
   event_id: string;
   tables: SeatTable[];
   seats: Seat[];
+  layout_elements?: LayoutElement[];
 };
 
 type AttendeeLite = {
@@ -42,7 +45,7 @@ const SeatingManagement: React.FC = () => {
   const [eventId, setEventId] = useState('MINYA-2026-MAIN');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [payload, setPayload] = useState<SeatingMapPayload>({ event_id: 'MINYA-2026-MAIN', tables: [], seats: [] });
+  const [payload, setPayload] = useState<SeatingMapPayload>({ event_id: 'MINYA-2026-MAIN', tables: [], seats: [], layout_elements: [] });
   const [attendees, setAttendees] = useState<AttendeeLite[]>([]);
   const [mode, setMode] = useState<'assign' | 'edit'>('assign');
   const [classFilter, setClassFilter] = useState<'A' | 'B' | 'C'>('A');
@@ -142,35 +145,15 @@ const SeatingManagement: React.FC = () => {
   }, [payload.seats, classFilter]);
 
   const tableBoxes = useMemo(() => {
-    const seatsByTable = new Map<string, Seat[]>();
-    for (const seat of payload.seats || []) {
-      if (!seat.table_id) continue;
-      const list = seatsByTable.get(seat.table_id) || [];
-      const patch = layoutDraft[seat.id];
-      list.push((patch ? { ...seat, position_x: patch.position_x, position_y: patch.position_y } : seat) as any);
-      seatsByTable.set(seat.table_id, list as any);
-    }
-    const boxes: Array<{ id: string; x: number; y: number; w: number; h: number; cls: string }> = [];
-    for (const table of payload.tables || []) {
-      const list = seatsByTable.get(table.id) || [];
-      if (!list.length) continue;
-      const xs = list.map((s: any) => Number(s.position_x || 0));
-      const ys = list.map((s: any) => Number(s.position_y || 0));
-      const minX = Math.min(...xs) * 8 - 10;
-      const maxX = Math.max(...xs) * 8 + 10;
-      const minY = Math.min(...ys) * 4 - 10;
-      const maxY = Math.max(...ys) * 4 + 10;
-      boxes.push({
-        id: table.id,
-        x: minX,
-        y: minY,
-        w: Math.max(24, maxX - minX),
-        h: Math.max(24, maxY - minY),
-        cls: table.seat_class
-      });
-    }
-    return boxes;
-  }, [payload.seats, payload.tables, layoutDraft]);
+    return (payload.tables || []).map(t => ({
+      id: t.id,
+      x: (Number(t.position_x) || 0) * 8,
+      y: (Number(t.position_y) || 0) * 4,
+      w: (Number(t.width) || 10) * 8,
+      h: (Number(t.height) || 8) * 4,
+      cls: t.seat_class
+    }));
+  }, [payload.tables]);
 
   const selectedSeat = useMemo(() => payload.seats.find((s) => s.id === selectedSeatId) || null, [payload.seats, selectedSeatId]);
   const selectedSeatAttendee = useMemo(() => attendees.find((a) => a.id === selectedSeat?.attendee_id) || null, [attendees, selectedSeat?.attendee_id]);
@@ -509,11 +492,26 @@ const SeatingManagement: React.FC = () => {
               {tableBoxes.map((box) => (
                 <div
                   key={box.id}
-                  className="absolute border border-white/20 rounded-md bg-white/[0.03] pointer-events-none"
+                  className="absolute border border-indigo-500/40 rounded-md bg-indigo-500/10 flex flex-col items-center justify-center pointer-events-none"
                   style={{ left: box.x, top: box.y, width: box.w, height: box.h }}
                   title={box.id}
-                />
+                >
+                  <span className="text-[10px] font-bold text-white/50">{box.id}</span>
+                </div>
               ))}
+              {(payload.layout_elements || []).map((el) => {
+                const isStage = el.element_type === 'stage';
+                const isBlocked = el.element_type === 'blocked';
+                return (
+                  <div
+                    key={el.id}
+                    className={`absolute border rounded flex items-center justify-center font-bold text-xs pointer-events-none ${isStage ? 'bg-amber-900/30 border-amber-500 text-amber-200' : isBlocked ? 'bg-rose-900/30 border-rose-500 text-rose-200' : 'bg-emerald-900/30 border-emerald-500 text-emerald-200'}`}
+                    style={{ left: Number(el.position_x) * 8, top: Number(el.position_y) * 4, width: Number(el.width) * 8, height: Number(el.height) * 4 }}
+                  >
+                    {el.label || el.element_type.toUpperCase()}
+                  </div>
+                );
+              })}
               {mapSeats.map((seat) => {
                 const seatView = getSeatView(seat);
                 const selected = selectedSeatId === seat.id;
@@ -580,7 +578,17 @@ const SeatingManagement: React.FC = () => {
       <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4">
         {mode === 'edit' && (
           <div className="rounded-xl border border-slate-800 bg-slate-900 p-4 space-y-3">
-            <h2 className="font-semibold text-white">مود التعديل</h2>
+            <div className="flex justify-between items-center">
+              <h2 className="font-semibold text-white">مود التعديل</h2>
+              <div className="flex gap-2">
+                 <button onClick={() => alert('Add Table A')} className="px-2 py-1 bg-indigo-600 text-xs rounded">+ Table A</button>
+                 <button onClick={() => alert('Add Table B')} className="px-2 py-1 bg-indigo-600 text-xs rounded">+ Table B</button>
+                 <button onClick={() => alert('Add Wave (Class C)')} className="px-2 py-1 bg-indigo-600 text-xs rounded">+ Wave</button>
+                 <button onClick={() => alert('Add Stage')} className="px-2 py-1 bg-amber-600 text-xs rounded">+ Stage</button>
+                 <button onClick={() => alert('Add Blocked')} className="px-2 py-1 bg-rose-600 text-xs rounded">+ Blocked</button>
+                 <button onClick={() => alert('Add Allowed')} className="px-2 py-1 bg-emerald-600 text-xs rounded">+ Allowed</button>
+              </div>
+            </div>
             <div className="text-sm text-slate-300">المقعد: {selectedSeat?.seat_code || 'لا يوجد'}</div>
             <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
               <input type="number" value={editSeatState.position_x} onChange={(e) => setEditSeatState((p) => ({ ...p, position_x: Number(e.target.value) }))} className="rounded-md px-3 py-2 bg-slate-800 border border-slate-700" placeholder="X" />
