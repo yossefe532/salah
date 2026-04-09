@@ -158,10 +158,19 @@ const IDCard: React.FC = () => {
     return '36.9px';
   };
 
-  const parseTableFromSeatCode = (barcode?: string | null) => {
+  const parseTableOrWaveFromSeatCode = (barcode?: string | null, seatClass?: string) => {
     const value = String(barcode || '');
-    const match = value.match(/-T(\d+)-/i);
-    return match ? Number(match[1]) : null;
+    if (seatClass === 'C') {
+       const wMatch = value.match(/-W(\d+)-/i);
+       if (wMatch) return wMatch[1];
+       const rMatch = value.match(/-R(\d+)-/i);
+       if (rMatch) return rMatch[1];
+       return '-';
+    } else {
+       const tMatch = value.match(/-T(\d+)-/i);
+       if (tMatch) return tMatch[1];
+       return '-';
+    }
   };
 
   const handleImageError = (e: React.SyntheticEvent<HTMLImageElement, Event>) => {
@@ -173,8 +182,8 @@ const IDCard: React.FC = () => {
     const frontSrc = frontTemplateByClass[attendee.seat_class || 'C'] || frontTemplateByClass.C;
     const fullName = getDisplayName(attendee);
     const jobTitle = String(attendee.job_title || '').trim();
-    const tableNum = parseTableFromSeatCode(attendee.barcode);
-    const waveValue = attendee.seat_class || (tableNum ? String(tableNum) : '-');
+    const tableOrWave = parseTableOrWaveFromSeatCode(attendee.barcode, attendee.seat_class);
+    
     return (
       <div className="ticket-sheet relative overflow-hidden bg-[#0a0a0a]">
         <div className="absolute inset-0 flex items-center justify-center text-gray-800 text-sm border border-gray-800">صورة القالب مفقودة ({frontSrc})</div>
@@ -241,7 +250,7 @@ const IDCard: React.FC = () => {
 
         <div className="absolute z-10 flex justify-end" style={{ top: '89%', right: '10%', width: '30%' }}>
           <div className="font-bold text-[#e0d3c2]" dir="ltr" style={{ fontSize: '13px', lineHeight: '1', textAlign: 'right', whiteSpace: 'nowrap' }}>
-            {attendee.seat_class === 'C' ? (seatInfo?.seat?.wave_number || '-') : (seatInfo?.table?.table_order || '-')}
+            {tableOrWave}
           </div>
         </div>
 

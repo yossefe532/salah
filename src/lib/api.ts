@@ -1621,23 +1621,26 @@ export const api = {
          
          const toAssign = Math.min(classAttendees.length, availableSeats.length);
          
+         const assignmentsToMake = [];
          for (let i = 0; i < toAssign; i++) {
-            const att = classAttendees[i];
-            const seat = availableSeats[i];
-            
-            // Assign seat
-            await supabase.from('seats').update({
-               status: 'booked',
-               attendee_id: att.id
-            }).eq('id', seat.id);
-            
-            // Update attendee
-            await supabase.from('attendees').update({
-               seat_number: seat.seat_number,
-               governorate: seat.governorate
-            }).eq('id', att.id);
-            
-            assignedCount++;
+            assignmentsToMake.push({ att: classAttendees[i], seat: availableSeats[i] });
+         }
+         
+         const BATCH_SIZE = 15;
+         for (let i = 0; i < assignmentsToMake.length; i += BATCH_SIZE) {
+            const batch = assignmentsToMake.slice(i, i + BATCH_SIZE);
+            await Promise.all(batch.map(async ({ att, seat }) => {
+               await supabase.from('seats').update({
+                  status: 'booked',
+                  attendee_id: att.id
+               }).eq('id', seat.id);
+               
+               await supabase.from('attendees').update({
+                  seat_number: seat.seat_number,
+                  governorate: seat.governorate
+               }).eq('id', att.id);
+            }));
+            assignedCount += batch.length;
          }
       }
       return { success: true, count: assignedCount };
@@ -1681,24 +1684,33 @@ export const api = {
             return ax - bx;
           });
 
+        const assignmentsToMake: any[] = [];
         for (const attendee of attendeeList) {
           const existing = seatList.find((s) => s.attendee_id === attendee.id && s.status === 'booked');
           if (existing) continue;
           const nextSeat = availableSeats.shift();
           if (!nextSeat) break;
+          assignmentsToMake.push({ attendee, seat: nextSeat });
+        }
 
-          await supabase
-            .from('seats')
-            .update({ status: 'booked', attendee_id: attendee.id, reserved_by: null, reserved_until: null })
-            .eq('event_id', eventId)
-            .eq('id', nextSeat.id);
+        // Process in batches of 15 to avoid timeout
+        const BATCH_SIZE = 15;
+        for (let i = 0; i < assignmentsToMake.length; i += BATCH_SIZE) {
+          const batch = assignmentsToMake.slice(i, i + BATCH_SIZE);
+          await Promise.all(batch.map(async ({ attendee, seat }) => {
+             await supabase
+               .from('seats')
+               .update({ status: 'booked', attendee_id: attendee.id, reserved_by: null, reserved_until: null })
+               .eq('event_id', eventId)
+               .eq('id', seat.id);
 
-          await updateAttendeeSafely(String(attendee.id), {
-            seat_number: Number(nextSeat.seat_number),
-            seat_class: nextSeat.seat_class,
-            barcode: nextSeat.seat_code
-          });
-          assigned += 1;
+             await updateAttendeeSafely(String(attendee.id), {
+               seat_number: Number(seat.seat_number),
+               seat_class: seat.seat_class,
+               barcode: seat.seat_code
+             });
+          }));
+          assigned += batch.length;
         }
       }
       return { success: true, assigned };

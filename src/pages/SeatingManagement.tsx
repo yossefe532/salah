@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import { api } from '../lib/api';
 import { Seat, SeatTable } from '../types';
 
@@ -38,6 +38,139 @@ const statusLabel: Record<string, string> = {
   booked: 'محجوز',
   reserved: 'مؤقت',
   vip: 'VIP'
+};
+
+const SeatNode = React.memo(({ seat, selected, mode, onSeatClick, onSeatDoubleClick, onDragStart }: any) => {
+  return (
+    <button
+      onClick={(e) => {
+         e.stopPropagation();
+         onSeatClick(seat);
+      }}
+      onDoubleClick={(e) => {
+         e.stopPropagation();
+         onSeatDoubleClick(seat);
+      }}
+      onMouseDown={(e) => {
+         e.stopPropagation();
+         onDragStart(seat, 'seat', e.clientX, e.clientY, e.currentTarget);
+      }}
+      className={`absolute text-[8px] w-6 h-6 rounded-full border border-white/20 flex flex-col items-center justify-center text-white ${selected ? 'bg-blue-600 ring-2 ring-blue-300 scale-110 z-10' : (statusColor[seat.status] || 'bg-slate-500')} ${mode === 'edit' ? 'cursor-move' : ''}`}
+      style={{
+        left: `${Number(seat.position_x || 0) * 8}px`,
+        top: `${Number(seat.position_y || 0) * 4}px`
+      }}
+      title={`${seat.seat_code} - ${statusLabel[seat.status] || seat.status}`}
+    >
+      <span className="leading-none font-bold text-[9px]">{seat.seat_number}</span>
+      <span className="leading-none text-[6px] opacity-80">{seat.seat_class}</span>
+    </button>
+  );
+}, (prev, next) => {
+  return prev.seat.position_x === next.seat.position_x &&
+         prev.seat.position_y === next.seat.position_y &&
+         prev.seat.status === next.seat.status &&
+         prev.selected === next.selected &&
+         prev.mode === next.mode;
+});
+
+const TableNode = React.memo(({ box, selected, mode, onDoubleClick, onDragStart }: any) => {
+  return (
+    <div
+      onDoubleClick={(e) => {
+         e.stopPropagation();
+         if (mode === 'edit') onDoubleClick(box.id, box.id.split('-T')[1]);
+      }}
+      onMouseDown={(e) => {
+         e.stopPropagation();
+         onDragStart(box, 'table', e.clientX, e.clientY, e.currentTarget);
+      }}
+      className={`absolute border-2 ${selected ? 'border-red-500 bg-red-500/40' : 'border-indigo-400 bg-indigo-600/30'} rounded-lg flex flex-col items-center justify-center ${mode === 'edit' ? 'cursor-move' : 'pointer-events-none'} transition-colors`}
+      style={{ left: box.x, top: box.y, width: box.w, height: box.h }}
+      title={box.id}
+    >
+      <span className="text-[12px] font-bold text-indigo-100/80">{box.id.split('-T')[1]}</span>
+    </div>
+  );
+}, (prev, next) => {
+  return prev.box.x === next.box.x &&
+         prev.box.y === next.box.y &&
+         prev.box.w === next.box.w &&
+         prev.box.h === next.box.h &&
+         prev.selected === next.selected &&
+         prev.mode === next.mode;
+});
+
+const AssignmentModalComponent = ({ isOpen, seat, attendees, governorate, onClose, onAssign, onUnassign }: any) => {
+  const [searchTerm, setSearchTerm] = useState('');
+  
+  useEffect(() => {
+    if (isOpen) setSearchTerm('');
+  }, [isOpen]);
+
+  if (!isOpen || !seat) return null;
+
+  const filteredAttendees = attendees
+    .filter((a: any) => a.seat_class === seat.seat_class && !a.seat_number && ((val: string) => val.trim().toLowerCase())(a.governorate) === ((val: string) => val.trim().toLowerCase())(governorate))
+    .filter((a: any) => {
+       const term = searchTerm.toLowerCase();
+       const name = (a.full_name || a.name || '').toLowerCase();
+       const phone = (a.phone || '').toLowerCase();
+       return name.includes(term) || phone.includes(term);
+    });
+
+  return (
+     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={onClose}>
+        <div className="bg-slate-900 border border-slate-700 rounded-xl w-full max-w-md p-6 flex flex-col gap-4 shadow-2xl" onClick={e => e.stopPropagation()}>
+           <div className="flex justify-between items-center">
+             <h3 className="text-lg font-bold text-white">تسكين المقعد: {seat.seat_code}</h3>
+             {seat.status === 'booked' && (
+               <button onClick={onUnassign} className="px-3 py-1 bg-red-600/20 text-red-400 border border-red-600/50 rounded hover:bg-red-600 hover:text-white transition text-xs">
+                 إلغاء التسكين الحالي
+               </button>
+             )}
+           </div>
+           
+           {seat.status === 'booked' && (
+             <div className="p-3 bg-indigo-900/30 border border-indigo-700/50 rounded-lg">
+               <p className="text-xs text-indigo-300 mb-1">المقعد محجوز حالياً لـ:</p>
+               <p className="font-bold text-white">
+                 {attendees.find((a: any) => a.id === seat.attendee_id)?.full_name || 'غير معروف'}
+               </p>
+             </div>
+           )}
+
+           <input 
+             type="text" 
+             autoFocus
+             placeholder="ابحث بالاسم أو رقم التليفون لتبديل التسكين..." 
+             value={searchTerm}
+             onChange={e => setSearchTerm(e.target.value)}
+             className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white"
+           />
+           <div className="flex flex-col gap-2 max-h-80 overflow-y-auto pr-2">
+             {filteredAttendees.map((a: any) => (
+                   <button 
+                     key={a.id}
+                     onClick={() => onAssign(a.id)}
+                     className="flex items-center justify-between p-3 rounded-lg border border-slate-700 bg-slate-800/50 hover:bg-indigo-600 hover:border-indigo-500 transition text-right"
+                   >
+                     <div className="flex flex-col">
+                        <span className="font-bold text-white">{a.full_name || a.name}</span>
+                        <span className="text-xs text-slate-400">{a.phone}</span>
+                     </div>
+                     <span className="text-xs bg-slate-700 px-2 py-1 rounded text-slate-300">اختر</span>
+                   </button>
+                ))
+             }
+             {filteredAttendees.length === 0 && (
+                <div className="text-center text-slate-500 py-4">لا يوجد عملاء غير مسكنين في هذه الفئة</div>
+             )}
+           </div>
+           <button onClick={onClose} className="mt-2 py-2 text-slate-400 hover:text-white transition">إلغاء</button>
+        </div>
+     </div>
+  );
 };
 
 const SeatingManagement: React.FC = () => {
@@ -80,7 +213,6 @@ const SeatingManagement: React.FC = () => {
   const [selectedVersionId, setSelectedVersionId] = useState('');
   const [versionName, setVersionName] = useState('');
   const [assignmentModal, setAssignmentModal] = useState<{isOpen: boolean, seat: Seat | null}>({isOpen: false, seat: null});
-  const [searchTerm, setSearchTerm] = useState('');
   const [zoomLevel, setZoomLevel] = useState(1);
   const [renameModal, setRenameModal] = useState<{isOpen: boolean, tableId: string, currentName: string}>({isOpen: false, tableId: '', currentName: ''});
 
@@ -552,18 +684,17 @@ const SeatingManagement: React.FC = () => {
 
   const [selectedElement, setSelectedElement] = useState<{id: string, type: 'table' | 'element' | 'wave' | 'seat'} | null>(null);
   
-  const handleSeatClick = (seat: Seat) => {
+  const handleSeatClick = useCallback((seat: Seat) => {
     setSelectedSeatId(seat.id);
     setSelectedElement({ id: seat.id, type: 'seat' });
-  };
+  }, []);
   
-  const handleSeatDoubleClick = (seat: Seat) => {
+  const handleSeatDoubleClick = useCallback((seat: Seat) => {
     if (mode === 'assign') {
         setSelectedSeatId(seat.id);
-        setSearchTerm('');
         setAssignmentModal({ isOpen: true, seat });
     }
-  };
+  }, [mode]);
 
   const saveSeatLayout = async () => {
     if (!selectedSeatId) return;
@@ -713,28 +844,19 @@ const SeatingManagement: React.FC = () => {
                   const x = draft ? draft.position_x * 8 : box.x;
                   const y = draft ? draft.position_y * 4 : box.y;
                   return (
-                  <div
-                    key={box.id}
-                    onClick={(e) => {
-                       e.stopPropagation();
-                       setSelectedElement({ id: box.id, type: 'table' });
-                    }}
-                    onDoubleClick={() => {
-                       if (mode === 'edit') {
-                           setRenameModal({ isOpen: true, tableId: box.id, currentName: box.id.split('-T')[1] });
-                       }
-                    }}
-                    onMouseDown={(e) => {
-                       e.stopPropagation();
-                       startDrag({ id: box.id, position_x: box.x/8, position_y: box.y/4 }, 'table', e.clientX, e.clientY, e.currentTarget);
-                    }}
-                    className={`absolute border-2 ${selectedElement?.id === box.id ? 'border-red-500 bg-red-500/40' : 'border-indigo-400 bg-indigo-600/30'} rounded-lg flex flex-col items-center justify-center ${mode === 'edit' ? 'cursor-move' : 'pointer-events-none'} transition-colors`}
-                    style={{ left: x, top: y, width: box.w, height: box.h }}
-                    title={box.id}
-                  >
-                    <span className="text-[12px] font-bold text-indigo-100/80">{box.id.split('-T')[1]}</span>
-                  </div>
-                )})} 
+                     <TableNode 
+                        key={box.id} 
+                        box={{ ...box, x, y }} 
+                        selected={selectedElement?.id === box.id} 
+                        mode={mode}
+                        onDoubleClick={(id: string, currentName: string) => setRenameModal({ isOpen: true, tableId: id, currentName })}
+                        onDragStart={(b: any, type: string, clientX: number, clientY: number, target: any) => {
+                           startDrag({ id: b.id, position_x: box.x/8, position_y: box.y/4 }, 'table', clientX, clientY, target);
+                           setSelectedElement({ id: b.id, type: 'table' });
+                        }}
+                     />
+                  );
+              })} 
               {/* Layout elements removed as they require DB migration */}
               
               {/* Assignment Modal */}
@@ -770,97 +892,30 @@ const SeatingManagement: React.FC = () => {
                     </div>
                  </div>
               )}
-              {assignmentModal.isOpen && assignmentModal.seat && (
-                 <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setAssignmentModal({isOpen: false, seat: null})}>
-                    <div className="bg-slate-900 border border-slate-700 rounded-xl w-full max-w-md p-6 flex flex-col gap-4 shadow-2xl" onClick={e => e.stopPropagation()}>
-                       <div className="flex justify-between items-center">
-                         <h3 className="text-lg font-bold text-white">تسكين المقعد: {assignmentModal.seat.seat_code}</h3>
-                         {assignmentModal.seat.status === 'booked' && (
-                           <button onClick={unassignSelected} className="px-3 py-1 bg-red-600/20 text-red-400 border border-red-600/50 rounded hover:bg-red-600 hover:text-white transition text-xs">
-                             إلغاء التسكين الحالي
-                           </button>
-                         )}
-                       </div>
-                       
-                       {assignmentModal.seat.status === 'booked' && (
-                         <div className="p-3 bg-indigo-900/30 border border-indigo-700/50 rounded-lg">
-                           <p className="text-xs text-indigo-300 mb-1">المقعد محجوز حالياً لـ:</p>
-                           <p className="font-bold text-white">
-                             {attendees.find(a => a.id === assignmentModal.seat!.attendee_id)?.full_name || 'غير معروف'}
-                           </p>
-                         </div>
-                       )}
-
-                       <input 
-                         type="text" 
-                         autoFocus
-                         placeholder="ابحث بالاسم أو رقم التليفون لتبديل التسكين..." 
-                         value={searchTerm}
-                         onChange={e => setSearchTerm(e.target.value)}
-                         className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white"
-                       />
-                       <div className="flex flex-col gap-2 max-h-80 overflow-y-auto pr-2">
-                         {attendees
-                            .filter(a => a.seat_class === assignmentModal.seat!.seat_class && !a.seat_number && ((val: string) => val.trim().toLowerCase())(a.governorate) === ((val: string) => val.trim().toLowerCase())(governorate))
-                            .filter(a => {
-                               const term = searchTerm.toLowerCase();
-                               const name = ((a as any).full_name || (a as any).name || '').toLowerCase();
-                               const phone = ((a as any).phone || '').toLowerCase();
-                               return name.includes(term) || phone.includes(term);
-                            })
-                            .map(a => (
-                               <button 
-                                 key={a.id}
-                                 onClick={() => {
-                                    setAssignmentModal({isOpen: false, seat: null});
-                                    assignSelected(a.id);
-                                 }}
-                                 className="flex items-center justify-between p-3 rounded-lg border border-slate-700 bg-slate-800/50 hover:bg-indigo-600 hover:border-indigo-500 transition text-right"
-                               >
-                                 <div className="flex flex-col">
-                                    <span className="font-bold text-white">{(a as any).full_name || (a as any).name}</span>
-                                    <span className="text-xs text-slate-400">{(a as any).phone}</span>
-                                 </div>
-                                 <span className="text-xs bg-slate-700 px-2 py-1 rounded text-slate-300">اختر</span>
-                               </button>
-                            ))
-                         }
-                         {attendees.filter(a => a.seat_class === assignmentModal.seat!.seat_class && !a.seat_number && ((val: string) => val.trim().toLowerCase())(a.governorate) === ((val: string) => val.trim().toLowerCase())(governorate)).length === 0 && (
-                            <div className="text-center text-slate-500 py-4">لا يوجد عملاء غير مسكنين في هذه الفئة</div>
-                         )}
-                       </div>
-                       <button onClick={() => setAssignmentModal({isOpen: false, seat: null})} className="mt-2 py-2 text-slate-400 hover:text-white transition">إلغاء</button>
-                    </div>
-                 </div>
-              )}
+              <AssignmentModalComponent 
+                 isOpen={assignmentModal.isOpen} 
+                 seat={assignmentModal.seat} 
+                 attendees={attendees} 
+                 governorate={governorate} 
+                 onClose={() => setAssignmentModal({isOpen: false, seat: null})} 
+                 onAssign={(id: string) => {
+                    setAssignmentModal({isOpen: false, seat: null});
+                    assignSelected(id);
+                 }}
+                 onUnassign={unassignSelected}
+              />
               {mapSeats.map((seat) => {
                 const seatView = getSeatView(seat);
-                const selected = selectedSeatId === seat.id;
                 return (
-                  <button
-                    key={seat.id}
-                    onClick={(e) => {
-                       e.stopPropagation();
-                       handleSeatClick(seat);
-                    }}
-                    onDoubleClick={(e) => {
-                       e.stopPropagation();
-                       handleSeatDoubleClick(seat);
-                    }}
-                    onMouseDown={(e) => {
-                       e.stopPropagation();
-                       startDrag(seat, 'seat', e.clientX, e.clientY, e.currentTarget);
-                    }}
-                    className={`absolute text-[8px] w-6 h-6 rounded-full border border-white/20 flex flex-col items-center justify-center text-white ${selected ? 'bg-blue-600 ring-2 ring-blue-300 scale-110 z-10' : (statusColor[seat.status] || 'bg-slate-500')} ${mode === 'edit' ? 'cursor-move' : ''}`}
-                    style={{
-                      left: `${Number(seatView.position_x || 0) * 8}px`,
-                      top: `${Number(seatView.position_y || 0) * 4}px`
-                    }}
-                    title={`${seat.seat_code} - ${statusLabel[seat.status] || seat.status}`}
-                  >
-                    <span className="leading-none font-bold text-[9px]">{seat.seat_number}</span>
-                    <span className="leading-none text-[6px] opacity-80">{seat.seat_class}</span>
-                  </button>
+                   <SeatNode 
+                      key={seat.id} 
+                      seat={seatView} 
+                      selected={selectedSeatId === seat.id}
+                      mode={mode}
+                      onSeatClick={handleSeatClick}
+                      onSeatDoubleClick={handleSeatDoubleClick}
+                      onDragStart={startDrag}
+                   />
                 );
               })}
               <div className="absolute top-[110px] left-4 text-xs text-indigo-200 bg-indigo-900/40 border border-indigo-700/50 px-2 py-1 rounded pointer-events-none">CLASS A</div>
