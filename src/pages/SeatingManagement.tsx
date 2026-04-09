@@ -64,19 +64,25 @@ const SeatingManagement: React.FC = () => {
     classC_seats_per_side_per_row: 8
   });
   const [editSeatState, setEditSeatState] = useState({ position_x: 0, position_y: 0, row_number: 1 });
-  const [layoutDraft, setLayoutDraft] = useState<Record<string, { position_x: number; position_y: number }>>({});
-  const [history, setHistory] = useState<Array<Record<string, { position_x: number; position_y: number }>>>([{}]);
+  const [layoutDraft, setLayoutDraft] = useState<Record<string, { type: 'seat' | 'table' | 'element'; position_x: number; position_y: number }>>({});
+  const [history, setHistory] = useState<Array<Record<string, { type: 'seat' | 'table' | 'element'; position_x: number; position_y: number }>>>([{}]);
   const [historyIndex, setHistoryIndex] = useState(0);
   const [dragState, setDragState] = useState<{
-    seatId: string;
+    id: string;
+    type: 'seat' | 'table' | 'element';
     startX: number;
     startY: number;
     originX: number;
     originY: number;
+    seatOrigins?: Record<string, {x: number, y: number}>;
   } | null>(null);
   const [versions, setVersions] = useState<LayoutVersionLite[]>([]);
   const [selectedVersionId, setSelectedVersionId] = useState('');
   const [versionName, setVersionName] = useState('');
+  const [assignmentModal, setAssignmentModal] = useState<{isOpen: boolean, seat: Seat | null}>({isOpen: false, seat: null});
+  const [searchTerm, setSearchTerm] = useState('');
+  const [zoomLevel, setZoomLevel] = useState(1);
+  const [renameModal, setRenameModal] = useState<{isOpen: boolean, tableId: string, currentName: string}>({isOpen: false, tableId: '', currentName: ''});
 
   const loadMap = async () => {
     try {
@@ -145,15 +151,38 @@ const SeatingManagement: React.FC = () => {
   }, [payload.seats, classFilter]);
 
   const tableBoxes = useMemo(() => {
-    return (payload.tables || []).map(t => ({
-      id: t.id,
-      x: (Number(t.position_x) || 0) * 8,
-      y: (Number(t.position_y) || 0) * 4,
-      w: (Number(t.width) || 10) * 8,
-      h: (Number(t.height) || 8) * 4,
-      cls: t.seat_class
-    }));
-  }, [payload.tables]);
+    const seatsByTable = new Map<string, Seat[]>();
+    for (const seat of payload.seats || []) {
+      if (!seat.table_id) continue;
+      const list = seatsByTable.get(seat.table_id) || [];
+      list.push(seat as any);
+      seatsByTable.set(seat.table_id, list as any);
+    }
+    const boxes: Array<{ id: string; x: number; y: number; w: number; h: number; cls: string }> = [];
+    for (const table of payload.tables || []) {
+      const list = seatsByTable.get(table.id) || [];
+      if (!list.length) continue;
+      const xs = list.map((s: any) => Number(s.position_x || 0));
+      const ys = list.map((s: any) => Number(s.position_y || 0));
+      const minX = Math.min(...xs) * 8;
+      const maxX = Math.max(...xs) * 8 + 24; // chair width is 24px
+      const minY = Math.min(...ys) * 4;
+      const maxY = Math.max(...ys) * 4 + 24; // chair height is 24px
+      
+      const tableW = Math.max(32, maxX - minX - 24);
+      const tableH = Math.max(16, maxY - minY - 32);
+
+      boxes.push({
+        id: table.id,
+        x: minX + 12,
+        y: minY + 16,
+        w: tableW,
+        h: tableH,
+        cls: table.seat_class
+      });
+    }
+    return boxes;
+  }, [payload.seats, payload.tables]);
 
   const selectedSeat = useMemo(() => payload.seats.find((s) => s.id === selectedSeatId) || null, [payload.seats, selectedSeatId]);
   const selectedSeatAttendee = useMemo(() => attendees.find((a) => a.id === selectedSeat?.attendee_id) || null, [attendees, selectedSeat?.attendee_id]);
@@ -207,17 +236,73 @@ const SeatingManagement: React.FC = () => {
     }
   };
 
-  const assignSelected = async () => {
-    if (!selectedSeatId || !selectedAttendeeId) return;
+  const assignSelected = async (passedAttendeeId?: any) => {
+    const aid = typeof passedAttendeeId === 'string' ? passedAttendeeId : selectedAttendeeId;
+    if (!selectedSeatId || !aid) return;
     try {
       setLoading(true);
       setError(null);
-      await api.post('/seating/assign-attendee', { event_id: eventId, seat_id: selectedSeatId, attendee_id: selectedAttendeeId });
-      await Promise.all([loadMap(), loadAttendees()]);
+      await api.post('/seating/assign-attendee', { event_id: eventId, seat_id: selectedSeatId, attendee_id: aid });
+      
+      // Optimistic update for instant UI feedback
+      const targetSeat = payload.seats.find(s => s.id === selectedSeatId);
+      const oldAttendeeIdInTargetSeat = targetSeat?.attendee_id;
+      
+      setPayload(prev => ({
+        ...prev,
+        seats: prev.seats.map(s => {
+          if (s.id === selectedSeatId) return { ...s, status: 'booked', attendee_id: aid };
+          if (s.attendee_id === aid) return { ...s, status: 'available', attendee_id: null };
+          return s;
+        })
+      }));
+      
+      if (targetSeat) {
+        setAttendees(prev => prev.map(a => {
+           if (a.id === aid) return { ...a, seat_number: targetSeat.seat_number, barcode: targetSeat.seat_code };
+           if (a.id === oldAttendeeIdInTargetSeat) return { ...a, seat_number: undefined, barcode: undefined };
+           return a;
+        }));
+      }
+      
+      // Background reload
+      loadMap();
+      loadAttendees();
     } catch (e: any) {
       setError(e.message || 'فشل تسكين المشارك');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const unassignSelected = async () => {
+    if (!selectedSeatId) return;
+    try {
+      setLoading(true);
+      setError(null);
+      await api.post('/seating/unassign-attendee', { event_id: eventId, seat_id: selectedSeatId });
+      
+      const targetSeat = payload.seats.find(s => s.id === selectedSeatId);
+      const oldAttendeeId = targetSeat?.attendee_id;
+      
+      setPayload(prev => ({
+        ...prev,
+        seats: prev.seats.map(s => {
+          if (s.id === selectedSeatId) return { ...s, status: 'available', attendee_id: null };
+          return s;
+        })
+      }));
+      if (oldAttendeeId) {
+        setAttendees(prev => prev.map(a => a.id === oldAttendeeId ? { ...a, seat_number: undefined, barcode: undefined } : a));
+      }
+      
+      loadMap();
+      loadAttendees();
+    } catch (e: any) {
+      setError(e.message || 'فشل إلغاء التسكين');
+    } finally {
+      setLoading(false);
+      setAssignmentModal({isOpen: false, seat: null});
     }
   };
 
@@ -297,6 +382,7 @@ const SeatingManagement: React.FC = () => {
   const publishLayoutDraft = async () => {
     const updates = Object.entries(layoutDraft).map(([id, val]) => ({
       id,
+      type: val.type,
       position_x: val.position_x,
       position_y: val.position_y
     }));
@@ -322,50 +408,161 @@ const SeatingManagement: React.FC = () => {
     setLayoutDraft(JSON.parse(JSON.stringify(history[nextIndex] || {})));
   };
 
-  const startDrag = (seat: Seat, clientX: number, clientY: number) => {
+  const handleDeleteElement = async (id: string, type: 'table' | 'element' | 'wave' | 'seat') => {
+    if (!window.confirm('هل أنت متأكد من الحذف؟')) return;
+    try {
+      setLoading(true);
+      await api.post('/seating/delete-element', { event_id: eventId, id, type });
+      await loadMap();
+    } catch(e: any) {
+      setError(e.message || 'فشل الحذف');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleAddElement = async (type: string, cls?: string) => {
+    try {
+      setLoading(true);
+      await api.post('/seating/add-element', { event_id: eventId, governorate, type, seat_class: cls });
+      await loadMap();
+    } catch(e: any) {
+      setError(e.message || 'Failed to add element');
+    } finally {
+      setLoading(false);
+    }
+  };
+  
+  const handleClearMap = async () => {
+     if (!window.confirm('هل أنت متأكد من مسح جميع العناصر من الخريطة؟ هذا الإجراء لا يمكن التراجع عنه.')) return;
+     try {
+        setLoading(true);
+        const elements = payload.layout_elements || [];
+        const tables = payload.tables || [];
+        const waves = [...new Set((payload.seats || []).filter(s => s.wave_number).map(s => s.wave_number))];
+        const looseSeats = (payload.seats || []).filter(s => !s.table_id && !s.wave_number);
+        
+        for (const el of elements) {
+           await api.post('/seating/delete-element', { event_id: eventId, id: el.id, type: 'element' });
+        }
+        for (const t of tables) {
+           await api.post('/seating/delete-element', { event_id: eventId, id: t.id, type: 'table' });
+        }
+        for (const w of waves) {
+           await api.post('/seating/delete-element', { event_id: eventId, id: w, type: 'wave' });
+        }
+        for (const s of looseSeats) {
+           await api.post('/seating/delete-element', { event_id: eventId, id: s.id, type: 'seat' });
+        }
+        await loadMap();
+     } catch(e: any) {
+        setError(e.message || 'فشل مسح الخريطة');
+     } finally {
+        setLoading(false);
+     }
+  };
+
+  const startDrag = (item: any, type: 'seat' | 'table' | 'element', clientX: number, clientY: number, currentTarget: HTMLElement) => {
+    const currentZoom = zoomLevel;
     if (mode !== 'edit') return;
-    const seatView = getSeatView(seat);
+    const patch = layoutDraft[item.id];
+    const originX = patch ? patch.position_x : Number(item.position_x || 0);
+    const originY = patch ? patch.position_y : Number(item.position_y || 0);
+    
+    let seatOrigins: Record<string, {x: number, y: number}> = {};
+    if (type === 'table') {
+      payload.seats.filter(s => s.table_id === item.id).forEach(s => {
+        const sPatch = layoutDraft[s.id];
+        seatOrigins[s.id] = {
+          x: sPatch ? sPatch.position_x : Number(s.position_x || 0),
+          y: sPatch ? sPatch.position_y : Number(s.position_y || 0)
+        };
+      });
+    }
+
+    const rect = document.getElementById('seating-canvas-inner')?.getBoundingClientRect();
+    const scaledX = rect ? (clientX - rect.left) / currentZoom : clientX;
+    const scaledY = rect ? (clientY - rect.top) / currentZoom : clientY;
+    
     setDragState({
-      seatId: seat.id,
-      startX: clientX,
-      startY: clientY,
-      originX: Number(seatView.position_x || 0),
-      originY: Number(seatView.position_y || 0)
+      id: item.id,
+      type,
+      startX: scaledX,
+      startY: scaledY,
+      originX,
+      originY,
+      seatOrigins
     });
   };
 
   const onCanvasMove = (clientX: number, clientY: number) => {
     if (!dragState || mode !== 'edit') return;
-    const dx = (clientX - dragState.startX) / 8;
-    const dy = (clientY - dragState.startY) / 4;
-    const nextDraft = {
-      ...layoutDraft,
-      [dragState.seatId]: {
-        position_x: Math.max(0, Math.round((dragState.originX + dx) * 10) / 10),
-        position_y: Math.max(0, Math.round((dragState.originY + dy) * 10) / 10)
-      }
-    };
+    
+    const currentZoom = zoomLevel;
+    // We need to calculate dx and dy based on the scaled position change
+    // Let's get the container rect to find the current scaled position
+    const container = document.getElementById('seating-canvas-inner');
+    const rect = container?.getBoundingClientRect();
+    
+    const currentScaledX = rect ? (clientX - rect.left) / currentZoom : clientX;
+    const currentScaledY = rect ? (clientY - rect.top) / currentZoom : clientY;
+
+    // dx and dy are the differences in grid units (unscaled difference divided by grid size)
+    const dx = (currentScaledX - dragState.startX) / 8;
+    const dy = (currentScaledY - dragState.startY) / 4;
+    
+    const nextX = Math.max(0, Math.round((dragState.originX + dx) * 10) / 10);
+    const nextY = Math.max(0, Math.round((dragState.originY + dy) * 10) / 10);
+    
+    const nextDraft = { ...layoutDraft };
+    nextDraft[dragState.id] = { type: dragState.type, position_x: nextX, position_y: nextY };
+    
+    // If we drag a table, we should also drag its associated seats proportionally
+    if (dragState.type === 'table' && dragState.seatOrigins) {
+        Object.keys(dragState.seatOrigins).forEach(seatId => {
+            const startPos = dragState.seatOrigins![seatId];
+            if (startPos) {
+                nextDraft[seatId] = { 
+                  type: 'seat', 
+                  position_x: Math.max(0, Math.round((startPos.x + dx) * 10) / 10), 
+                  position_y: Math.max(0, Math.round((startPos.y + dy) * 10) / 10) 
+                };
+            }
+        });
+    }
+    
     setLayoutDraft(nextDraft);
   };
 
   const endDrag = () => {
     if (!dragState) return;
     commitDraftHistory(layoutDraft);
-    const seat = payload.seats.find((s) => s.id === dragState.seatId);
-    const patch = layoutDraft[dragState.seatId];
-    if (seat && patch) {
-      setEditSeatState((prev) => ({
-        ...prev,
-        position_x: patch.position_x,
-        position_y: patch.position_y
-      }));
+    if (dragState.type === 'seat') {
+      const patch = layoutDraft[dragState.id];
+      if (patch) {
+        setEditSeatState((prev) => ({
+          ...prev,
+          position_x: patch.position_x,
+          position_y: patch.position_y
+        }));
+      }
     }
     setDragState(null);
   };
 
+  const [selectedElement, setSelectedElement] = useState<{id: string, type: 'table' | 'element' | 'wave' | 'seat'} | null>(null);
+  
   const handleSeatClick = (seat: Seat) => {
-    if (mode === 'assign' && seat.status === 'booked') return;
     setSelectedSeatId(seat.id);
+    setSelectedElement({ id: seat.id, type: 'seat' });
+  };
+  
+  const handleSeatDoubleClick = (seat: Seat) => {
+    if (mode === 'assign') {
+        setSelectedSeatId(seat.id);
+        setSearchTerm('');
+        setAssignmentModal({ isOpen: true, seat });
+    }
   };
 
   const saveSeatLayout = async () => {
@@ -385,7 +582,7 @@ const SeatingManagement: React.FC = () => {
     }
   };
 
-  const commitDraftHistory = (nextDraft: Record<string, { position_x: number; position_y: number }>) => {
+  const commitDraftHistory = (nextDraft: Record<string, { type: 'seat' | 'table' | 'element'; position_x: number; position_y: number }>) => {
     const base = history.slice(0, historyIndex + 1);
     const cloned = JSON.parse(JSON.stringify(nextDraft || {}));
     const nextHistory = [...base, cloned];
@@ -397,16 +594,17 @@ const SeatingManagement: React.FC = () => {
     if (!selectedSeatId) return;
     const seat = payload.seats.find((s) => s.id === selectedSeatId);
     if (!seat) return;
-    const current = layoutDraft[selectedSeatId] || { position_x: Number(seat.position_x || 0), position_y: Number(seat.position_y || 0) };
+    const current = layoutDraft[selectedSeatId] || { type: 'seat', position_x: Number(seat.position_x || 0), position_y: Number(seat.position_y || 0) };
     const nextDraft = {
       ...layoutDraft,
       [selectedSeatId]: {
+        type: 'seat',
         position_x: Math.max(0, current.position_x + xDelta),
         position_y: Math.max(0, current.position_y + yDelta)
       }
     };
-    setLayoutDraft(nextDraft);
-    commitDraftHistory(nextDraft);
+    setLayoutDraft(nextDraft as any);
+    commitDraftHistory(nextDraft as any);
     setEditSeatState((prev) => ({
       ...prev,
       position_x: Math.max(0, prev.position_x + xDelta),
@@ -437,7 +635,18 @@ const SeatingManagement: React.FC = () => {
         <div className="mt-4 grid grid-cols-2 md:grid-cols-5 gap-2">
           <button onClick={() => setMode('assign')} className={`px-4 py-2 rounded-md text-sm border ${mode === 'assign' ? 'bg-indigo-600 border-indigo-500' : 'border-slate-700 bg-slate-800'}`}>مود التسكين</button>
           <button onClick={() => setMode('edit')} className={`px-4 py-2 rounded-md text-sm border ${mode === 'edit' ? 'bg-indigo-600 border-indigo-500' : 'border-slate-700 bg-slate-800'}`}>مود التعديل</button>
-          <button onClick={initHall} className="px-4 py-2 rounded-md text-sm border border-slate-700 bg-slate-800">تهيئة القاعة</button>
+          <button onClick={initHall} className="px-4 py-2 rounded-md text-sm border border-slate-700 bg-slate-800">تهيئة ذكية للقاعة</button>
+          <button onClick={async () => {
+             if (!window.confirm('هل أنت متأكد من تسكين جميع العملاء المتبقين عشوائياً؟')) return;
+             try {
+                setLoading(true);
+                const eligible = attendees.filter(a => !a.seat_number);
+                await api.post('/seating/auto-assign-all', { event_id: eventId });
+                await loadMap();
+             } catch(e: any) { alert(e.message); }
+             finally { setLoading(false); }
+          }} className="px-4 py-2 rounded-md text-sm border border-slate-700 bg-slate-800 text-blue-400">تسكين تلقائي للكل</button>
+          <button onClick={handleClearMap} className="px-4 py-2 rounded-md text-sm bg-red-600">تفريغ الخريطة بالكامل</button>
           <button onClick={() => autoAssign()} className="px-4 py-2 rounded-md text-sm bg-emerald-600">تسكين تلقائي شامل</button>
           <button onClick={() => autoAssign(classFilter)} className="px-4 py-2 rounded-md text-sm border border-slate-700 bg-slate-800">تسكين تلقائي {classFilter}</button>
         </div>
@@ -473,62 +682,184 @@ const SeatingManagement: React.FC = () => {
         <div className="xl:col-span-9 rounded-xl border border-slate-800 bg-slate-900 p-4">
           <div className="mb-3 flex items-center justify-between">
             <div className="text-sm text-slate-300">لوحة القاعة التفاعلية</div>
-            <div className="text-xs text-slate-400">دبل كليك على المقعد في مود التعديل لتحديده ثم تعديل مكانه</div>
+            <div className="flex gap-2 items-center" dir="ltr">
+              <button onClick={() => setZoomLevel(p => Math.max(0.2, p - 0.1))} className="px-3 py-1 bg-slate-800 border border-slate-700 hover:bg-slate-700 rounded-md text-xl leading-none">-</button>
+              <span className="text-sm w-12 text-center font-bold text-indigo-300">{Math.round(zoomLevel * 100)}%</span>
+              <button onClick={() => setZoomLevel(p => Math.min(3, p + 0.1))} className="px-3 py-1 bg-slate-800 border border-slate-700 hover:bg-slate-700 rounded-md text-xl leading-none">+</button>
+            </div>
+            <div className="text-xs text-slate-400">سحب وإفلات في مود التعديل لتغيير المكان</div>
           </div>
           <div className="rounded-lg border border-slate-800 bg-slate-950 p-2">
-            <div className="h-12 rounded-md border border-indigo-800 bg-indigo-900/30 text-center font-bold flex items-center justify-center">STAGE / المسرح</div>
-            <div
-              className="relative mt-3 rounded-md border border-slate-800 overflow-auto"
-              onMouseMove={(e) => onCanvasMove(e.clientX, e.clientY)}
-              onMouseUp={endDrag}
-              onMouseLeave={endDrag}
-              style={{
-                height: 560,
-                backgroundImage:
-                  'linear-gradient(to right, rgba(148,163,184,0.08) 1px, transparent 1px), linear-gradient(to bottom, rgba(148,163,184,0.08) 1px, transparent 1px)',
-                backgroundSize: '24px 24px'
-              }}
-            >
-              {tableBoxes.map((box) => (
-                <div
-                  key={box.id}
-                  className="absolute border border-indigo-500/40 rounded-md bg-indigo-500/10 flex flex-col items-center justify-center pointer-events-none"
-                  style={{ left: box.x, top: box.y, width: box.w, height: box.h }}
-                  title={box.id}
-                >
-                  <span className="text-[10px] font-bold text-white/50">{box.id}</span>
+            <div id="seating-canvas-container" className="relative rounded-md border border-slate-800 overflow-auto" style={{ height: 600 }}>
+              <div
+                id="seating-canvas-inner"
+                className="relative min-w-[1600px] min-h-[1200px]"
+                onMouseMove={(e) => onCanvasMove(e.clientX, e.clientY)}
+                onMouseUp={endDrag}
+                onMouseLeave={endDrag}
+                style={{
+                  transform: `scale(${zoomLevel})`,
+                  transformOrigin: 'top right',
+                  backgroundImage:
+                    'linear-gradient(to right, rgba(148,163,184,0.08) 1px, transparent 1px), linear-gradient(to bottom, rgba(148,163,184,0.08) 1px, transparent 1px)',
+                  backgroundSize: '24px 24px'
+                }}
+              >
+                <div className="absolute top-0 left-0 right-0 h-16 border-b border-indigo-800 bg-indigo-900/20 flex items-center justify-center font-bold text-xl text-indigo-300 tracking-widest z-0 pointer-events-none">
+                   STAGE / المسرح
                 </div>
-              ))}
-              {(payload.layout_elements || []).map((el) => {
-                const isStage = el.element_type === 'stage';
-                const isBlocked = el.element_type === 'blocked';
-                return (
+              {tableBoxes.map((box) => {
+                  const draft = layoutDraft[box.id];
+                  const x = draft ? draft.position_x * 8 : box.x;
+                  const y = draft ? draft.position_y * 4 : box.y;
+                  return (
                   <div
-                    key={el.id}
-                    className={`absolute border rounded flex items-center justify-center font-bold text-xs pointer-events-none ${isStage ? 'bg-amber-900/30 border-amber-500 text-amber-200' : isBlocked ? 'bg-rose-900/30 border-rose-500 text-rose-200' : 'bg-emerald-900/30 border-emerald-500 text-emerald-200'}`}
-                    style={{ left: Number(el.position_x) * 8, top: Number(el.position_y) * 4, width: Number(el.width) * 8, height: Number(el.height) * 4 }}
+                    key={box.id}
+                    onClick={(e) => {
+                       e.stopPropagation();
+                       setSelectedElement({ id: box.id, type: 'table' });
+                    }}
+                    onDoubleClick={() => {
+                       if (mode === 'edit') {
+                           setRenameModal({ isOpen: true, tableId: box.id, currentName: box.id.split('-T')[1] });
+                       }
+                    }}
+                    onMouseDown={(e) => {
+                       e.stopPropagation();
+                       startDrag({ id: box.id, position_x: box.x/8, position_y: box.y/4 }, 'table', e.clientX, e.clientY, e.currentTarget);
+                    }}
+                    className={`absolute border-2 ${selectedElement?.id === box.id ? 'border-red-500 bg-red-500/40' : 'border-indigo-400 bg-indigo-600/30'} rounded-lg flex flex-col items-center justify-center ${mode === 'edit' ? 'cursor-move' : 'pointer-events-none'} transition-colors`}
+                    style={{ left: x, top: y, width: box.w, height: box.h }}
+                    title={box.id}
                   >
-                    {el.label || el.element_type.toUpperCase()}
+                    <span className="text-[12px] font-bold text-indigo-100/80">{box.id.split('-T')[1]}</span>
                   </div>
-                );
-              })}
+                )})} 
+              {/* Layout elements removed as they require DB migration */}
+              
+              {/* Assignment Modal */}
+              {renameModal.isOpen && (
+                 <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setRenameModal({isOpen: false, tableId: '', currentName: ''})}>
+                    <div className="bg-slate-900 border border-slate-700 rounded-xl w-full max-w-sm p-6 flex flex-col gap-4 shadow-2xl" onClick={e => e.stopPropagation()}>
+                       <h3 className="text-lg font-bold text-white">تغيير اسم الترابيزة</h3>
+                       <input 
+                         type="text" 
+                         autoFocus
+                         value={renameModal.currentName}
+                         onChange={e => setRenameModal(prev => ({...prev, currentName: e.target.value}))}
+                         className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white"
+                       />
+                       <div className="flex gap-2 mt-2">
+                           <button onClick={async () => {
+                               const { tableId, currentName } = renameModal;
+                               const oldNum = tableId.split('-T')[1];
+                               if (currentName && currentName !== oldNum) {
+                                   try {
+                                      const newId = tableId.split('-T')[0] + '-T' + currentName;
+                                      setLoading(true);
+                                      await api.post('/seating/update-table-id', { old_id: tableId, new_id: newId });
+                                      setSelectedElement({ id: newId, type: 'table' });
+                                      await loadMap();
+                                   } catch(err: any) { alert(err.message); }
+                                   finally { setLoading(false); }
+                               }
+                               setRenameModal({isOpen: false, tableId: '', currentName: ''});
+                           }} className="flex-1 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition">حفظ</button>
+                           <button onClick={() => setRenameModal({isOpen: false, tableId: '', currentName: ''})} className="flex-1 py-2 bg-slate-800 text-slate-300 rounded-lg hover:bg-slate-700 transition">إلغاء</button>
+                       </div>
+                    </div>
+                 </div>
+              )}
+              {assignmentModal.isOpen && assignmentModal.seat && (
+                 <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setAssignmentModal({isOpen: false, seat: null})}>
+                    <div className="bg-slate-900 border border-slate-700 rounded-xl w-full max-w-md p-6 flex flex-col gap-4 shadow-2xl" onClick={e => e.stopPropagation()}>
+                       <div className="flex justify-between items-center">
+                         <h3 className="text-lg font-bold text-white">تسكين المقعد: {assignmentModal.seat.seat_code}</h3>
+                         {assignmentModal.seat.status === 'booked' && (
+                           <button onClick={unassignSelected} className="px-3 py-1 bg-red-600/20 text-red-400 border border-red-600/50 rounded hover:bg-red-600 hover:text-white transition text-xs">
+                             إلغاء التسكين الحالي
+                           </button>
+                         )}
+                       </div>
+                       
+                       {assignmentModal.seat.status === 'booked' && (
+                         <div className="p-3 bg-indigo-900/30 border border-indigo-700/50 rounded-lg">
+                           <p className="text-xs text-indigo-300 mb-1">المقعد محجوز حالياً لـ:</p>
+                           <p className="font-bold text-white">
+                             {attendees.find(a => a.id === assignmentModal.seat!.attendee_id)?.full_name || 'غير معروف'}
+                           </p>
+                         </div>
+                       )}
+
+                       <input 
+                         type="text" 
+                         autoFocus
+                         placeholder="ابحث بالاسم أو رقم التليفون لتبديل التسكين..." 
+                         value={searchTerm}
+                         onChange={e => setSearchTerm(e.target.value)}
+                         className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white"
+                       />
+                       <div className="flex flex-col gap-2 max-h-80 overflow-y-auto pr-2">
+                         {attendees
+                            .filter(a => a.seat_class === assignmentModal.seat!.seat_class && !a.seat_number && ((val: string) => val.trim().toLowerCase())(a.governorate) === ((val: string) => val.trim().toLowerCase())(governorate))
+                            .filter(a => {
+                               const term = searchTerm.toLowerCase();
+                               const name = ((a as any).full_name || (a as any).name || '').toLowerCase();
+                               const phone = ((a as any).phone || '').toLowerCase();
+                               return name.includes(term) || phone.includes(term);
+                            })
+                            .map(a => (
+                               <button 
+                                 key={a.id}
+                                 onClick={() => {
+                                    setAssignmentModal({isOpen: false, seat: null});
+                                    assignSelected(a.id);
+                                 }}
+                                 className="flex items-center justify-between p-3 rounded-lg border border-slate-700 bg-slate-800/50 hover:bg-indigo-600 hover:border-indigo-500 transition text-right"
+                               >
+                                 <div className="flex flex-col">
+                                    <span className="font-bold text-white">{(a as any).full_name || (a as any).name}</span>
+                                    <span className="text-xs text-slate-400">{(a as any).phone}</span>
+                                 </div>
+                                 <span className="text-xs bg-slate-700 px-2 py-1 rounded text-slate-300">اختر</span>
+                               </button>
+                            ))
+                         }
+                         {attendees.filter(a => a.seat_class === assignmentModal.seat!.seat_class && !a.seat_number && ((val: string) => val.trim().toLowerCase())(a.governorate) === ((val: string) => val.trim().toLowerCase())(governorate)).length === 0 && (
+                            <div className="text-center text-slate-500 py-4">لا يوجد عملاء غير مسكنين في هذه الفئة</div>
+                         )}
+                       </div>
+                       <button onClick={() => setAssignmentModal({isOpen: false, seat: null})} className="mt-2 py-2 text-slate-400 hover:text-white transition">إلغاء</button>
+                    </div>
+                 </div>
+              )}
               {mapSeats.map((seat) => {
                 const seatView = getSeatView(seat);
                 const selected = selectedSeatId === seat.id;
                 return (
                   <button
                     key={seat.id}
-                    onClick={() => handleSeatClick(seat)}
-                    onMouseDown={(e) => startDrag(seat, e.clientX, e.clientY)}
-                    className={`absolute text-[10px] w-10 h-10 rounded-full border border-white/20 flex flex-col items-center justify-center text-white ${selected ? 'bg-blue-600 ring-2 ring-blue-300 scale-110 z-10' : (statusColor[seat.status] || 'bg-slate-500')}`}
+                    onClick={(e) => {
+                       e.stopPropagation();
+                       handleSeatClick(seat);
+                    }}
+                    onDoubleClick={(e) => {
+                       e.stopPropagation();
+                       handleSeatDoubleClick(seat);
+                    }}
+                    onMouseDown={(e) => {
+                       e.stopPropagation();
+                       startDrag(seat, 'seat', e.clientX, e.clientY, e.currentTarget);
+                    }}
+                    className={`absolute text-[8px] w-6 h-6 rounded-full border border-white/20 flex flex-col items-center justify-center text-white ${selected ? 'bg-blue-600 ring-2 ring-blue-300 scale-110 z-10' : (statusColor[seat.status] || 'bg-slate-500')} ${mode === 'edit' ? 'cursor-move' : ''}`}
                     style={{
                       left: `${Number(seatView.position_x || 0) * 8}px`,
                       top: `${Number(seatView.position_y || 0) * 4}px`
                     }}
                     title={`${seat.seat_code} - ${statusLabel[seat.status] || seat.status}`}
                   >
-                    <span className="leading-none">{seat.seat_number}</span>
-                    <span className="leading-none text-[8px] opacity-90">{seat.seat_class}</span>
+                    <span className="leading-none font-bold text-[9px]">{seat.seat_number}</span>
+                    <span className="leading-none text-[6px] opacity-80">{seat.seat_class}</span>
                   </button>
                 );
               })}
@@ -540,6 +871,7 @@ const SeatingManagement: React.FC = () => {
               <div className="absolute top-0 bottom-0 left-1/2 -translate-x-1/2 w-7 bg-white/10 border-x border-white/20 pointer-events-none" />
               <div className="absolute top-16 left-8 w-5 h-20 bg-white/20 rounded pointer-events-none" />
               <div className="absolute top-16 right-8 w-5 h-20 bg-white/20 rounded pointer-events-none" />
+              </div>
             </div>
           </div>
         </div>
@@ -581,20 +913,53 @@ const SeatingManagement: React.FC = () => {
             <div className="flex justify-between items-center">
               <h2 className="font-semibold text-white">مود التعديل</h2>
               <div className="flex gap-2">
-                 <button onClick={() => alert('Add Table A')} className="px-2 py-1 bg-indigo-600 text-xs rounded">+ Table A</button>
-                 <button onClick={() => alert('Add Table B')} className="px-2 py-1 bg-indigo-600 text-xs rounded">+ Table B</button>
-                 <button onClick={() => alert('Add Wave (Class C)')} className="px-2 py-1 bg-indigo-600 text-xs rounded">+ Wave</button>
-                 <button onClick={() => alert('Add Stage')} className="px-2 py-1 bg-amber-600 text-xs rounded">+ Stage</button>
-                 <button onClick={() => alert('Add Blocked')} className="px-2 py-1 bg-rose-600 text-xs rounded">+ Blocked</button>
-                 <button onClick={() => alert('Add Allowed')} className="px-2 py-1 bg-emerald-600 text-xs rounded">+ Allowed</button>
+                 <button onClick={() => handleAddElement('table', 'A')} className="px-2 py-1 bg-indigo-600 text-xs rounded">+ Table A</button>
+                 <button onClick={() => handleAddElement('seat', 'A')} className="px-2 py-1 bg-indigo-600 text-xs rounded">+ Chair A</button>
+                 <button onClick={() => handleAddElement('table', 'B')} className="px-2 py-1 bg-indigo-600 text-xs rounded">+ Table B</button>
+                 <button onClick={() => handleAddElement('seat', 'B')} className="px-2 py-1 bg-indigo-600 text-xs rounded">+ Chair B</button>
+                 <button onClick={() => handleAddElement('wave', 'C')} className="px-2 py-1 bg-indigo-600 text-xs rounded">+ Wave C</button>
+                 <button onClick={() => handleAddElement('seat', 'C')} className="px-2 py-1 bg-indigo-600 text-xs rounded">+ Chair C</button>
+                 <button onClick={() => handleAddElement('stage')} className="px-2 py-1 bg-amber-600 text-xs rounded">+ Stage</button>
+                 <button onClick={() => handleAddElement('blocked')} className="px-2 py-1 bg-rose-600 text-xs rounded">+ Blocked</button>
+                 <button onClick={() => handleAddElement('allowed')} className="px-2 py-1 bg-emerald-600 text-xs rounded">+ Allowed</button>
               </div>
             </div>
-            <div className="text-sm text-slate-300">المقعد: {selectedSeat?.seat_code || 'لا يوجد'}</div>
+            <div className="flex justify-between items-center">
+              <div className="text-sm text-slate-300">المحدد: {selectedElement?.id || 'لا يوجد'} ({selectedElement?.type || '-'})</div>
+              {selectedElement && (
+                <button onClick={() => handleDeleteElement(selectedElement.id, selectedElement.type)} className="px-3 py-1 bg-red-600 text-white rounded text-sm hover:bg-red-700 transition">حذف المحدد</button>
+              )}
+            </div>
+            
+            {selectedElement?.type === 'table' && (
+               <div className="flex gap-2 items-center text-sm text-slate-300 mt-2 border-t border-slate-800 pt-2">
+                 <span>تغيير اسم الطاولة:</span>
+                 <input 
+                   type="text" 
+                   defaultValue={selectedElement.id.split('-T')[1]} 
+                   onBlur={async (e) => {
+                     const newNum = e.target.value;
+                     if (!newNum || newNum === selectedElement.id.split('-T')[1]) return;
+                     try {
+                        const newId = selectedElement.id.split('-T')[0] + '-T' + newNum;
+                        setLoading(true);
+                        await api.post('/seating/update-table-id', { old_id: selectedElement.id, new_id: newId });
+                        setSelectedElement({ id: newId, type: 'table' });
+                        await loadMap();
+                     } catch(err: any) { alert(err.message); }
+                     finally { setLoading(false); }
+                   }} 
+                   className="rounded px-2 py-1 bg-slate-800 w-20 text-white border border-slate-700" 
+                 />
+               </div>
+            )}
+            
+            <div className="text-sm text-slate-300 mt-2 border-t border-slate-800 pt-2">المقعد: {selectedSeat?.seat_code || 'لا يوجد'}</div>
             <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
               <input type="number" value={editSeatState.position_x} onChange={(e) => setEditSeatState((p) => ({ ...p, position_x: Number(e.target.value) }))} className="rounded-md px-3 py-2 bg-slate-800 border border-slate-700" placeholder="X" />
               <input type="number" value={editSeatState.position_y} onChange={(e) => setEditSeatState((p) => ({ ...p, position_y: Number(e.target.value) }))} className="rounded-md px-3 py-2 bg-slate-800 border border-slate-700" placeholder="Y" />
               <input type="number" value={editSeatState.row_number} onChange={(e) => setEditSeatState((p) => ({ ...p, row_number: Number(e.target.value) }))} className="rounded-md px-3 py-2 bg-slate-800 border border-slate-700" placeholder="Row" />
-              <button disabled={!selectedSeatId || loading} onClick={saveSeatLayout} className="px-4 py-2 rounded-md bg-indigo-600 disabled:opacity-50">حفظ التعديل</button>
+              <button disabled={!selectedSeatId || loading} onClick={saveSeatLayout} className="px-4 py-2 rounded-md bg-indigo-600 disabled:opacity-50">حفظ تعديل المقعد فقط</button>
             </div>
             <div className="flex gap-2">
               <button onClick={() => quickMove(-1, 0)} className="px-3 py-1 border border-slate-700 rounded bg-slate-800">⬅</button>

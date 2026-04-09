@@ -97,6 +97,7 @@ const Register: React.FC = () => {
   const [occupiedSeats, setOccupiedSeats] = useState<number[]>([]);
   const [englishNameEdited, setEnglishNameEdited] = useState(false);
   const [photoProcessing, setPhotoProcessing] = useState(false);
+  const [availableSeatNumbers, setAvailableSeatNumbers] = useState<number[]>([]);
   const [attendeesOptions, setAttendeesOptions] = useState<Attendee[]>([]);
 
   const { register, handleSubmit, watch, setValue, formState: { errors }, trigger } = useForm<FormData>({
@@ -156,15 +157,6 @@ const Register: React.FC = () => {
   const isCustomPrice = !!(ticketPriceOverride && user?.role === 'owner' && Number(ticketPriceOverride) > 0);
   const currentGovCapacity = (GOVERNORATE_CAPACITIES[governorate] as any)?.[seatClass] || 0;
   const effectiveSeatPrice = isCustomPrice ? Number(ticketPriceOverride) : SEAT_PRICES[seatClass];
-  const availableSeatNumbers = useMemo(() => {
-    if (status !== 'registered' || currentGovCapacity <= 0) return [];
-    const occupied = new Set(occupiedSeats);
-    const result: number[] = [];
-    for (let i = 1; i <= currentGovCapacity; i += 1) {
-      if (!occupied.has(i)) result.push(i);
-    }
-    return result;
-  }, [currentGovCapacity, occupiedSeats, status]);
 
   useEffect(() => {
     if (!fullName) {
@@ -187,18 +179,31 @@ const Register: React.FC = () => {
     const loadSeats = async () => {
       if (status !== 'registered') {
         setOccupiedSeats([]);
+        setAvailableSeatNumbers([]);
         setValue('seat_number', undefined);
         return;
       }
 
       const response = await api.get('/attendees');
       const attendees = Array.isArray(response) ? response : [];
-      const seats = attendees
+      const occupied = attendees
         .filter((a: any) => a.governorate === governorate && a.seat_class === seatClass && a.status === 'registered' && !a.is_deleted)
         .map((a: any) => Number(a.seat_number))
         .filter((n: number) => Number.isInteger(n) && n > 0);
-      setOccupiedSeats(seats);
-      if (selectedSeatNumber && seats.includes(Number(selectedSeatNumber))) {
+      setOccupiedSeats(occupied);
+      
+      const eventId = `${governorate.toUpperCase()}-2026-MAIN`;
+      const mapData = await api.get(`/seating/map?eventId=${eventId}`);
+      const validSeats = (mapData.seats || []).filter((s: any) => s.seat_class === seatClass);
+      const totalSeats = validSeats.length;
+      
+      const available: number[] = [];
+      for (let i = 1; i <= totalSeats; i += 1) {
+        if (!occupied.includes(i)) available.push(i);
+      }
+      setAvailableSeatNumbers(available);
+
+      if (selectedSeatNumber && occupied.includes(Number(selectedSeatNumber))) {
         setValue('seat_number', undefined);
       }
     };
@@ -273,6 +278,14 @@ const Register: React.FC = () => {
       const certificateIncluded = isCustomPrice ? !!data.certificate_included : true;
       const fullNameEnFinal = String(data.full_name_en || '').trim() || transliterateArabicToEnglish(data.full_name);
       
+      let finalSeatNumber = data.status === 'registered' && data.seat_number ? Number(data.seat_number) : null;
+      if (data.status === 'registered' && !finalSeatNumber) {
+         // Auto-assign random available seat
+         if (availableSeatNumbers.length > 0) {
+            finalSeatNumber = availableSeatNumbers[Math.floor(Math.random() * availableSeatNumbers.length)];
+         }
+      }
+      
       // We will let the API handle seat resolution if not provided
       const newAttendee = {
           id: newAttendeeId,
@@ -292,7 +305,7 @@ const Register: React.FC = () => {
           faculty: data.occupation_type === 'student' ? (data.faculty || null) : null,
           year: data.occupation_type === 'student' ? (data.year || null) : null,
           sales_channel: data.sales_channel,
-          seat_number: data.status === 'registered' && capacity > 0 && data.seat_number ? Number(data.seat_number) : null,
+          seat_number: finalSeatNumber,
           base_ticket_price: baseTicketPrice,
           certificate_included: certificateIncluded,
           preferred_neighbor_name: data.preferred_neighbor_name || null,
@@ -832,7 +845,7 @@ const Register: React.FC = () => {
                       </div>
                     </div>
 
-                    {currentGovCapacity > 0 && (
+                    {availableSeatNumbers.length > 0 && (
                       <div className="sm:col-span-3">
                         <label htmlFor="seat_number" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                           رقم المقعد ({governorate})
@@ -843,14 +856,14 @@ const Register: React.FC = () => {
                             {...register('seat_number', { setValueAs: (v) => (v === '' ? undefined : Number(v)) })}
                             className="shadow-sm focus:ring-indigo-500 focus:border-indigo-500 block w-full sm:text-sm border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-md p-2 border"
                           >
-                            <option value="">اختر المقعد</option>
+                            <option value="">تسكين تلقائي / اختر مقعد</option>
                             {availableSeatNumbers.map((seatNo) => (
                               <option key={seatNo} value={seatNo}>{seatClass}-{String(seatNo).padStart(3, '0')}</option>
                             ))}
                           </select>
                         </div>
                         <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                          المتاح: {availableSeatNumbers.length} / {currentGovCapacity}
+                          المتاح: {availableSeatNumbers.length} مقعد
                         </p>
                       </div>
                     )}

@@ -5,7 +5,7 @@ export { supabase }; // Export supabase client for realtime usage
 export const API_PORT = 3000;
 const SEAT_PRICES: Record<string, number> = { A: 2000, B: 1700, C: 1500 };
 export const GOVERNORATE_CAPACITIES: Record<string, Record<string, number>> = {
-  'Minya': { A: 288, B: 430, C: 80 },
+  'Minya': { A: 120, B: 144, C: 440 },
   'Asyut': { A: 200, B: 300, C: 100 },
   'Sohag': { A: 150, B: 250, C: 150 },
   'Qena': { A: 100, B: 200, C: 200 },
@@ -328,7 +328,33 @@ const buildSeatCode = (seatClass: 'A' | 'B' | 'C', rowNumber: number, side: 'lef
   return `${seatClass}-R${rowNumber}-T${tableOrder}-S${seatNumber}`;
 };
 
+const syncSeatStatus = async (attendeeId: string, governorate: string, seatClass: string, seatNumber: number | null) => {
+  // Free any seat currently booked by this attendee
+  await supabase.from('seats').update({ status: 'available', attendee_id: null }).eq('attendee_id', attendeeId);
+
+  // Book the new seat if seatNumber is provided
+  if (seatNumber) {
+    const eventId = `${normalizeGovernorate(governorate).toUpperCase()}-2026-MAIN`;
+    const { data: seatToUpdate } = await supabase.from('seats')
+      .select('id, seat_code')
+      .eq('event_id', eventId)
+      .eq('seat_class', seatClass)
+      .eq('seat_number', seatNumber)
+      .limit(1).single();
+
+    if (seatToUpdate) {
+      await supabase.from('seats').update({ status: 'booked', attendee_id: attendeeId }).eq('id', seatToUpdate.id);
+      return seatToUpdate.seat_code; // Return actual seat code for barcode
+    }
+  }
+  return null;
+};
+
 export const generateMinyaCustomPlan = (eventId: string) => {
+  let tableCharIndexA = 0;
+  let tableCharIndexB = 0;
+  const getTableCharA = () => String.fromCharCode(65 + (tableCharIndexA % 26)) + (tableCharIndexA >= 26 ? Math.floor(tableCharIndexA/26) : '');
+  const getTableCharB = () => String.fromCharCode(65 + (tableCharIndexB % 26)) + (tableCharIndexB >= 26 ? Math.floor(tableCharIndexB/26) : '');
   const tables: any[] = [];
   const seats: any[] = [];
   const gov = 'Minya';
@@ -346,12 +372,12 @@ export const generateMinyaCustomPlan = (eventId: string) => {
   const cRows = 11;
   const cSeatsPerSide = 20;
   
-  const leftTableCenters = [20, 35, 50];
-  const rightTableCenters = [70, 85, 100];
-  const tableSeatDx = 2.5;
-  const tableSeatDy = 2.5;
+  const leftTableCenters = [18, 48, 78];
+  const rightTableCenters = [108, 138, 168];
+  const tableSeatDx = 4;
+  const tableSeatDy = 7;
   
-  let currentY = 30;
+  let currentY = 40;
   
   // Generate A
   for (let row = 1; row <= aRows; row++) {
@@ -359,7 +385,8 @@ export const generateMinyaCustomPlan = (eventId: string) => {
       const side = sideIdx === 0 ? 'left' : 'right';
       for (let t = 1; t <= tablesPerSide; t++) {
         const tableOrder = sideIdx * tablesPerSide + t;
-        const tableId = `${gov}-A-R${row}-T${tableOrder}`;
+        const charName = getTableCharA(); tableCharIndexA++;
+        const tableId = `${gov}-A-R${row}-T${charName}`;
         const xCenter = side === 'left' ? leftTableCenters[t-1] : rightTableCenters[t-1];
         
         tables.push({
@@ -390,7 +417,8 @@ export const generateMinyaCustomPlan = (eventId: string) => {
       const side = sideIdx === 0 ? 'left' : 'right';
       for (let t = 1; t <= tablesPerSide; t++) {
         const tableOrder = sideIdx * tablesPerSide + t;
-        const tableId = `${gov}-B-R${row}-T${tableOrder}`;
+        const charName = getTableCharB(); tableCharIndexB++;
+        const tableId = `${gov}-B-R${row}-T${charName}`;
         const xCenter = side === 'left' ? leftTableCenters[t-1] : rightTableCenters[t-1];
         
         tables.push({
@@ -419,14 +447,14 @@ export const generateMinyaCustomPlan = (eventId: string) => {
   for (let row = 1; row <= cRows; row++) {
     for (let sideIdx = 0; sideIdx < 2; sideIdx++) {
       const side = sideIdx === 0 ? 'left' : 'right';
-      const startX = side === 'left' ? 5 : 65;
+      const startX = side === 'left' ? 8 : 100;
       for (let s = 1; s <= cSeatsPerSide; s++) {
         const seatNum = sideIdx * cSeatsPerSide + s;
         seats.push({
             id: `${gov}-C-R${row}-S${seatNum}`, event_id: eventId, governorate: gov, seat_class: 'C',
             row_number: row, side, table_id: null, seat_number: seatNum,
             seat_code: `C-R${row}-S${seatNum}`, status: 'available',
-            position_x: startX + (s * 2.5),
+            position_x: startX + ((s - 1) * 3.5),
             position_y: currentY
         });
       }
@@ -474,8 +502,8 @@ export const generateExactHallPlan = (eventId: string, governorate: string, coun
 const generateHallPlan = (eventId: string, governorate: string = 'Minya') => {
   const tables: any[] = [];
   const seats: any[] = [];
-  const leftTableCenters = [14, 26, 38];
-  const rightTableCenters = [62, 74, 86];
+  const leftTableCenters = [39, 51, 63];
+  const rightTableCenters = [87, 99, 111];
   const tableSeatDx = 2.2;
   const tableSeatDy = 2.2;
   const aRowY = [28, 50, 72];
@@ -531,8 +559,8 @@ const generateHallPlan = (eventId: string, governorate: string = 'Minya') => {
   });
 
   const cRows = 23;
-  const cLeftXs = [10, 14, 18, 22, 26, 30, 34, 38];
-  const cRightXs = [62, 66, 70, 74, 78, 82, 86, 90];
+  const cLeftXs = [35, 39, 43, 47, 51, 55, 59, 63];
+  const cRightXs = [87, 91, 95, 99, 103, 107, 111, 115];
   const cStartY = 188;
   const cRowGap = 7;
   for (let row = 1; row <= cRows; row += 1) {
@@ -994,6 +1022,26 @@ export const api = {
       return data;
     }
 
+    if (endpoint === '/seating/update-table-id') {
+      const { old_id, new_id } = body || {};
+      if (!old_id || !new_id) throw new Error('بيانات غير مكتملة');
+      
+      // Update table ID
+      const { error: tErr } = await supabase.from('seat_tables').update({ id: new_id, table_order: parseInt(new_id.split('-T')[1]) || 0 }).eq('id', old_id);
+      if (tErr) throw new Error(tErr.message);
+      
+      // Update associated seats
+      const { data: seats } = await supabase.from('seats').select('id, seat_code').eq('table_id', old_id);
+      const oldNum = old_id.split('-T')[1];
+      const newNum = new_id.split('-T')[1];
+      for (const s of seats || []) {
+        const newCode = s.seat_code.replace(`-T${oldNum}-`, `-T${newNum}-`);
+        const newSeatId = s.id.replace(`-T${oldNum}-`, `-T${newNum}-`);
+        await supabase.from('seats').update({ id: newSeatId, table_id: new_id, seat_code: newCode }).eq('id', s.id);
+      }
+      return { success: true };
+    }
+    
     if (endpoint === '/seating/delete-element') {
       const eventId = body?.event_id || DEFAULT_EVENT_ID;
       const id = body?.id;
@@ -1092,6 +1140,23 @@ export const api = {
           });
         }
         await supabase.from('seats').insert(seats);
+      } else if (type === 'seat') {
+        const { data: maxSeats } = await supabase.from('seats').select('row_number, seat_code').eq('event_id', eventId).eq('seat_class', cls).order('row_number', { ascending: false }).limit(1);
+        const nextRow = (maxSeats?.[0]?.row_number || 0) + 1;
+        const num = uniqueSuffix % 1000;
+        await supabase.from('seats').insert([{
+            id: `${gov}-${cls}-S${uniqueSuffix}`,
+            event_id: eventId,
+            governorate: gov,
+            seat_class: cls,
+            row_number: nextRow,
+            side: 'left',
+            seat_number: num,
+            seat_code: `${cls}-Extra-S${num}`,
+            status: 'available',
+            position_x: offsetX,
+            position_y: offsetY
+        }]);
       }
       return { success: true };
     }
@@ -1120,7 +1185,18 @@ export const api = {
       });
 
       const validTableIds = new Set(adjustedTables.map((t: any) => t.id));
-      const adjustedSeats = isMinyaCustom ? seats : seats.filter((s: any) => {
+      // Even if it is Minya, we need to map over it to ensure no strange float values are sent to integers.
+        const cleanedSeats = seats.map((s: any) => ({
+           ...s,
+           position_x: Number(Number(s.position_x).toFixed(2)),
+           position_y: Number(Number(s.position_y).toFixed(2)),
+           relative_x: s.relative_x ? Number(Number(s.relative_x).toFixed(2)) : null,
+           relative_y: s.relative_y ? Number(Number(s.relative_y).toFixed(2)) : null,
+           row_number: Math.round(Number(s.row_number)),
+           seat_number: Math.round(Number(s.seat_number)),
+           wave_number: s.wave_number ? Math.round(Number(s.wave_number)) : null
+        }));
+        const adjustedSeats = isMinyaCustom ? cleanedSeats : cleanedSeats.filter((s: any) => {
         if (s.seat_class === 'A') return s.row_number <= rowsA && s.table_id && validTableIds.has(s.table_id) && s.seat_number <= seatsPerTableA;
         if (s.seat_class === 'B') return s.row_number <= rowsB && s.table_id && validTableIds.has(s.table_id) && s.seat_number <= seatsPerTableB;
         if (s.seat_class === 'C') return s.row_number <= classCRows && s.seat_number <= classCSeatsPerSidePerRow;
@@ -1352,7 +1428,11 @@ export const api = {
         throw new Error('لا يمكن تسكين المشارك في فئة مختلفة عن فئته');
       }
       if (seat.status === 'booked' && seat.attendee_id && seat.attendee_id !== attendeeId) {
-        throw new Error('المقعد محجوز بالفعل لمشارك آخر');
+        // Free the previous attendee
+        await updateAttendeeSafely(String(seat.attendee_id), {
+           seat_number: null,
+           barcode: null
+        });
       }
 
       const { data: oldSeat } = await supabase
@@ -1379,6 +1459,30 @@ export const api = {
         barcode: seat.seat_code
       });
 
+      return { success: true };
+    }
+
+    if (endpoint === '/seating/unassign-attendee') {
+      const eventId = body?.event_id || DEFAULT_EVENT_ID;
+      const seatId = body?.seat_id;
+      if (!seatId) throw new Error('seat_id مطلوب');
+      
+      const { data: seat } = await supabase.from('seats').select('*').eq('event_id', eventId).eq('id', seatId).single();
+      if (!seat) throw new Error('المقعد غير موجود');
+      
+      if (seat.attendee_id) {
+        await updateAttendeeSafely(String(seat.attendee_id), {
+          seat_number: null,
+          barcode: null
+        });
+      }
+      
+      await supabase
+        .from('seats')
+        .update({ status: 'available', attendee_id: null, reserved_by: null, reserved_until: null })
+        .eq('event_id', eventId)
+        .eq('id', seatId);
+        
       return { success: true };
     }
 
@@ -1488,6 +1592,57 @@ export const api = {
       return { success: true };
     }
 
+    if (endpoint === '/seating/auto-assign-all') {
+      const eventId = body?.event_id || DEFAULT_EVENT_ID;
+      
+      // Get all attendees without seats
+      const { data: attendees } = await supabase.from('attendees').select('id, seat_class, governorate').is('seat_number', null);
+      if (!attendees || !attendees.length) return { success: true, count: 0 };
+      
+      let assignedCount = 0;
+      
+      // Group by class to process efficiently
+      const classes = ['A', 'B', 'C'];
+      for (const cls of classes) {
+         const classAttendees = attendees.filter(a => a.seat_class === cls);
+         if (!classAttendees.length) continue;
+         
+         // Get available seats for this class
+         const { data: availableSeats } = await supabase.from('seats')
+            .select('*')
+            .eq('event_id', eventId)
+            .eq('seat_class', cls)
+            .eq('status', 'available')
+            .order('row_number', { ascending: true })
+            .order('seat_number', { ascending: true })
+            .limit(classAttendees.length);
+            
+         if (!availableSeats || !availableSeats.length) continue;
+         
+         const toAssign = Math.min(classAttendees.length, availableSeats.length);
+         
+         for (let i = 0; i < toAssign; i++) {
+            const att = classAttendees[i];
+            const seat = availableSeats[i];
+            
+            // Assign seat
+            await supabase.from('seats').update({
+               status: 'booked',
+               attendee_id: att.id
+            }).eq('id', seat.id);
+            
+            // Update attendee
+            await supabase.from('attendees').update({
+               seat_number: seat.seat_number,
+               governorate: seat.governorate
+            }).eq('id', att.id);
+            
+            assignedCount++;
+         }
+      }
+      return { success: true, count: assignedCount };
+    }
+    
     if (endpoint === '/seating/auto-assign') {
       const eventId = body?.event_id || DEFAULT_EVENT_ID;
       const hallGovernorate = getGovernorateFromEventId(eventId);
@@ -1595,6 +1750,14 @@ export const api = {
       });
       if (error) throw new Error(error.message);
       
+      if (data) {
+        const newBarcode = await syncSeatStatus(data.id, data.governorate, data.seat_class, data.seat_number);
+        if (newBarcode && newBarcode !== data.barcode) {
+          await supabase.from('attendees').update({ barcode: newBarcode }).eq('id', data.id);
+          data.barcode = newBarcode;
+        }
+      }
+
       // Log New Registration
       if (data) {
           const commission = Number(data.commission_amount || 0);
@@ -2074,6 +2237,15 @@ export const api = {
       : await supabase.from(table).update(bodyToSave).eq('id', id).select().single();
     const { data, error } = result as any;
     if (error) throw new Error(error.message);
+
+    if (table === 'attendees' && data) {
+        const newBarcode = await syncSeatStatus(data.id, data.governorate, data.seat_class, data.seat_number);
+        if (newBarcode && newBarcode !== data.barcode) {
+           await supabase.from('attendees').update({ barcode: newBarcode }).eq('id', data.id);
+           data.barcode = newBarcode;
+        }
+    }
+
     return data;
   },
 

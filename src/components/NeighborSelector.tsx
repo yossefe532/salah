@@ -59,6 +59,16 @@ const NeighborSelector: React.FC<NeighborSelectorProps> = ({ attendees, currentA
         className="block w-full rounded-md border border-gray-300 p-2 text-sm shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
         placeholder="ابحث بالاسم أو الهاتف"
       />
+      
+      {selectedAttendees.length > 0 && (
+         <div className="bg-amber-50 border border-amber-200 text-amber-800 p-3 rounded-md text-xs">
+           <strong className="block mb-1">ملاحظة هامة للتسكين المتجاور:</strong>
+           بما أن هذه المجموعة تتكون من {selectedAttendees.length + 1} أشخاص (بما فيهم الشخص الحالي)، 
+           يرجى الانتباه أثناء التسكين باختيار {selectedAttendees.length + 1} مقاعد متجاورة من نفس الترابيزة أو الصف.
+           <br/>
+           <em>نصيحة: يفضل حجز "طاولة كاملة" إذا كان العدد كبير، أو اختيار أرقام متتالية يدوياً.</em>
+         </div>
+      )}
 
       {selectedAttendees.length > 0 ? (
         <div className="flex flex-wrap gap-2">
