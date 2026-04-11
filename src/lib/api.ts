@@ -1043,6 +1043,78 @@ export const api = {
       return { success: true };
     }
     
+    if (endpoint === '/seating/edit-table') {
+      const eventId = body?.event_id || DEFAULT_EVENT_ID;
+      const tableId = body?.table_id;
+      const newName = body?.name;
+      const newClass = body?.seat_class;
+      const newCount = Number(body?.chairs_count);
+      
+      const { data: table } = await supabase.from('seat_tables').select('*').eq('id', tableId).single();
+      if (!table) throw new Error('Table not found');
+      
+      const gov = table.governorate;
+      
+      // Update seats if count changes
+      const { data: existingSeats } = await supabase.from('seats').select('*').eq('table_id', tableId).order('seat_number', { ascending: true });
+      const currentCount = existingSeats.length;
+      
+      // rename & class change
+      const nextTableId = `${gov}-${newClass}-T${newName}`;
+      const tableOrder = parseInt(newName) || table.table_order;
+      
+      await supabase.from('seat_tables').update({ 
+         id: nextTableId, 
+         seat_class: newClass, 
+         seats_count: newCount,
+         table_order: tableOrder
+      }).eq('id', tableId);
+      
+      for (const s of existingSeats) {
+         const newSeatCode = buildSeatCode(newClass as any, table.row_number, 'left', tableOrder, s.seat_number).replace(`T${tableOrder}`, `T${newName}`);
+         const newSeatId = `${nextTableId}-S${s.seat_number}`;
+         await supabase.from('seats').update({
+            id: newSeatId,
+            table_id: nextTableId,
+            seat_class: newClass,
+            seat_code: newSeatCode
+         }).eq('id', s.id);
+      }
+      
+      if (newCount > currentCount) {
+         // Add new seats
+         const newSeats = [];
+         for (let i = currentCount + 1; i <= newCount; i++) {
+             newSeats.push({
+               id: `${nextTableId}-S${i}`,
+               event_id: eventId,
+               governorate: gov,
+               seat_class: newClass,
+               row_number: table.row_number,
+               side: 'left',
+               table_id: nextTableId,
+               seat_number: i,
+               seat_code: buildSeatCode(newClass as any, table.row_number, 'left', tableOrder, i).replace(`T${tableOrder}`, `T${newName}`),
+               status: 'available',
+               position_x: Number(existingSeats[0]?.position_x || 50) + (i * 2), // rough offset
+               position_y: Number(existingSeats[0]?.position_y || 50)
+             });
+         }
+         await supabase.from('seats').insert(newSeats);
+      } else if (newCount < currentCount) {
+         // Remove excess seats
+         const seatsToRemove = existingSeats.slice(newCount);
+         for (const s of seatsToRemove) {
+             if (s.attendee_id) {
+                 await updateAttendeeSafely(String(s.attendee_id), { seat_number: null, barcode: null });
+             }
+             await supabase.from('seats').delete().eq('id', s.id);
+         }
+      }
+      
+      return { success: true };
+    }
+    
     if (endpoint === '/seating/delete-element') {
       const eventId = body?.event_id || DEFAULT_EVENT_ID;
       const id = body?.id;

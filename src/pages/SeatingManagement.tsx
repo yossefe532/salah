@@ -333,7 +333,7 @@ const AssignmentModalComponent = ({ isOpen, seat, attendees, governorate, onClos
 };
 
 interface EditModeState {
-  action: 'add' | 'move' | 'delete' | null;
+  action: 'add' | 'move' | 'delete' | 'edit_details' | null;
   addType: 'table' | 'wave' | 'seat' | 'blocked' | null;
   addClass: 'A' | 'B' | 'C' | null;
   addName: string;
@@ -390,7 +390,7 @@ const SeatingManagement: React.FC = () => {
   const [versionName, setVersionName] = useState('');
   const [assignmentModal, setAssignmentModal] = useState<{isOpen: boolean, seat: Seat | null, isTableModal: boolean, tableId: string | null}>({isOpen: false, seat: null, isTableModal: false, tableId: null});
   const [zoomLevel, setZoomLevel] = useState(1);
-  const [renameModal, setRenameModal] = useState<{isOpen: boolean, tableId: string, currentName: string}>({isOpen: false, tableId: '', currentName: ''});
+  const [editTableModal, setEditTableModal] = useState<{isOpen: boolean, tableId: string, currentName: string, currentClass: string, currentCount: number}>({isOpen: false, tableId: '', currentName: '', currentClass: 'A', currentCount: 12});
 
   const loadMap = async () => {
     try {
@@ -496,8 +496,9 @@ const SeatingManagement: React.FC = () => {
   const selectedSeatAttendee = useMemo(() => attendees.find((a) => a.id === selectedSeat?.attendee_id) || null, [attendees, selectedSeat?.attendee_id]);
 
   const getSeatView = (seat: Seat) => {
-    const patch = layoutDraft[seat.id];
+    const patch = layoutDraft[seat.id] as any;
     if (!patch) return seat;
+    if (patch.is_deleted) return { ...seat, is_deleted: true };
     return {
       ...seat,
       position_x: patch.position_x,
@@ -690,18 +691,41 @@ const SeatingManagement: React.FC = () => {
   };
 
   const publishLayoutDraft = async () => {
-    const updates = Object.entries(layoutDraft).map(([id, val]) => ({
-      id,
-      type: val.type,
-      position_x: val.position_x,
-      position_y: val.position_y
-    }));
-    if (!updates.length) return;
-    await api.post('/seating/update-layout', { event_id: eventId, updates });
-    setLayoutDraft({});
-    setHistory([{}]);
-    setHistoryIndex(0);
-    await loadMap();
+    setLoading(true);
+    setError(null);
+    try {
+      const updates = [];
+      const deletions = [];
+      for (const [id, val] of Object.entries(layoutDraft)) {
+        if ((val as any).is_deleted) {
+          deletions.push({ id, type: val.type });
+        } else {
+          updates.push({
+            id,
+            type: val.type,
+            position_x: val.position_x,
+            position_y: val.position_y
+          });
+        }
+      }
+      
+      for (const del of deletions) {
+        await api.post('/seating/delete-element', { event_id: eventId, id: del.id, type: del.type });
+      }
+      
+      if (updates.length) {
+        await api.post('/seating/update-layout', { event_id: eventId, updates });
+      }
+      
+      setLayoutDraft({});
+      setHistory([{}]);
+      setHistoryIndex(0);
+      await loadMap();
+    } catch(e: any) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const undoLayout = () => {
@@ -719,17 +743,25 @@ const SeatingManagement: React.FC = () => {
   };
 
   const handleDeleteElement = async (id: string, type: 'table' | 'element' | 'wave' | 'seat') => {
-    try {
-      setLoading(true);
-      await api.post('/seating/delete-element', { event_id: eventId, id, type });
-      await loadMap();
-      setSelectedElement(null);
-      setSelectedSeatId(null);
-    } catch(e: any) {
-      setError(e.message || 'فشل الحذف');
-    } finally {
-      setLoading(false);
+    if (type === 'seat') {
+      const seat = payload.seats.find(s => s.id === id);
+      if (seat && seat.status === 'booked') {
+        if (!window.confirm('هذا المقعد محجوز! هل أنت متأكد من مسحه؟ (سيتم إلغاء تسكين الشخص)')) return;
+      }
+    } else if (type === 'table') {
+      if (!window.confirm('هل أنت متأكد من مسح هذه الترابيزة بالكامل؟ (سيتم إلغاء تسكين جميع كراسيها)')) return;
+    } else if (type === 'element') {
+      if (!window.confirm('هل أنت متأكد من مسح هذه المنطقة؟')) return;
     }
+    
+    const nextDraft = {
+      ...layoutDraft,
+      [id]: { type, position_x: 0, position_y: 0, is_deleted: true }
+    };
+    setLayoutDraft(nextDraft as any);
+    commitDraftHistory(nextDraft as any);
+    setSelectedElement(null);
+    setSelectedSeatId('');
   };
 
   const handleAddElement = async (type: string, cls: string, name: string, count: number) => {
@@ -1010,6 +1042,7 @@ const SeatingManagement: React.FC = () => {
            <>
              <button onClick={() => setEditModeState(p => ({...p, action: 'add'}))} className={`px-3 py-2 rounded-md text-sm border ${editModeState.action === 'add' ? 'bg-emerald-600 border-emerald-500' : 'bg-slate-900 border-slate-700'}`}>إضافة (Add)</button>
              <button onClick={() => setEditModeState(p => ({...p, action: 'move'}))} className={`px-3 py-2 rounded-md text-sm border ${editModeState.action === 'move' ? 'bg-amber-600 border-amber-500' : 'bg-slate-900 border-slate-700'}`}>تحريك (Move)</button>
+             <button onClick={() => setEditModeState(p => ({...p, action: 'edit_details'}))} className={`px-3 py-2 rounded-md text-sm border ${editModeState.action === 'edit_details' ? 'bg-blue-600 border-blue-500' : 'bg-slate-900 border-slate-700'}`}>تعديل تفاصيل (Edit Details)</button>
              <button onClick={() => setEditModeState(p => ({...p, action: 'delete'}))} className={`px-3 py-2 rounded-md text-sm border ${editModeState.action === 'delete' ? 'bg-red-600 border-red-500' : 'bg-slate-900 border-slate-700'}`}>مسح (Delete)</button>
            </>
         )}
@@ -1104,7 +1137,8 @@ const SeatingManagement: React.FC = () => {
                 }}
               >
               {tableBoxes.map((box) => {
-                  const draft = layoutDraft[box.id];
+                  const draft = layoutDraft[box.id] as any;
+                  if (draft?.is_deleted) return null;
                   const x = draft ? draft.position_x * 8 : box.x;
                   const y = draft ? draft.position_y * 4 : box.y;
                   const isFade = mainMode === 'assign' && assignMode === 'chairs';
@@ -1117,8 +1151,15 @@ const SeatingManagement: React.FC = () => {
                           onDoubleClick={(id: string, currentName: string) => {
                              if (mainMode === 'assign' && assignMode === 'tables') {
                                 setAssignmentModal({ isOpen: true, seat: null, isTableModal: true, tableId: id });
-                             } else if (mainMode === 'edit') {
-                                setRenameModal({ isOpen: true, tableId: id, currentName });
+                             } else if (mainMode === 'edit' && editModeState.action === 'edit_details') {
+                                const currentTable = payload.tables.find(t => t.id === id);
+                                setEditTableModal({ 
+                                   isOpen: true, 
+                                   tableId: id, 
+                                   currentName,
+                                   currentClass: currentTable?.seat_class || 'A',
+                                   currentCount: currentTable?.seats_count || 12
+                                });
                              }
                           }}
                           onDragStart={(b: any, type: string, clientX: number, clientY: number, target: any) => {
@@ -1136,7 +1177,8 @@ const SeatingManagement: React.FC = () => {
                   );
               })} 
               {payload.layout_elements?.map((el) => {
-                  const draft = layoutDraft[el.id];
+                  const draft = layoutDraft[el.id] as any;
+                  if (draft?.is_deleted) return null;
                   const x = draft ? draft.position_x * 8 : Number(el.position_x || 0) * 8;
                   const y = draft ? draft.position_y * 4 : Number(el.position_y || 0) * 4;
                   return (
@@ -1165,35 +1207,70 @@ const SeatingManagement: React.FC = () => {
                      </div>
                   );
               })}
-              {/* Assignment Modal */}
-              {renameModal.isOpen && (
-                 <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setRenameModal({isOpen: false, tableId: '', currentName: ''})}>
+              {/* Edit Table Modal */}
+              {editTableModal.isOpen && (
+                 <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setEditTableModal({isOpen: false, tableId: '', currentName: '', currentClass: 'A', currentCount: 12})}>
                     <div className="bg-slate-900 border border-slate-700 rounded-xl w-full max-w-sm p-6 flex flex-col gap-4 shadow-2xl" onClick={e => e.stopPropagation()}>
-                       <h3 className="text-lg font-bold text-white">تغيير اسم/رقم الترابيزة</h3>
+                       <h3 className="text-lg font-bold text-white">تعديل تفاصيل الترابيزة</h3>
+                       
+                       <label className="text-sm text-slate-300">اسم/رقم الترابيزة</label>
                        <input 
                          type="text" 
                          autoFocus
-                         value={renameModal.currentName}
-                         onChange={e => setRenameModal(prev => ({...prev, currentName: e.target.value}))}
+                         value={editTableModal.currentName}
+                         onChange={e => setEditTableModal(p => ({...p, currentName: e.target.value}))}
                          className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white"
                        />
-                       <div className="flex gap-2 mt-2">
-                           <button onClick={async () => {
-                               const { tableId, currentName } = renameModal;
-                               const oldNum = tableId.split('-T')[1];
-                               if (currentName && currentName !== oldNum) {
-                                   try {
-                                      const newId = tableId.split('-T')[0] + '-T' + currentName;
-                                      setLoading(true);
-                                      await api.post('/seating/update-table-id', { old_id: tableId, new_id: newId });
-                                      setSelectedElement({ id: newId, type: 'table' });
-                                      await loadMap();
-                                   } catch(err: any) { alert(err.message); }
-                                   finally { setLoading(false); }
-                               }
-                               setRenameModal({isOpen: false, tableId: '', currentName: ''});
-                           }} className="flex-1 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition">حفظ</button>
-                           <button onClick={() => setRenameModal({isOpen: false, tableId: '', currentName: ''})} className="flex-1 py-2 bg-slate-800 text-slate-300 rounded-lg hover:bg-slate-700 transition">إلغاء</button>
+                       
+                       <label className="text-sm text-slate-300">الفئة</label>
+                       <select 
+                         value={editTableModal.currentClass}
+                         onChange={e => setEditTableModal(p => ({...p, currentClass: e.target.value}))}
+                         className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white"
+                       >
+                         <option value="A">Class A</option>
+                         <option value="B">Class B</option>
+                         <option value="C">Class C</option>
+                       </select>
+                       
+                       <label className="text-sm text-slate-300">عدد الكراسي</label>
+                       <input 
+                         type="number" 
+                         value={editTableModal.currentCount}
+                         onChange={e => setEditTableModal(p => ({...p, currentCount: Number(e.target.value)}))}
+                         className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white"
+                       />
+
+                       <div className="flex gap-2 mt-4">
+                         <button 
+                           onClick={async () => {
+                              try {
+                                 setLoading(true);
+                                 await api.post('/seating/edit-table', { 
+                                    event_id: eventId, 
+                                    table_id: editTableModal.tableId, 
+                                    name: editTableModal.currentName,
+                                    seat_class: editTableModal.currentClass,
+                                    chairs_count: editTableModal.currentCount
+                                 });
+                                 await loadMap();
+                                 setEditTableModal({isOpen: false, tableId: '', currentName: '', currentClass: 'A', currentCount: 12});
+                              } catch(e: any) {
+                                 alert(e.message || 'فشل تعديل الترابيزة');
+                              } finally {
+                                 setLoading(false);
+                              }
+                           }}
+                           className="flex-1 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-bold"
+                         >
+                           حفظ التعديلات
+                         </button>
+                         <button 
+                           onClick={() => setEditTableModal({isOpen: false, tableId: '', currentName: '', currentClass: 'A', currentCount: 12})}
+                           className="flex-1 py-2 bg-slate-800 text-white rounded-lg hover:bg-slate-700 transition"
+                         >
+                           إلغاء
+                         </button>
                        </div>
                     </div>
                  </div>
@@ -1231,8 +1308,15 @@ const SeatingManagement: React.FC = () => {
                  />
               )}
               {mapSeats.map((seat) => {
-                const seatView = getSeatView(seat);
+                const seatView = getSeatView(seat) as any;
+                if (seatView.is_deleted) return null;
                 const isTableSeat = !!seat.table_id;
+                
+                // Also hide seat if its parent table is deleted in draft
+                if (isTableSeat) {
+                   const tableDraft = layoutDraft[seat.table_id] as any;
+                   if (tableDraft?.is_deleted) return null;
+                }
                 const isFade = mainMode === 'assign' && ((assignMode === 'tables' && !isTableSeat) || (assignMode === 'chairs' && isTableSeat)) || (mainMode === 'edit' && editModeState.action === 'move' && isTableSeat);
                 const isScale = mainMode === 'assign' && assignMode === 'chairs' && !isTableSeat;
                 
