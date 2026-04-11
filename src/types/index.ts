@@ -183,6 +183,7 @@ export interface LayoutElement {
   height: number;
   label?: string;
   governorate?: string;
+  name?: string | null;
 }
 
 export interface Seat {

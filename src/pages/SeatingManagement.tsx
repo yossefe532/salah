@@ -79,13 +79,13 @@ const TableNode = React.memo(({ box, selected, mode, onDoubleClick, onDragStart 
     <div
       onDoubleClick={(e) => {
          e.stopPropagation();
-         if (mode === 'edit') onDoubleClick(box.id, box.id.split('-T')[1]);
+         onDoubleClick(box.id, box.id.split('-T')[1]);
       }}
       onMouseDown={(e) => {
          e.stopPropagation();
          onDragStart(box, 'table', e.clientX, e.clientY, e.currentTarget);
       }}
-      className={`absolute border-2 ${selected ? 'border-red-500 bg-red-500/40' : 'border-indigo-400 bg-indigo-600/30'} rounded-lg flex flex-col items-center justify-center ${mode === 'edit' ? 'cursor-move' : 'pointer-events-none'} transition-colors`}
+      className={`absolute border-2 ${selected ? 'border-red-500 bg-red-500/40' : 'border-indigo-400 bg-indigo-600/30'} rounded-lg flex flex-col items-center justify-center ${mode === 'edit' ? 'cursor-move' : 'cursor-pointer hover:bg-indigo-500/50'} transition-colors`}
       style={{ left: box.x, top: box.y, width: box.w, height: box.h }}
       title={box.id}
     >
@@ -356,7 +356,6 @@ const SeatingManagement: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [payload, setPayload] = useState<SeatingMapPayload>({ event_id: 'MINYA-2026-MAIN', tables: [], seats: [], layout_elements: [] });
   const [attendees, setAttendees] = useState<AttendeeLite[]>([]);
-  const [mode, setMode] = useState<'assign' | 'edit'>('assign');
   const [classFilter, setClassFilter] = useState<'A' | 'B' | 'C'>('A');
   const [selectedSeatId, setSelectedSeatId] = useState<string>('');
   const [selectedAttendeeId, setSelectedAttendeeId] = useState<string>('');
@@ -373,12 +372,12 @@ const SeatingManagement: React.FC = () => {
     classC_seats_per_side_per_row: 8
   });
   const [editSeatState, setEditSeatState] = useState({ position_x: 0, position_y: 0, row_number: 1 });
-  const [layoutDraft, setLayoutDraft] = useState<Record<string, { type: 'seat' | 'table' | 'element'; position_x: number; position_y: number }>>({});
-  const [history, setHistory] = useState<Array<Record<string, { type: 'seat' | 'table' | 'element'; position_x: number; position_y: number }>>>([{}]);
+  const [layoutDraft, setLayoutDraft] = useState<Record<string, { type: 'seat' | 'table' | 'element' | 'wave'; position_x: number; position_y: number }>>({});
+  const [history, setHistory] = useState<Array<Record<string, { type: 'seat' | 'table' | 'element' | 'wave'; position_x: number; position_y: number }>>>([{}]);
   const [historyIndex, setHistoryIndex] = useState(0);
   const [dragState, setDragState] = useState<{
     id: string;
-    type: 'seat' | 'table' | 'element';
+    type: 'seat' | 'table' | 'element' | 'wave';
     startX: number;
     startY: number;
     originX: number;
@@ -719,11 +718,12 @@ const SeatingManagement: React.FC = () => {
   };
 
   const handleDeleteElement = async (id: string, type: 'table' | 'element' | 'wave' | 'seat') => {
-    if (!window.confirm('هل أنت متأكد من الحذف؟')) return;
     try {
       setLoading(true);
       await api.post('/seating/delete-element', { event_id: eventId, id, type });
       await loadMap();
+      setSelectedElement(null);
+      setSelectedSeatId(null);
     } catch(e: any) {
       setError(e.message || 'فشل الحذف');
     } finally {
@@ -731,10 +731,10 @@ const SeatingManagement: React.FC = () => {
     }
   };
 
-  const handleAddElement = async (type: string, cls?: string) => {
+  const handleAddElement = async (type: string, cls: string, name: string, count: number) => {
     try {
       setLoading(true);
-      await api.post('/seating/add-element', { event_id: eventId, governorate, type, seat_class: cls });
+      await api.post('/seating/add-element', { event_id: eventId, governorate, type, seat_class: cls, name, chairs_count: count });
       await loadMap();
     } catch(e: any) {
       setError(e.message || 'Failed to add element');
@@ -772,16 +772,16 @@ const SeatingManagement: React.FC = () => {
      }
   };
 
-  const startDrag = (item: any, type: 'seat' | 'table' | 'element', clientX: number, clientY: number, currentTarget: HTMLElement) => {
+  const startDrag = useCallback((element: any, type: 'table' | 'element' | 'wave' | 'seat', clientX: number, clientY: number, currentTarget: any) => {
+    if (mainMode !== 'edit') return;
     const currentZoom = zoomLevel;
-    if (mode !== 'edit') return;
-    const patch = layoutDraft[item.id];
-    const originX = patch ? patch.position_x : Number(item.position_x || 0);
-    const originY = patch ? patch.position_y : Number(item.position_y || 0);
+    const patch = layoutDraft[element.id];
+    const originX = patch ? patch.position_x : Number(element.position_x || 0);
+    const originY = patch ? patch.position_y : Number(element.position_y || 0);
     
     let seatOrigins: Record<string, {x: number, y: number}> = {};
     if (type === 'table') {
-      payload.seats.filter(s => s.table_id === item.id).forEach(s => {
+      payload.seats.filter(s => s.table_id === element.id).forEach(s => {
         const sPatch = layoutDraft[s.id];
         seatOrigins[s.id] = {
           x: sPatch ? sPatch.position_x : Number(s.position_x || 0),
@@ -795,7 +795,7 @@ const SeatingManagement: React.FC = () => {
     const scaledY = rect ? (clientY - rect.top) / currentZoom : clientY;
     
     setDragState({
-      id: item.id,
+      id: element.id,
       type,
       startX: scaledX,
       startY: scaledY,
@@ -803,10 +803,11 @@ const SeatingManagement: React.FC = () => {
       originY,
       seatOrigins
     });
-  };
+    setSelectedElement({ id: element.id, type });
+  }, [mainMode, layoutDraft, payload.seats, zoomLevel]);
 
   const onCanvasMove = (clientX: number, clientY: number) => {
-    if (!dragState || mode !== 'edit') return;
+    if (!dragState || mainMode !== 'edit') return;
     
     const currentZoom = zoomLevel;
     // We need to calculate dx and dy based on the scaled position change
@@ -887,11 +888,11 @@ const SeatingManagement: React.FC = () => {
   }, [mainMode, editModeState.action, assignMode]);
   
   const handleSeatDoubleClick = useCallback((seat: Seat) => {
-    if (mode === 'assign') {
+    if (mainMode === 'assign') {
         setSelectedSeatId(seat.id);
         setAssignmentModal({ isOpen: true, seat, isTableModal: false, tableId: null });
     }
-  }, [mode]);
+  }, [mainMode]);
 
   const saveSeatLayout = async () => {
     if (!selectedSeatId) return;
@@ -910,7 +911,7 @@ const SeatingManagement: React.FC = () => {
     }
   };
 
-  const commitDraftHistory = (nextDraft: Record<string, { type: 'seat' | 'table' | 'element'; position_x: number; position_y: number }>) => {
+  const commitDraftHistory = (nextDraft: Record<string, { type: 'seat' | 'table' | 'element' | 'wave'; position_x: number; position_y: number }>) => {
     const base = history.slice(0, historyIndex + 1);
     const cloned = JSON.parse(JSON.stringify(nextDraft || {}));
     const nextHistory = [...base, cloned];
@@ -947,7 +948,6 @@ const SeatingManagement: React.FC = () => {
           <div className="flex flex-wrap items-center gap-3">
             <h1 className="text-2xl font-bold">Seating Studio</h1>
             <span className="text-xs bg-indigo-500/20 text-indigo-300 px-2 py-1 rounded-full border border-indigo-500/30">{eventId}</span>
-            <span className="text-xs bg-slate-800 px-2 py-1 rounded-full border border-slate-700">Class {classFilter}</span>
           </div>
           <div className="flex items-center gap-2">
             <label className="text-sm text-slate-300">المحافظة</label>
@@ -1016,6 +1016,64 @@ const SeatingManagement: React.FC = () => {
         <div className="px-3 py-2 rounded-md bg-slate-900 border border-slate-700 text-sm">المتاح: {seatStats.available}</div>
       </div>
 
+      {mainMode === 'edit' && editModeState.action === 'add' && (
+        <div className="rounded-xl border border-emerald-800 bg-emerald-950/20 p-4 flex flex-wrap gap-3 items-center">
+          <label className="text-sm font-bold text-emerald-400">نوع الإضافة:</label>
+          <select 
+            value={editModeState.addType || 'table'} 
+            onChange={e => setEditModeState(p => ({...p, addType: e.target.value as any}))}
+            className="rounded-md px-3 py-2 bg-slate-800 border border-slate-700 text-sm"
+          >
+            <option value="table">ترابيزة (Table)</option>
+            <option value="wave">ويف (Wave)</option>
+            <option value="seat">كرسي فردي (Chair)</option>
+            <option value="blocked">منطقة محظورة (Blocked)</option>
+          </select>
+
+          {(editModeState.addType === 'table' || editModeState.addType === 'seat') && (
+            <select 
+              value={editModeState.addClass || 'A'} 
+              onChange={e => setEditModeState(p => ({...p, addClass: e.target.value as any}))}
+              className="rounded-md px-3 py-2 bg-slate-800 border border-slate-700 text-sm"
+            >
+              <option value="A">Class A</option>
+              <option value="B">Class B</option>
+              <option value="C">Class C</option>
+            </select>
+          )}
+
+          <input 
+            type="text" 
+            placeholder={editModeState.addType === 'table' ? "اسم الترابيزة (مثال: T1)" : editModeState.addType === 'wave' ? "اسم الويف" : "الاسم/المعرف"}
+            value={editModeState.addName}
+            onChange={e => setEditModeState(p => ({...p, addName: e.target.value}))}
+            className="rounded-md px-3 py-2 bg-slate-800 border border-slate-700 text-sm w-48"
+          />
+
+          {(editModeState.addType === 'table' || editModeState.addType === 'wave') && (
+            <input 
+              type="number" 
+              placeholder="عدد الكراسي"
+              value={editModeState.addCount}
+              onChange={e => setEditModeState(p => ({...p, addCount: Number(e.target.value)}))}
+              className="rounded-md px-3 py-2 bg-slate-800 border border-slate-700 text-sm w-32"
+            />
+          )}
+
+          <button 
+            onClick={() => handleAddElement(
+              editModeState.addType || 'table',
+              editModeState.addClass || 'A',
+              editModeState.addName,
+              editModeState.addCount
+            )}
+            className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-md text-sm font-bold transition"
+          >
+            حفظ وإضافة
+          </button>
+        </div>
+      )}
+
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-4">
         <div className="xl:col-span-9 rounded-xl border border-slate-800 bg-slate-900 p-4">
           <div className="mb-3 flex items-center justify-between">
@@ -1076,8 +1134,36 @@ const SeatingManagement: React.FC = () => {
                      </div>
                   );
               })} 
-              {/* Layout elements removed as they require DB migration */}
-              
+              {payload.layout_elements?.map((el) => {
+                  const draft = layoutDraft[el.id];
+                  const x = draft ? draft.position_x * 8 : Number(el.position_x || 0) * 8;
+                  const y = draft ? draft.position_y * 4 : Number(el.position_y || 0) * 4;
+                  return (
+                     <div 
+                        key={el.id}
+                        onMouseDown={(e) => {
+                           if (mainMode === 'edit' && editModeState.action === 'move') {
+                              e.stopPropagation();
+                              startDrag(el, 'element', e.clientX, e.clientY, e.currentTarget);
+                           } else if (mainMode === 'edit' && editModeState.action === 'delete') {
+                              e.stopPropagation();
+                              if (window.confirm('هل أنت متأكد من مسح هذه المنطقة؟')) {
+                                 handleDeleteElement(el.id, 'element');
+                              }
+                           }
+                        }}
+                        className={`absolute border-2 border-white/40 bg-white/10 flex items-center justify-center ${mainMode === 'edit' ? (editModeState.action === 'move' ? 'cursor-move' : 'cursor-pointer hover:bg-red-500/30') : ''}`}
+                        style={{
+                           left: x,
+                           top: y,
+                           width: `${Number(el.width || 8) * 8}px`,
+                           height: `${Number(el.height || 4) * 4}px`
+                        }}
+                     >
+                        <span className="text-white/50 text-xs font-bold pointer-events-none">{el.name || 'محظور'}</span>
+                     </div>
+                  );
+              })}
               {/* Assignment Modal */}
               {renameModal.isOpen && (
                  <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setRenameModal({isOpen: false, tableId: '', currentName: ''})}>
@@ -1207,104 +1293,6 @@ const SeatingManagement: React.FC = () => {
       </div>
 
       <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4 hidden">
-        {mode === 'edit' && (
-          <div className="rounded-xl border border-slate-800 bg-slate-900 p-4 space-y-3">
-            <div className="flex justify-between items-center">
-              <h2 className="font-semibold text-white">مود التعديل</h2>
-              <div className="flex gap-2">
-                 <button onClick={() => handleAddElement('table', 'A')} className="px-2 py-1 bg-indigo-600 text-xs rounded">+ Table A</button>
-                 <button onClick={() => handleAddElement('seat', 'A')} className="px-2 py-1 bg-indigo-600 text-xs rounded">+ Chair A</button>
-                 <button onClick={() => handleAddElement('table', 'B')} className="px-2 py-1 bg-indigo-600 text-xs rounded">+ Table B</button>
-                 <button onClick={() => handleAddElement('seat', 'B')} className="px-2 py-1 bg-indigo-600 text-xs rounded">+ Chair B</button>
-                 <button onClick={() => handleAddElement('wave', 'C')} className="px-2 py-1 bg-indigo-600 text-xs rounded">+ Wave C</button>
-                 <button onClick={() => handleAddElement('seat', 'C')} className="px-2 py-1 bg-indigo-600 text-xs rounded">+ Chair C</button>
-                 <button onClick={() => handleAddElement('stage')} className="px-2 py-1 bg-amber-600 text-xs rounded">+ Stage</button>
-                 <button onClick={() => handleAddElement('blocked')} className="px-2 py-1 bg-rose-600 text-xs rounded">+ Blocked</button>
-                 <button onClick={() => handleAddElement('allowed')} className="px-2 py-1 bg-emerald-600 text-xs rounded">+ Allowed</button>
-              </div>
-            </div>
-            <div className="flex justify-between items-center">
-              <div className="text-sm text-slate-300">المحدد: {selectedElement?.id || 'لا يوجد'} ({selectedElement?.type || '-'})</div>
-              {selectedElement && (
-                <button onClick={() => handleDeleteElement(selectedElement.id, selectedElement.type)} className="px-3 py-1 bg-red-600 text-white rounded text-sm hover:bg-red-700 transition">حذف المحدد</button>
-              )}
-            </div>
-            
-            {selectedElement?.type === 'table' && (
-               <div className="flex gap-2 items-center text-sm text-slate-300 mt-2 border-t border-slate-800 pt-2">
-                 <span>تغيير اسم الطاولة:</span>
-                 <input 
-                   type="text" 
-                   defaultValue={selectedElement.id.split('-T')[1]} 
-                   onBlur={async (e) => {
-                     const newNum = e.target.value;
-                     if (!newNum || newNum === selectedElement.id.split('-T')[1]) return;
-                     try {
-                        const newId = selectedElement.id.split('-T')[0] + '-T' + newNum;
-                        setLoading(true);
-                        await api.post('/seating/update-table-id', { old_id: selectedElement.id, new_id: newId });
-                        setSelectedElement({ id: newId, type: 'table' });
-                        await loadMap();
-                     } catch(err: any) { alert(err.message); }
-                     finally { setLoading(false); }
-                   }} 
-                   className="rounded px-2 py-1 bg-slate-800 w-20 text-white border border-slate-700" 
-                 />
-               </div>
-            )}
-            
-            <div className="text-sm text-slate-300 mt-2 border-t border-slate-800 pt-2">المقعد: {selectedSeat?.seat_code || 'لا يوجد'}</div>
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-              <input type="number" value={editSeatState.position_x} onChange={(e) => setEditSeatState((p) => ({ ...p, position_x: Number(e.target.value) }))} className="rounded-md px-3 py-2 bg-slate-800 border border-slate-700" placeholder="X" />
-              <input type="number" value={editSeatState.position_y} onChange={(e) => setEditSeatState((p) => ({ ...p, position_y: Number(e.target.value) }))} className="rounded-md px-3 py-2 bg-slate-800 border border-slate-700" placeholder="Y" />
-              <input type="number" value={editSeatState.row_number} onChange={(e) => setEditSeatState((p) => ({ ...p, row_number: Number(e.target.value) }))} className="rounded-md px-3 py-2 bg-slate-800 border border-slate-700" placeholder="Row" />
-              <button disabled={!selectedSeatId || loading} onClick={saveSeatLayout} className="px-4 py-2 rounded-md bg-indigo-600 disabled:opacity-50">حفظ تعديل المقعد فقط</button>
-            </div>
-            <div className="flex gap-2">
-              <button onClick={() => quickMove(-1, 0)} className="px-3 py-1 border border-slate-700 rounded bg-slate-800">⬅</button>
-              <button onClick={() => quickMove(1, 0)} className="px-3 py-1 border border-slate-700 rounded bg-slate-800">➡</button>
-              <button onClick={() => quickMove(0, -1)} className="px-3 py-1 border border-slate-700 rounded bg-slate-800">⬆</button>
-              <button onClick={() => quickMove(0, 1)} className="px-3 py-1 border border-slate-700 rounded bg-slate-800">⬇</button>
-            </div>
-          </div>
-        )}
-
-        {mode === 'assign' && (
-          <div className="rounded-xl border border-slate-800 bg-slate-900 p-4 space-y-3">
-            <h2 className="font-semibold text-white">مود التسكين</h2>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-              <select value={selectedAttendeeId} onChange={(e) => setSelectedAttendeeId(e.target.value)} className="rounded-md px-3 py-2 bg-slate-800 border border-slate-700">
-                <option value="">اختر مشارك ({classFilter} - {governorate})</option>
-                {attendees
-                  .filter((a) => a.seat_class === classFilter)
-                  .map((a) => (
-                    <option key={a.id} value={a.id}>{a.full_name}</option>
-                  ))}
-              </select>
-              <input value={selectedSeat?.seat_code || ''} readOnly className="rounded-md px-3 py-2 bg-slate-800 border border-slate-700" placeholder="المقعد المختار" />
-              <button disabled={!selectedSeatId || !selectedAttendeeId || loading} onClick={assignSelected} className="px-4 py-2 rounded-md bg-emerald-600 disabled:opacity-50">تسكين مباشر</button>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-              <select value={swapA} onChange={(e) => setSwapA(e.target.value)} className="rounded-md px-3 py-2 bg-slate-800 border border-slate-700">
-                <option value="">المشارك الأول للتبديل</option>
-                {attendees.filter((a) => a.seat_class === classFilter).map((a) => <option key={a.id} value={a.id}>{a.full_name}</option>)}
-              </select>
-              <select value={swapB} onChange={(e) => setSwapB(e.target.value)} className="rounded-md px-3 py-2 bg-slate-800 border border-slate-700">
-                <option value="">المشارك الثاني للتبديل</option>
-                {attendees.filter((a) => a.seat_class === classFilter).map((a) => <option key={a.id} value={a.id}>{a.full_name}</option>)}
-              </select>
-              <button disabled={!swapA || !swapB || loading} onClick={swapSeats} className="px-4 py-2 rounded-md border border-slate-700 bg-slate-800 disabled:opacity-50">تبديل مقعدين</button>
-            </div>
-            <button
-              disabled={!selectedSeat?.table_id || loading}
-              onClick={bookSelectedTable}
-              className="px-4 py-2 rounded-md bg-indigo-600 disabled:opacity-50"
-            >
-              حجز الطاولة كاملة ({selectedSeat?.table_id ? 'متاحة' : 'اختر مقعد داخل طاولة'})
-            </button>
-          </div>
-        )}
       </div>
 
       <div className="rounded-xl border border-slate-800 bg-slate-900 p-4">

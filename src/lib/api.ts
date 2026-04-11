@@ -1051,14 +1051,30 @@ export const api = {
       if (!id || !type) throw new Error('ID and Type required');
       
       if (type === 'table') {
+        const { data: seats } = await supabase.from('seats').select('attendee_id').eq('table_id', id).not('attendee_id', 'is', null);
+        if (seats && seats.length > 0) {
+           for (const s of seats) {
+              await updateAttendeeSafely(String(s.attendee_id), { seat_number: null, barcode: null });
+           }
+        }
         await supabase.from('seats').delete().eq('table_id', id);
         await supabase.from('seat_tables').delete().eq('id', id);
       } else if (type === 'element') {
-        // do nothing
+        await supabase.from('layout_elements').delete().eq('id', id);
       } else if (type === 'wave') {
          // wave uses row_number for C
+         const { data: seats } = await supabase.from('seats').select('attendee_id').eq('row_number', id).eq('seat_class', 'C').eq('event_id', eventId).not('attendee_id', 'is', null);
+         if (seats && seats.length > 0) {
+            for (const s of seats) {
+               await updateAttendeeSafely(String(s.attendee_id), { seat_number: null, barcode: null });
+            }
+         }
          await supabase.from('seats').delete().eq('row_number', id).eq('seat_class', 'C').eq('event_id', eventId);
       } else if (type === 'seat') {
+         const { data: seat } = await supabase.from('seats').select('attendee_id').eq('id', id).single();
+         if (seat && seat.attendee_id) {
+            await updateAttendeeSafely(String(seat.attendee_id), { seat_number: null, barcode: null });
+         }
          await supabase.from('seats').delete().eq('id', id);
       }
       
@@ -1343,6 +1359,23 @@ export const api = {
       if (!updates.length) return { success: true, updated: 0 };
 
       for (const item of updates) {
+        if (item.type === 'element') {
+           await supabase
+             .from('layout_elements')
+             .update({
+               position_x: Number(item.position_x ?? 0),
+               position_y: Number(item.position_y ?? 0)
+             })
+             .eq('event_id', eventId)
+             .eq('id', item.id);
+           continue;
+        }
+        
+        // Tables are handled by moving their seats proportionally on the frontend
+        // so we don't strictly need to update a position for tables in DB since tables don't have position_x/y
+        // but we just skip it because frontend recalculates table boxes from seats.
+        if (item.type === 'table') continue;
+
         const { data: currentSeat, error: seatErr } = await supabase
           .from('seats')
           .select('id, seat_class, row_number, side, table_id, seat_number')
