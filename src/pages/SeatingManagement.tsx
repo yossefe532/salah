@@ -150,21 +150,22 @@ const TableAssignModalComponent = ({ isOpen, tableId, mapSeats, attendees, gover
              <h2 className="absolute top-6 left-6 text-2xl font-bold text-slate-300">ترابيزة: {tableId.split('-T')[1]}</h2>
              <div className="relative w-[300px] h-[300px] bg-indigo-900/10 rounded-full border-4 border-indigo-900/30 flex items-center justify-center shadow-[inset_0_0_50px_rgba(0,0,0,0.5)]">
                <span className="text-4xl font-black text-indigo-800/50">T-{tableId.split('-T')[1]}</span>
-               {tableSeats.map((seat: Seat) => {
-                  const localX = (Number(seat.position_x || 0) - minX);
-                  const localY = (Number(seat.position_y || 0) - minY);
-                  // Approximate circle layout based on grid coords
-                  const isTop = localY < 2;
-                  const leftPos = (localX / 3) * 100;
+               {tableSeats.map((seat: Seat, index: number) => {
+                  // Perfect circle layout based on index and total seats
+                  const totalSeats = tableSeats.length;
+                  const angle = (index / totalSeats) * 2 * Math.PI - Math.PI / 2; // -PI/2 starts at top
+                  const radius = 45; // 45% radius to fit within 100% container
+                  const leftPos = 50 + radius * Math.cos(angle);
+                  const topPos = 50 + radius * Math.sin(angle);
                   
                   return (
                     <button
                       key={seat.id}
                       onClick={() => setSelectedSeat(seat)}
-                      className={`absolute w-12 h-12 rounded-full border-2 flex flex-col items-center justify-center text-white transition-all transform hover:scale-110 ${selectedSeat?.id === seat.id ? 'ring-4 ring-blue-500 scale-110 z-10' : ''} ${seat.status === 'booked' ? 'bg-rose-600 border-rose-400 shadow-[0_0_15px_rgba(225,29,72,0.5)]' : 'bg-slate-600 border-slate-400 opacity-80'}`}
+                      className={`absolute w-12 h-12 rounded-full border-2 flex flex-col items-center justify-center text-white transition-all transform hover:scale-110 -translate-x-1/2 -translate-y-1/2 ${selectedSeat?.id === seat.id ? 'ring-4 ring-blue-500 scale-110 z-10' : ''} ${seat.status === 'booked' ? 'bg-rose-600 border-rose-400 shadow-[0_0_15px_rgba(225,29,72,0.5)]' : 'bg-slate-600 border-slate-400 opacity-80'}`}
                       style={{
                          left: `${leftPos}%`,
-                         top: isTop ? '-10%' : '90%',
+                         top: `${topPos}%`,
                       }}
                       title={seat.seat_code}
                     >

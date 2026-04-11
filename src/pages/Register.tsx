@@ -299,47 +299,108 @@ const Register: React.FC = () => {
       }
       
       // We will let the API handle seat resolution if not provided
-      const newAttendee = {
-          id: newAttendeeId,
-          created_at: new Date().toISOString(),
-          ...data,
-          full_name_en: fullNameEnFinal,
-          profile_photo_url: data.profile_photo_url || null,
-          preferred_neighbor_ids: Array.isArray(data.preferred_neighbor_ids) ? data.preferred_neighbor_ids : [],
-          created_by: user.id,
-          // Handle optional/nulls
-          payment_type: data.status === 'registered' ? data.payment_type : 'deposit',
-          payment_amount: data.status === 'registered' ? Number(data.payment_amount) : 0,
-          occupation_type: data.occupation_type,
-          organization_name: data.occupation_type === 'student' ? null : (data.organization_name || null),
-          job_title: data.occupation_type === 'student' ? null : (data.job_title || null),
-          university: data.occupation_type === 'student' ? (data.university || null) : null,
-          faculty: data.occupation_type === 'student' ? (data.faculty || null) : null,
-          year: data.occupation_type === 'student' ? (data.year || null) : null,
-          sales_channel: data.sales_channel,
-          seat_number: finalSeatNumber,
-          barcode: finalBarcode,
-          base_ticket_price: baseTicketPrice,
-          certificate_included: certificateIncluded,
-          preferred_neighbor_name: data.preferred_neighbor_name || null,
-          sales_source_name: data.sales_source_name || null,
-          commission_amount: data.status === 'registered' ? safeCommission : 0,
-          commission_notes: data.commission_notes || null,
-          phone_secondary: data.phone_secondary || null,
-          email_primary: data.email_primary || null,
-          email_secondary: data.email_secondary || null,
-          facebook_link: data.facebook_link || null,
-          
-          // Calculated fields for display
-          remaining_amount: (data.status === 'registered') 
-            ? Math.max(0, baseTicketPrice - (Number(data.payment_amount) || 0))
-            : baseTicketPrice,
-            
-          attendance_status: false,
-          qr_code: newAttendeeId, // Use ID as QR content
-      };
-
-      await api.post('/attendees', newAttendee);
+      
+      const isCompanyToggle = (document.getElementById('is_company_toggle') as HTMLInputElement)?.checked;
+      const companyCount = isCompanyToggle ? Number((document.getElementById('company_members_count') as HTMLInputElement)?.value || 1) : 1;
+      
+      if (isCompanyToggle && companyCount > 1) {
+         const newAttendees = [];
+         const baseId = crypto.randomUUID();
+         
+         for (let i = 0; i < companyCount; i++) {
+             const memberId = i === 0 ? baseId : crypto.randomUUID();
+             newAttendees.push({
+                 id: memberId,
+                 created_at: new Date().toISOString(),
+                 ...data,
+                 full_name: `${data.full_name} (${i + 1})`,
+                 full_name_en: fullNameEnFinal ? `${fullNameEnFinal} (${i + 1})` : '',
+                 profile_photo_url: data.profile_photo_url || null,
+                 preferred_neighbor_ids: Array.isArray(data.preferred_neighbor_ids) ? data.preferred_neighbor_ids : [],
+                 created_by: user.id,
+                 payment_type: data.status === 'registered' ? data.payment_type : 'deposit',
+                 payment_amount: data.status === 'registered' ? Number(data.payment_amount) : 0,
+                 occupation_type: data.occupation_type,
+                 organization_name: data.occupation_type === 'student' ? null : (data.organization_name || null),
+                 job_title: data.occupation_type === 'student' ? null : (data.job_title || null),
+                 university: data.occupation_type === 'student' ? (data.university || null) : null,
+                 faculty: data.occupation_type === 'student' ? (data.faculty || null) : null,
+                 year: data.occupation_type === 'student' ? (data.year || null) : null,
+                 sales_channel: data.sales_channel,
+                 seat_number: i === 0 ? finalSeatNumber : null, // only assign first one to specific seat if selected
+                 barcode: i === 0 ? finalBarcode : null,
+                 base_ticket_price: baseTicketPrice,
+                 certificate_included: certificateIncluded,
+                 preferred_neighbor_name: data.preferred_neighbor_name || null,
+                 sales_source_name: data.sales_source_name || null,
+                 commission_amount: data.status === 'registered' ? safeCommission : 0,
+                 commission_notes: data.commission_notes || null,
+                 phone_secondary: data.phone_secondary || null,
+                 email_primary: data.email_primary || null,
+                 email_secondary: data.email_secondary || null,
+                 facebook_link: data.facebook_link || null,
+                 remaining_amount: (data.status === 'registered') 
+                   ? Math.max(0, baseTicketPrice - (Number(data.payment_amount) || 0))
+                   : baseTicketPrice,
+                 attendance_status: false,
+                 qr_code: memberId,
+             });
+         }
+         
+         // Set preferred neighbors to each other
+         const memberIds = newAttendees.map(a => a.id);
+         for (let i = 0; i < newAttendees.length; i++) {
+             const others = memberIds.filter(id => id !== newAttendees[i].id);
+             newAttendees[i].preferred_neighbor_ids = [...new Set([...(newAttendees[i].preferred_neighbor_ids || []), ...others])];
+         }
+         
+         for (const att of newAttendees) {
+             await api.post('/attendees', att);
+         }
+         
+      } else {
+          const newAttendee = {
+              id: newAttendeeId,
+              created_at: new Date().toISOString(),
+              ...data,
+              full_name_en: fullNameEnFinal,
+              profile_photo_url: data.profile_photo_url || null,
+              preferred_neighbor_ids: Array.isArray(data.preferred_neighbor_ids) ? data.preferred_neighbor_ids : [],
+              created_by: user.id,
+              // Handle optional/nulls
+              payment_type: data.status === 'registered' ? data.payment_type : 'deposit',
+              payment_amount: data.status === 'registered' ? Number(data.payment_amount) : 0,
+              occupation_type: data.occupation_type,
+              organization_name: data.occupation_type === 'student' ? null : (data.organization_name || null),
+              job_title: data.occupation_type === 'student' ? null : (data.job_title || null),
+              university: data.occupation_type === 'student' ? (data.university || null) : null,
+              faculty: data.occupation_type === 'student' ? (data.faculty || null) : null,
+              year: data.occupation_type === 'student' ? (data.year || null) : null,
+              sales_channel: data.sales_channel,
+              seat_number: finalSeatNumber,
+              barcode: finalBarcode,
+              base_ticket_price: baseTicketPrice,
+              certificate_included: certificateIncluded,
+              preferred_neighbor_name: data.preferred_neighbor_name || null,
+              sales_source_name: data.sales_source_name || null,
+              commission_amount: data.status === 'registered' ? safeCommission : 0,
+              commission_notes: data.commission_notes || null,
+              phone_secondary: data.phone_secondary || null,
+              email_primary: data.email_primary || null,
+              email_secondary: data.email_secondary || null,
+              facebook_link: data.facebook_link || null,
+              
+              // Calculated fields for display
+              remaining_amount: (data.status === 'registered') 
+                ? Math.max(0, baseTicketPrice - (Number(data.payment_amount) || 0))
+                : baseTicketPrice,
+                
+              attendance_status: false,
+              qr_code: newAttendeeId, // Use ID as QR content
+          };
+    
+          await api.post('/attendees', newAttendee);
+      }
 
       alert('تم تسجيل المشترك بنجاح!');
       navigate('/attendees');
@@ -371,6 +432,46 @@ const Register: React.FC = () => {
         <form onSubmit={handleSubmit(onSubmit)} className="mt-5 space-y-6">
           {/* Personal Info */}
           <div className="grid grid-cols-1 gap-y-6 gap-x-4 sm:grid-cols-6">
+            <div className="sm:col-span-6 flex justify-between items-center bg-gray-100 dark:bg-gray-700/50 p-4 rounded-lg">
+              <div>
+                <h4 className="text-sm font-bold text-indigo-700 dark:text-indigo-400">تسجيل شركة / مجموعة أفراد؟</h4>
+                <p className="text-xs text-gray-500 dark:text-gray-400">فعل هذا الخيار لتسجيل عدة أفراد تابعين لنفس الشركة ليجلسوا معاً.</p>
+              </div>
+              <label className="relative inline-flex items-center cursor-pointer">
+                <input 
+                  type="checkbox" 
+                  className="sr-only peer" 
+                  onChange={(e) => {
+                     const isCompany = e.target.checked;
+                     const fields = document.getElementById('company_fields');
+                     if (fields) fields.style.display = isCompany ? 'block' : 'none';
+                     if (isCompany) {
+                        setValue('occupation_type', 'employee');
+                     }
+                  }} 
+                  id="is_company_toggle"
+                />
+                <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-indigo-300 dark:peer-focus:ring-indigo-800 rounded-full peer dark:bg-gray-600 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-indigo-600"></div>
+              </label>
+            </div>
+            
+            <div className="sm:col-span-6" id="company_fields" style={{ display: 'none' }}>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                عدد أفراد الشركة
+              </label>
+              <div className="mt-1">
+                <input
+                  id="company_members_count"
+                  type="number"
+                  min="1"
+                  defaultValue="1"
+                  className="shadow-sm focus:ring-indigo-500 focus:border-indigo-500 block w-full sm:text-sm border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-md p-2 border"
+                  placeholder="مثال: 5"
+                />
+              </div>
+              <p className="mt-1 text-xs text-gray-500">سيتم تكرار التسجيل بنفس عدد الأفراد آلياً، ويمكنك تعديل بيانات كل فرد لاحقاً.</p>
+            </div>
+
             <div className="sm:col-span-6">
               <label htmlFor="full_name" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                 الاسم بالكامل (ثلاثي) *
@@ -803,7 +904,7 @@ const Register: React.FC = () => {
                             id="ticket_price_override"
                             type="number"
                             inputMode="decimal"
-                            {...register('ticket_price_override', { valueAsNumber: true })}
+                            {...register('ticket_price_override', { valueAsNumber: true, required: false })}
                             onWheel={(e) => e.currentTarget.blur()}
                             className="shadow-sm focus:ring-indigo-500 focus:border-indigo-500 block w-full sm:text-sm border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-md p-2 border"
                             placeholder={`الأساسي: ${SEAT_PRICES[seatClass]} ج.م`}
