@@ -219,7 +219,7 @@ const IDCard: React.FC = () => {
         </div>
 
         {jobTitle ? (
-          <div className="absolute z-10" style={{ top: '51%', left: '46%', width: '42%' }}>
+          <div className="absolute z-10" style={{ top: '49.8%', left: '46%', width: '42%' }}>
             <div
               className="text-[#e0d3c2]"
               dir="ltr"
@@ -227,10 +227,9 @@ const IDCard: React.FC = () => {
                 fontFamily: '"TT Runs Trial", sans-serif',
                 fontWeight: 600,
                 fontSize: getJobTitleFontSize(jobTitle),
-                lineHeight: '1',
+                lineHeight: '1.2',
                 whiteSpace: 'nowrap',
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
+                overflow: 'visible',
                 textAlign: 'left'
               }}
             >
@@ -239,7 +238,7 @@ const IDCard: React.FC = () => {
           </div>
         ) : null}
 
-        <div className="absolute z-10 flex justify-center" style={{ top: '69.5%', left: '49.5%', width: '100%', transform: 'translateX(-50%)' }}>
+        <div className="absolute z-10 flex justify-center" style={{ top: '70.5%', left: '49.5%', width: '100%', transform: 'translateX(-50%)' }}>
           {attendee.qr_code || attendee.id ? (
             <div className="bg-white p-[3px] rounded-[3px]">
                <QRCodeSVG value={attendee.qr_code || attendee.id} size={62} level="H" includeMargin={false} />
@@ -249,13 +248,13 @@ const IDCard: React.FC = () => {
           )}
         </div>
 
-        <div className="absolute z-10 flex justify-end" style={{ top: '90.5%', right: '10%', width: '30%' }}>
+        <div className="absolute z-10 flex justify-end" style={{ top: '89.5%', right: '10%', width: '30%' }}>
           <div className="font-bold text-[#e0d3c2]" dir="ltr" style={{ fontSize: '13px', lineHeight: '1', textAlign: 'right', whiteSpace: 'nowrap' }}>
-            {tableOrWave}
+            {attendee.seat_class === 'C' ? (seatInfo?.seat?.wave_number || '-') : (seatInfo?.table?.table_order || '-')}
           </div>
         </div>
 
-        <div className="absolute z-10 flex justify-end" style={{ top: '94.5%', right: '10%', width: '30%' }}>
+        <div className="absolute z-10 flex justify-end" style={{ top: '93%', right: '10%', width: '30%' }}>
           <div className="font-bold text-[#e0d3c2]" dir="ltr" style={{ fontSize: '13px', lineHeight: '1', textAlign: 'right', whiteSpace: 'nowrap' }}>
             {attendee.seat_number ?? '-'}
           </div>
