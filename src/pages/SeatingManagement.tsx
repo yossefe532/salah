@@ -74,7 +74,7 @@ const SeatNode = React.memo(({ seat, selected, mode, onSeatClick, onSeatDoubleCl
          prev.mode === next.mode;
 });
 
-const TableNode = React.memo(({ box, selected, mode, onDoubleClick, onDragStart }: any) => {
+const TableNode = React.memo(({ box, selected, mode, onDoubleClick, onDragStart, inGroup }: any) => {
   return (
     <div
       onDoubleClick={(e) => {
@@ -85,21 +85,22 @@ const TableNode = React.memo(({ box, selected, mode, onDoubleClick, onDragStart 
          e.stopPropagation();
          onDragStart(box, 'table', e.clientX, e.clientY, e.currentTarget);
       }}
-      className={`absolute border-2 ${selected ? 'border-red-500 bg-red-500/40' : 'border-indigo-400 bg-indigo-600/30'} rounded-lg flex flex-col items-center justify-center ${mode === 'edit' ? 'cursor-move' : 'cursor-pointer hover:bg-indigo-500/50'} transition-colors`}
-      style={{ left: box.x, top: box.y, width: box.w, height: box.h }}
-      title={box.id}
-    >
-      <span className="text-[12px] font-bold text-indigo-100/80">{box.id.split('-T')[1]}</span>
-    </div>
-  );
-}, (prev, next) => {
-  return prev.box.x === next.box.x &&
-         prev.box.y === next.box.y &&
-         prev.box.w === next.box.w &&
-         prev.box.h === next.box.h &&
-         prev.selected === next.selected &&
-         prev.mode === next.mode;
-});
+      className={`absolute border-2 ${selected ? 'border-red-500 bg-red-500/40' : 'border-indigo-400 bg-indigo-600/30'} rounded-lg flex flex-col items-center justify-center ${mode === 'edit' ? 'cursor-move' : 'cursor-pointer hover:bg-indigo-500/50'} ${inGroup ? 'ring-4 ring-purple-500 shadow-[0_0_15px_rgba(168,85,247,0.5)]' : ''} transition-colors`}
+        style={{ left: box.x, top: box.y, width: box.w, height: box.h }}
+        title={box.id}
+      >
+        <span className="text-[12px] font-bold text-indigo-100/80">{box.id.split('-T')[1]}</span>
+      </div>
+    );
+  }, (prev, next) => {
+    return prev.box.x === next.box.x &&
+           prev.box.y === next.box.y &&
+           prev.box.w === next.box.w &&
+           prev.box.h === next.box.h &&
+           prev.selected === next.selected &&
+           prev.inGroup === next.inGroup &&
+           prev.mode === next.mode;
+  });
 
 const TableAssignModalComponent = ({ isOpen, tableId, mapSeats, attendees, governorate, onClose, onAssign, onUnassign }: any) => {
   const [searchTerm, setSearchTerm] = useState('');
@@ -373,9 +374,11 @@ const SeatingManagement: React.FC = () => {
     classC_seats_per_side_per_row: 8
   });
   const [editSeatState, setEditSeatState] = useState({ position_x: 0, position_y: 0, row_number: 1 });
-  const [layoutDraft, setLayoutDraft] = useState<Record<string, { type: 'seat' | 'table' | 'element' | 'wave'; position_x: number; position_y: number }>>({});
-  const [history, setHistory] = useState<Array<Record<string, { type: 'seat' | 'table' | 'element' | 'wave'; position_x: number; position_y: number }>>>([{}]);
+  const [layoutDraft, setLayoutDraft] = useState<Record<string, { type: 'seat' | 'table' | 'element' | 'wave'; position_x: number; position_y: number; is_deleted?: boolean }>>({});
+  const [history, setHistory] = useState<Array<Record<string, { type: 'seat' | 'table' | 'element' | 'wave'; position_x: number; position_y: number; is_deleted?: boolean }>>>([{}]);
   const [historyIndex, setHistoryIndex] = useState(0);
+  const [selectionBox, setSelectionBox] = useState<{startX: number, startY: number, endX: number, endY: number} | null>(null);
+  const [selectedGroup, setSelectedGroup] = useState<string[]>([]);
   const [dragState, setDragState] = useState<{
     id: string;
     type: 'seat' | 'table' | 'element' | 'wave';
@@ -383,7 +386,7 @@ const SeatingManagement: React.FC = () => {
     startY: number;
     originX: number;
     originY: number;
-    seatOrigins?: Record<string, {x: number, y: number}>;
+    groupOrigins?: Record<string, {x: number, y: number, type: string}>;
   } | null>(null);
   const [versions, setVersions] = useState<LayoutVersionLite[]>([]);
   const [selectedVersionId, setSelectedVersionId] = useState('');
@@ -743,23 +746,34 @@ const SeatingManagement: React.FC = () => {
   };
 
   const handleDeleteElement = async (id: string, type: 'table' | 'element' | 'wave' | 'seat') => {
-    if (type === 'seat') {
-      const seat = payload.seats.find(s => s.id === id);
-      if (seat && seat.status === 'booked') {
-        if (!window.confirm('هذا المقعد محجوز! هل أنت متأكد من مسحه؟ (سيتم إلغاء تسكين الشخص)')) return;
-      }
-    } else if (type === 'table') {
-      if (!window.confirm('هل أنت متأكد من مسح هذه الترابيزة بالكامل؟ (سيتم إلغاء تسكين جميع كراسيها)')) return;
-    } else if (type === 'element') {
-      if (!window.confirm('هل أنت متأكد من مسح هذه المنطقة؟')) return;
+    const targets = selectedGroup.includes(id) && selectedGroup.length > 1 ? selectedGroup : [id];
+    
+    if (targets.length > 1) {
+       if (!window.confirm(`هل أنت متأكد من مسح ${targets.length} عناصر معاً؟ (سيتم إلغاء تسكين أي كراسي محجوزة)`)) return;
+    } else {
+       if (type === 'seat') {
+         const seat = payload.seats.find(s => s.id === id);
+         if (seat && seat.status === 'booked') {
+           if (!window.confirm('هذا المقعد محجوز! هل أنت متأكد من مسحه؟ (سيتم إلغاء تسكين الشخص)')) return;
+         }
+       } else if (type === 'table') {
+         if (!window.confirm('هل أنت متأكد من مسح هذه الترابيزة بالكامل؟ (سيتم إلغاء تسكين جميع كراسيها)')) return;
+       } else if (type === 'element') {
+         if (!window.confirm('هل أنت متأكد من مسح هذه المنطقة؟')) return;
+       }
     }
     
-    const nextDraft = {
-      ...layoutDraft,
-      [id]: { type, position_x: 0, position_y: 0, is_deleted: true }
-    };
+    const nextDraft = { ...layoutDraft };
+    targets.forEach(tId => {
+       const isTable = tableBoxes.some(t => t.id === tId);
+       const isElement = payload.layout_elements?.some(e => e.id === tId);
+       let tType = isTable ? 'table' : isElement ? 'element' : 'seat';
+       nextDraft[tId] = { type: tType as any, position_x: 0, position_y: 0, is_deleted: true };
+    });
+    
     setLayoutDraft(nextDraft as any);
     commitDraftHistory(nextDraft as any);
+    setSelectedGroup([]);
     setSelectedElement(null);
     setSelectedSeatId('');
   };
@@ -808,20 +822,55 @@ const SeatingManagement: React.FC = () => {
   const startDrag = useCallback((element: any, type: 'table' | 'element' | 'wave' | 'seat', clientX: number, clientY: number, currentTarget: any) => {
     if (mainMode !== 'edit') return;
     const currentZoom = zoomLevel;
-    const patch = layoutDraft[element.id];
-    const originX = patch ? patch.position_x : Number(element.position_x || 0);
-    const originY = patch ? patch.position_y : Number(element.position_y || 0);
     
-    let seatOrigins: Record<string, {x: number, y: number}> = {};
-    if (type === 'table') {
-      payload.seats.filter(s => s.table_id === element.id).forEach(s => {
-        const sPatch = layoutDraft[s.id];
-        seatOrigins[s.id] = {
-          x: sPatch ? sPatch.position_x : Number(s.position_x || 0),
-          y: sPatch ? sPatch.position_y : Number(s.position_y || 0)
-        };
-      });
+    let groupIds = [element.id];
+    if (selectedGroup.includes(element.id)) {
+       groupIds = [...selectedGroup];
+    } else {
+       setSelectedGroup([element.id]);
     }
+
+    let groupOrigins: Record<string, {x: number, y: number, type: string}> = {};
+    
+    groupIds.forEach(gId => {
+       const isTable = tableBoxes.some(t => t.id === gId);
+       const isElement = payload.layout_elements?.some(e => e.id === gId);
+       const isSeat = payload.seats.some(s => s.id === gId);
+       
+       let tType = isTable ? 'table' : isElement ? 'element' : isSeat ? 'seat' : null;
+       if (!tType) return;
+       
+       const patch = layoutDraft[gId] as any;
+       let ox = 0, oy = 0;
+       
+       if (tType === 'table') {
+          const box = tableBoxes.find(t => t.id === gId);
+          if (!box) return;
+          ox = patch ? patch.position_x : box.x / 8;
+          oy = patch ? patch.position_y : box.y / 4;
+          
+          payload.seats.filter(s => s.table_id === gId).forEach(s => {
+             const sPatch = layoutDraft[s.id] as any;
+             groupOrigins[s.id] = {
+                x: sPatch ? sPatch.position_x : Number(s.position_x || 0),
+                y: sPatch ? sPatch.position_y : Number(s.position_y || 0),
+                type: 'seat'
+             };
+          });
+       } else if (tType === 'element') {
+          const el = payload.layout_elements?.find(e => e.id === gId);
+          if (!el) return;
+          ox = patch ? patch.position_x : Number(el.position_x || 0);
+          oy = patch ? patch.position_y : Number(el.position_y || 0);
+       } else if (tType === 'seat') {
+          const seat = payload.seats.find(s => s.id === gId);
+          if (!seat) return;
+          ox = patch ? patch.position_x : Number(seat.position_x || 0);
+          oy = patch ? patch.position_y : Number(seat.position_y || 0);
+       }
+       
+       groupOrigins[gId] = { x: ox, y: oy, type: tType };
+    });
 
     const rect = document.getElementById('seating-canvas-inner')?.getBoundingClientRect();
     const scaledX = rect ? (clientX - rect.left) / currentZoom : clientX;
@@ -832,53 +881,118 @@ const SeatingManagement: React.FC = () => {
       type,
       startX: scaledX,
       startY: scaledY,
-      originX,
-      originY,
-      seatOrigins
+      originX: groupOrigins[element.id]?.x || 0,
+      originY: groupOrigins[element.id]?.y || 0,
+      groupOrigins
     });
     setSelectedElement({ id: element.id, type });
-  }, [mainMode, layoutDraft, payload.seats, zoomLevel]);
+  }, [mainMode, layoutDraft, payload.seats, tableBoxes, payload.layout_elements, zoomLevel, selectedGroup]);
+
+  const handleCanvasMouseDown = (e: React.MouseEvent) => {
+     if (mainMode !== 'edit') return;
+     // Only trigger selection box if clicking on the background grid
+     if (e.target === e.currentTarget || (e.target as HTMLElement).id === 'seating-canvas-inner' || (e.target as HTMLElement).classList.contains('bg-grid')) {
+        const rect = e.currentTarget.getBoundingClientRect();
+        const scaledX = (e.clientX - rect.left) / zoomLevel;
+        const scaledY = (e.clientY - rect.top) / zoomLevel;
+        setSelectionBox({ startX: scaledX, startY: scaledY, endX: scaledX, endY: scaledY });
+        setSelectedGroup([]);
+     }
+  };
 
   const onCanvasMove = (clientX: number, clientY: number) => {
+    if (selectionBox) {
+       const container = document.getElementById('seating-canvas-inner');
+       const rect = container?.getBoundingClientRect();
+       if (!rect) return;
+       const scaledX = (clientX - rect.left) / zoomLevel;
+       const scaledY = (clientY - rect.top) / zoomLevel;
+       setSelectionBox(prev => prev ? { ...prev, endX: scaledX, endY: scaledY } : null);
+       return;
+    }
+    
     if (!dragState || mainMode !== 'edit') return;
     
     const currentZoom = zoomLevel;
-    // We need to calculate dx and dy based on the scaled position change
-    // Let's get the container rect to find the current scaled position
     const container = document.getElementById('seating-canvas-inner');
     const rect = container?.getBoundingClientRect();
     
     const currentScaledX = rect ? (clientX - rect.left) / currentZoom : clientX;
     const currentScaledY = rect ? (clientY - rect.top) / currentZoom : clientY;
 
-    // dx and dy are the differences in grid units (unscaled difference divided by grid size)
     const dx = (currentScaledX - dragState.startX) / 8;
     const dy = (currentScaledY - dragState.startY) / 4;
     
-    const nextX = Math.max(0, Math.round((dragState.originX + dx) * 10) / 10);
-    const nextY = Math.max(0, Math.round((dragState.originY + dy) * 10) / 10);
-    
     const nextDraft = { ...layoutDraft };
-    nextDraft[dragState.id] = { type: dragState.type, position_x: nextX, position_y: nextY };
     
-    // If we drag a table, we should also drag its associated seats proportionally
-    if (dragState.type === 'table' && dragState.seatOrigins) {
-        Object.keys(dragState.seatOrigins).forEach(seatId => {
-            const startPos = dragState.seatOrigins![seatId];
-            if (startPos) {
-                nextDraft[seatId] = { 
-                  type: 'seat', 
-                  position_x: Math.max(0, Math.round((startPos.x + dx) * 10) / 10), 
-                  position_y: Math.max(0, Math.round((startPos.y + dy) * 10) / 10) 
-                };
-            }
-        });
+    if (dragState.groupOrigins) {
+       Object.keys(dragState.groupOrigins).forEach(id => {
+          const startPos = dragState.groupOrigins![id];
+          nextDraft[id] = {
+             ...nextDraft[id],
+             type: startPos.type as any,
+             position_x: Math.max(0, Math.round((startPos.x + dx) * 10) / 10),
+             position_y: Math.max(0, Math.round((startPos.y + dy) * 10) / 10)
+          };
+       });
+    } else {
+       const nextX = Math.max(0, Math.round((dragState.originX + dx) * 10) / 10);
+       const nextY = Math.max(0, Math.round((dragState.originY + dy) * 10) / 10);
+       nextDraft[dragState.id] = { type: dragState.type, position_x: nextX, position_y: nextY };
     }
     
     setLayoutDraft(nextDraft);
   };
 
   const endDrag = () => {
+    if (selectionBox) {
+       const minX = Math.min(selectionBox.startX, selectionBox.endX) / 8;
+       const maxX = Math.max(selectionBox.startX, selectionBox.endX) / 8;
+       const minY = Math.min(selectionBox.startY, selectionBox.endY) / 4;
+       const maxY = Math.max(selectionBox.startY, selectionBox.endY) / 4;
+       
+       const newSelection: string[] = [];
+       
+       tableBoxes.forEach(box => {
+          const draft = layoutDraft[box.id] as any;
+          if (draft?.is_deleted) return;
+          const bx = draft ? draft.position_x : box.x / 8;
+          const by = draft ? draft.position_y : box.y / 4;
+          const bw = box.w / 8;
+          const bh = box.h / 4;
+          if (bx < maxX && bx + bw > minX && by < maxY && by + bh > minY) {
+             newSelection.push(box.id);
+          }
+       });
+       
+       payload.seats.forEach(seat => {
+          if (seat.table_id) return; 
+          const draft = layoutDraft[seat.id] as any;
+          if (draft?.is_deleted) return;
+          const sx = draft ? draft.position_x : Number(seat.position_x || 0);
+          const sy = draft ? draft.position_y : Number(seat.position_y || 0);
+          if (sx >= minX && sx <= maxX && sy >= minY && sy <= maxY) {
+             newSelection.push(seat.id);
+          }
+       });
+       
+       payload.layout_elements?.forEach(el => {
+          const draft = layoutDraft[el.id] as any;
+          if (draft?.is_deleted) return;
+          const ex = draft ? draft.position_x : Number(el.position_x || 0);
+          const ey = draft ? draft.position_y : Number(el.position_y || 0);
+          const ew = Number(el.width || 8);
+          const eh = Number(el.height || 4);
+          if (ex < maxX && ex + ew > minX && ey < maxY && ey + eh > minY) {
+             newSelection.push(el.id);
+          }
+       });
+       
+       setSelectedGroup(newSelection);
+       setSelectionBox(null);
+       return;
+    }
+    
     if (!dragState) return;
     commitDraftHistory(layoutDraft);
     if (dragState.type === 'seat') {
@@ -944,7 +1058,7 @@ const SeatingManagement: React.FC = () => {
     }
   };
 
-  const commitDraftHistory = (nextDraft: Record<string, { type: 'seat' | 'table' | 'element' | 'wave'; position_x: number; position_y: number }>) => {
+  const commitDraftHistory = (nextDraft: Record<string, { type: 'seat' | 'table' | 'element' | 'wave'; position_x: number; position_y: number; is_deleted?: boolean }>) => {
     const base = history.slice(0, historyIndex + 1);
     const cloned = JSON.parse(JSON.stringify(nextDraft || {}));
     const nextHistory = [...base, cloned];
@@ -1126,6 +1240,7 @@ const SeatingManagement: React.FC = () => {
                 id="seating-canvas-inner"
                 className="relative min-w-[1600px] min-h-[1200px]"
                 onMouseMove={(e) => onCanvasMove(e.clientX, e.clientY)}
+                onMouseDown={handleCanvasMouseDown}
                 onMouseUp={endDrag}
                 onMouseLeave={endDrag}
                 style={{
@@ -1136,6 +1251,17 @@ const SeatingManagement: React.FC = () => {
                   backgroundSize: '24px 24px'
                 }}
               >
+              {selectionBox && (
+                 <div 
+                    className="absolute border border-purple-500 bg-purple-500/20 pointer-events-none z-50"
+                    style={{
+                       left: Math.min(selectionBox.startX, selectionBox.endX) * zoomLevel,
+                       top: Math.min(selectionBox.startY, selectionBox.endY) * zoomLevel,
+                       width: Math.abs(selectionBox.endX - selectionBox.startX) * zoomLevel,
+                       height: Math.abs(selectionBox.endY - selectionBox.startY) * zoomLevel
+                    }}
+                 />
+              )}
               {tableBoxes.map((box) => {
                   const draft = layoutDraft[box.id] as any;
                   if (draft?.is_deleted) return null;
@@ -1190,12 +1316,10 @@ const SeatingManagement: React.FC = () => {
                               startDrag(el, 'element', e.clientX, e.clientY, e.currentTarget);
                            } else if (mainMode === 'edit' && editModeState.action === 'delete') {
                               e.stopPropagation();
-                              if (window.confirm('هل أنت متأكد من مسح هذه المنطقة؟')) {
-                                 handleDeleteElement(el.id, 'element');
-                              }
+                              handleDeleteElement(el.id, 'element');
                            }
                         }}
-                        className={`absolute border-2 border-white/40 bg-white/10 flex items-center justify-center ${mainMode === 'edit' ? (editModeState.action === 'move' ? 'cursor-move' : 'cursor-pointer hover:bg-red-500/30') : ''}`}
+                        className={`absolute border-2 border-white/40 bg-white/10 flex items-center justify-center ${mainMode === 'edit' ? (editModeState.action === 'move' ? 'cursor-move' : 'cursor-pointer hover:bg-red-500/30') : ''} ${selectedGroup.includes(el.id) ? 'ring-4 ring-purple-500 shadow-[0_0_15px_rgba(168,85,247,0.5)]' : ''}`}
                         style={{
                            left: x,
                            top: y,
@@ -1325,6 +1449,7 @@ const SeatingManagement: React.FC = () => {
                      <SeatNode 
                         seat={seatView} 
                         selected={selectedSeatId === seat.id}
+                        inGroup={selectedGroup.includes(seat.id)}
                         mode={mainMode === 'edit' && editModeState.action === 'move' ? 'edit' : 'view'}
                         onSeatClick={handleSeatClick}
                         onSeatDoubleClick={handleSeatDoubleClick}
