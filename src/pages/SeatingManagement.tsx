@@ -960,13 +960,13 @@ const SeatingManagement: React.FC = () => {
           </div>
         </div>
 
-        <div className="mt-4 grid grid-cols-2 md:grid-cols-5 gap-2">
+        <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-2">
           <button onClick={() => setMainMode('assign')} className={`px-4 py-2 rounded-md text-sm border ${mainMode === 'assign' ? 'bg-indigo-600 border-indigo-500' : 'border-slate-700 bg-slate-800'}`}>مود التسكين</button>
           <button onClick={() => {
              setMainMode('edit');
              setEditModeState(p => ({...p, action: 'move'}));
           }} className={`px-4 py-2 rounded-md text-sm border ${mainMode === 'edit' ? 'bg-indigo-600 border-indigo-500' : 'border-slate-700 bg-slate-800'}`}>مود التعديل</button>
-          <button onClick={initHall} className="px-4 py-2 rounded-md text-sm border border-slate-700 bg-slate-800">تهيئة ذكية للقاعة</button>
+          <button onClick={initHall} className="px-4 py-2 rounded-md text-sm border border-slate-700 bg-slate-800 text-rose-400">تهيئة القاعة (مسح وإعادة بناء)</button>
           <button onClick={async () => {
              if (!window.confirm('هل أنت متأكد من تسكين جميع العملاء المتبقين عشوائياً؟')) return;
              try {
@@ -976,9 +976,7 @@ const SeatingManagement: React.FC = () => {
                 await loadMap();
              } catch(e: any) { alert(e.message); }
              finally { setLoading(false); }
-          }} className="px-4 py-2 rounded-md text-sm border border-slate-700 bg-slate-800 text-blue-400">تسكين تلقائي للكل</button>
-          <button onClick={handleClearMap} className="px-4 py-2 rounded-md text-sm bg-red-600">تفريغ الخريطة بالكامل</button>
-          <button onClick={() => autoAssign()} className="px-4 py-2 rounded-md text-sm bg-emerald-600">تسكين تلقائي شامل</button>
+          }} className="px-4 py-2 rounded-md text-sm bg-emerald-600">تسكين تلقائي شامل للكل</button>
         </div>
         <div className="mt-2 grid grid-cols-2 md:grid-cols-6 gap-2">
           <button onClick={undoLayout} disabled={historyIndex <= 0} className="px-3 py-2 rounded-md text-sm border border-slate-700 bg-slate-800 disabled:opacity-50">Undo</button>
@@ -1030,6 +1028,7 @@ const SeatingManagement: React.FC = () => {
             <div className="text-xs text-slate-400">سحب وإفلات في مود التعديل لتغيير المكان</div>
           </div>
           <div className="rounded-lg border border-slate-800 bg-slate-950 p-2">
+            <div className="h-12 rounded-md border border-indigo-800 bg-indigo-900/30 text-center font-bold flex items-center justify-center mb-3">STAGE / المسرح</div>
             <div id="seating-canvas-container" className="relative rounded-md border border-slate-800 overflow-auto" style={{ height: 600 }}>
               <div
                 id="seating-canvas-inner"
@@ -1045,9 +1044,6 @@ const SeatingManagement: React.FC = () => {
                   backgroundSize: '24px 24px'
                 }}
               >
-                <div className="absolute top-0 left-0 right-0 h-16 border-b border-indigo-800 bg-indigo-900/20 flex items-center justify-center font-bold text-xl text-indigo-300 tracking-widest z-0 pointer-events-none">
-                   STAGE / المسرح
-                </div>
               {tableBoxes.map((box) => {
                   const draft = layoutDraft[box.id];
                   const x = draft ? draft.position_x * 8 : box.x;
@@ -1210,7 +1206,7 @@ const SeatingManagement: React.FC = () => {
         </div>
       </div>
 
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4">
+      <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4 hidden">
         {mode === 'edit' && (
           <div className="rounded-xl border border-slate-800 bg-slate-900 p-4 space-y-3">
             <div className="flex justify-between items-center">
