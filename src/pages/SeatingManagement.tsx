@@ -110,8 +110,17 @@ const AssignmentModalComponent = ({ isOpen, seat, attendees, governorate, onClos
 
   if (!isOpen || !seat) return null;
 
+  const normalizeGov = (val: string) => {
+    const v = String(val || '').trim().toLowerCase();
+    if (v.includes('minya') || v.includes('منيا')) return 'minya';
+    if (v.includes('asyut') || v.includes('أسيوط') || v.includes('اسيوط')) return 'asyut';
+    if (v.includes('sohag') || v.includes('سوهاج')) return 'sohag';
+    if (v.includes('qena') || v.includes('قنا')) return 'qena';
+    return v;
+  };
+
   const filteredAttendees = attendees
-    .filter((a: any) => a.seat_class === seat.seat_class && !a.seat_number && ((val: string) => val.trim().toLowerCase())(a.governorate) === ((val: string) => val.trim().toLowerCase())(governorate))
+    .filter((a: any) => a.seat_class === seat.seat_class && !a.seat_number && normalizeGov(a.governorate) === normalizeGov(governorate))
     .filter((a: any) => {
        const term = searchTerm.toLowerCase();
        const name = (a.full_name || a.name || '').toLowerCase();

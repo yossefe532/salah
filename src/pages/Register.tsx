@@ -97,7 +97,7 @@ const Register: React.FC = () => {
   const [occupiedSeats, setOccupiedSeats] = useState<number[]>([]);
   const [englishNameEdited, setEnglishNameEdited] = useState(false);
   const [photoProcessing, setPhotoProcessing] = useState(false);
-  const [availableSeatNumbers, setAvailableSeatNumbers] = useState<number[]>([]);
+  const [availableSeatsList, setAvailableSeatsList] = useState<{id: string, seat_number: number, seat_code: string}[]>([]);
   const [attendeesOptions, setAttendeesOptions] = useState<Attendee[]>([]);
 
   const { register, handleSubmit, watch, setValue, formState: { errors }, trigger } = useForm<FormData>({
@@ -179,7 +179,7 @@ const Register: React.FC = () => {
     const loadSeats = async () => {
       if (status !== 'registered') {
         setOccupiedSeats([]);
-        setAvailableSeatNumbers([]);
+        setAvailableSeatsList([]);
         setValue('seat_number', undefined);
         return;
       }
@@ -192,16 +192,23 @@ const Register: React.FC = () => {
         .filter((n: number) => Number.isInteger(n) && n > 0);
       setOccupiedSeats(occupied);
       
-      const eventId = `${governorate.toUpperCase()}-2026-MAIN`;
+      const normalizeGov = (val: string) => {
+         const v = String(val || '').trim().toLowerCase();
+         if (v.includes('minya') || v.includes('منيا')) return 'minya';
+         if (v.includes('asyut') || v.includes('أسيوط') || v.includes('اسيوط')) return 'asyut';
+         if (v.includes('sohag') || v.includes('سوهاج')) return 'sohag';
+         if (v.includes('qena') || v.includes('قنا')) return 'qena';
+         return 'minya';
+      };
+      const eventId = `${normalizeGov(governorate).toUpperCase()}-2026-MAIN`;
       const mapData = await api.get(`/seating/map?eventId=${eventId}`);
-      const validSeats = (mapData.seats || []).filter((s: any) => s.seat_class === seatClass);
-      const totalSeats = validSeats.length;
+      const validSeats = (mapData.seats || []).filter((s: any) => s.seat_class === seatClass && s.status === 'available');
       
-      const available: number[] = [];
-      for (let i = 1; i <= totalSeats; i += 1) {
-        if (!occupied.includes(i)) available.push(i);
-      }
-      setAvailableSeatNumbers(available);
+      setAvailableSeatsList(validSeats.map((s: any) => ({
+         id: s.id,
+         seat_number: s.seat_number,
+         seat_code: s.seat_code
+      })));
 
       if (selectedSeatNumber && occupied.includes(Number(selectedSeatNumber))) {
         setValue('seat_number', undefined);
@@ -279,10 +286,15 @@ const Register: React.FC = () => {
       const fullNameEnFinal = String(data.full_name_en || '').trim() || transliterateArabicToEnglish(data.full_name);
       
       let finalSeatNumber = data.status === 'registered' && data.seat_number ? Number(data.seat_number) : null;
-      if (data.status === 'registered' && !finalSeatNumber) {
-         // Auto-assign random available seat
-         if (availableSeatNumbers.length > 0) {
-            finalSeatNumber = availableSeatNumbers[Math.floor(Math.random() * availableSeatNumbers.length)];
+      let finalBarcode = null;
+      if (data.status === 'registered') {
+         if (!finalSeatNumber && availableSeatsList.length > 0) {
+            const randomSeat = availableSeatsList[Math.floor(Math.random() * availableSeatsList.length)];
+            finalSeatNumber = randomSeat.seat_number;
+            finalBarcode = randomSeat.seat_code;
+         } else if (finalSeatNumber) {
+            const selectedSeat = availableSeatsList.find(s => s.seat_number === finalSeatNumber);
+            if (selectedSeat) finalBarcode = selectedSeat.seat_code;
          }
       }
       
@@ -306,6 +318,7 @@ const Register: React.FC = () => {
           year: data.occupation_type === 'student' ? (data.year || null) : null,
           sales_channel: data.sales_channel,
           seat_number: finalSeatNumber,
+          barcode: finalBarcode,
           base_ticket_price: baseTicketPrice,
           certificate_included: certificateIncluded,
           preferred_neighbor_name: data.preferred_neighbor_name || null,
@@ -324,7 +337,6 @@ const Register: React.FC = () => {
             
           attendance_status: false,
           qr_code: newAttendeeId, // Use ID as QR content
-          barcode: newAttendeeId.substring(0, 8), // Simple barcode
       };
 
       await api.post('/attendees', newAttendee);
@@ -845,7 +857,7 @@ const Register: React.FC = () => {
                       </div>
                     </div>
 
-                    {availableSeatNumbers.length > 0 && (
+                    {availableSeatsList.length > 0 && (
                       <div className="sm:col-span-3">
                         <label htmlFor="seat_number" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                           رقم المقعد ({governorate})
@@ -857,13 +869,13 @@ const Register: React.FC = () => {
                             className="shadow-sm focus:ring-indigo-500 focus:border-indigo-500 block w-full sm:text-sm border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-md p-2 border"
                           >
                             <option value="">تسكين تلقائي / اختر مقعد</option>
-                            {availableSeatNumbers.map((seatNo) => (
-                              <option key={seatNo} value={seatNo}>{seatClass}-{String(seatNo).padStart(3, '0')}</option>
+                            {availableSeatsList.map((seat) => (
+                              <option key={seat.id} value={seat.seat_number}>{seat.seat_code}</option>
                             ))}
                           </select>
                         </div>
                         <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                          المتاح: {availableSeatNumbers.length} مقعد
+                          المتاح: {availableSeatsList.length} مقعد
                         </p>
                       </div>
                     )}

@@ -340,6 +340,7 @@ const syncSeatStatus = async (attendeeId: string, governorate: string, seatClass
       .eq('event_id', eventId)
       .eq('seat_class', seatClass)
       .eq('seat_number', seatNumber)
+      .eq('status', 'available')
       .limit(1).single();
 
     if (seatToUpdate) {
@@ -1654,21 +1655,25 @@ export const api = {
 
       let assigned = 0;
       for (const cls of classList) {
+        // Remove .limit() to fetch all attendees and all seats without pagination limit up to 5000
         const [{ data: attendees }, { data: seats }] = await Promise.all([
           supabase
             .from('attendees')
-            .select('*')
+            .select('id, full_name, governorate, seat_class, status, seat_number')
             .eq('governorate', hallGovernorate)
             .eq('seat_class', cls)
             .eq('status', 'registered')
             .eq('is_deleted', false)
-            .order('created_at', { ascending: true }),
+            .is('seat_number', null)
+            .order('created_at', { ascending: true })
+            .limit(5000),
           supabase
             .from('seats')
-            .select('*')
+            .select('id, seat_number, seat_class, seat_code, position_x, position_y, status, attendee_id')
             .eq('event_id', eventId)
             .eq('seat_class', cls)
             .order('row_number', { ascending: true })
+            .limit(5000)
         ]);
 
         const attendeeList = (attendees || []) as any[];
@@ -1701,7 +1706,6 @@ export const api = {
              await supabase
                .from('seats')
                .update({ status: 'booked', attendee_id: attendee.id, reserved_by: null, reserved_until: null })
-               .eq('event_id', eventId)
                .eq('id', seat.id);
 
              await updateAttendeeSafely(String(attendee.id), {
