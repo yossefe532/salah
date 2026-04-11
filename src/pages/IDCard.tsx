@@ -146,7 +146,8 @@ const IDCard: React.FC = () => {
   };
 
   const getJobTitleFontSize = (title: string) => {
-    if (title.length > 22) return '12px';
+    if (title.length > 30) return '10px';
+    if (title.length > 22) return '11.5px';
     if (title.length > 16) return '13px';
     return '13.92px'; // 10.44pt * 1.333 = 13.92px
   };
@@ -218,7 +219,7 @@ const IDCard: React.FC = () => {
         </div>
 
         {jobTitle ? (
-          <div className="absolute z-10" style={{ top: '49.5%', left: '57.7%', width: '25%' }}>
+          <div className="absolute z-10" style={{ top: '51%', left: '46%', width: '42%' }}>
             <div
               className="text-[#e0d3c2]"
               dir="ltr"
@@ -238,7 +239,7 @@ const IDCard: React.FC = () => {
           </div>
         ) : null}
 
-        <div className="absolute z-10 flex justify-center" style={{ top: '71%', left: '49.5%', width: '100%', transform: 'translateX(-50%)' }}>
+        <div className="absolute z-10 flex justify-center" style={{ top: '69.5%', left: '49.5%', width: '100%', transform: 'translateX(-50%)' }}>
           {attendee.qr_code || attendee.id ? (
             <div className="bg-white p-[3px] rounded-[3px]">
                <QRCodeSVG value={attendee.qr_code || attendee.id} size={62} level="H" includeMargin={false} />
@@ -248,13 +249,13 @@ const IDCard: React.FC = () => {
           )}
         </div>
 
-        <div className="absolute z-10 flex justify-end" style={{ top: '89%', right: '10%', width: '30%' }}>
+        <div className="absolute z-10 flex justify-end" style={{ top: '90.5%', right: '10%', width: '30%' }}>
           <div className="font-bold text-[#e0d3c2]" dir="ltr" style={{ fontSize: '13px', lineHeight: '1', textAlign: 'right', whiteSpace: 'nowrap' }}>
             {tableOrWave}
           </div>
         </div>
 
-        <div className="absolute z-10 flex justify-end" style={{ top: '91%', right: '10%', width: '30%' }}>
+        <div className="absolute z-10 flex justify-end" style={{ top: '94.5%', right: '10%', width: '30%' }}>
           <div className="font-bold text-[#e0d3c2]" dir="ltr" style={{ fontSize: '13px', lineHeight: '1', textAlign: 'right', whiteSpace: 'nowrap' }}>
             {attendee.seat_number ?? '-'}
           </div>
