@@ -16,7 +16,8 @@ import {
   HandCoins,
   MessageSquareText,
   PhoneCall,
-  Armchair
+  Armchair,
+  Printer
 } from 'lucide-react';
 
 const Layout: React.FC = () => {
@@ -74,6 +75,12 @@ const Layout: React.FC = () => {
       name: 'قائمة الحضور',
       path: '/attendees',
       icon: <Users className="w-5 h-5" />,
+      roles: ['owner', 'data_entry', 'organizer', 'company_admin', 'company_employee']
+    },
+    {
+      name: 'الجاهزين للطباعة',
+      path: '/print-ready',
+      icon: <Printer className="w-5 h-5" />,
       roles: ['owner', 'data_entry', 'organizer', 'company_admin', 'company_employee']
     },
     {

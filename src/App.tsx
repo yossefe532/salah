@@ -18,6 +18,7 @@ import Finance from './pages/Finance';
 import SocialMediaLeads from './pages/SocialMediaLeads';
 import SalesLeads from './pages/SalesLeads';
 import SeatingManagement from './pages/SeatingManagement';
+import PrintReady from './pages/PrintReady';
 
 function App() {
   return (
@@ -48,6 +49,7 @@ function App() {
               
               <Route element={<ProtectedRoute allowedRoles={['owner', 'data_entry', 'organizer', 'company_admin', 'company_employee']} />}>
                 <Route path="/attendees" element={<Attendees />} />
+                <Route path="/print-ready" element={<PrintReady />} />
                 <Route path="/attendees/:id/id-card" element={<IDCard />} />
               </Route>
 

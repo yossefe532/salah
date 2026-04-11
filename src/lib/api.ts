@@ -1077,9 +1077,22 @@ export const api = {
       const uniqueSuffix = Math.floor(Math.random() * 1000000);
       
       if (['stage', 'blocked', 'allowed'].includes(type)) {
-        // Skip layout elements for now
+        const id = `${gov}-${type}-${uniqueSuffix}`;
+        await supabase.from('layout_elements').insert([{
+          id,
+          event_id: eventId,
+          governorate: gov,
+          type,
+          position_x: offsetX,
+          position_y: offsetY,
+          width: body?.width || 8,
+          height: body?.height || 4,
+          name: body?.name || null
+        }]);
       } else if (type === 'table') {
-        const tableId = `${gov}-${cls}-T${uniqueSuffix}`;
+        const tableName = body?.name || String(uniqueSuffix % 1000);
+        const chairsCount = Number(body?.chairs_count || 12);
+        const tableId = `${gov}-${cls}-T${tableName}`;
         
         const { data: maxSeats } = await supabase.from('seats').select('row_number, seat_code').eq('event_id', eventId).eq('seat_class', cls).order('row_number', { ascending: false }).limit(1);
         const nextRow = (maxSeats?.[0]?.row_number || 0) + 1;
@@ -1093,15 +1106,16 @@ export const api = {
           row_number: nextRow,
           side: 'left',
           table_order: tableOrder,
-          seats_count: 12
+          seats_count: chairsCount
         }]);
         
         const seats = [];
-        for(let i = 1; i <= 12; i++) {
-          const localRow = Math.floor((i - 1) / 4);
-          const localCol = (i - 1) % 4;
-          const seatX = offsetX + (localCol - 1.5) * 2.2;
-          const seatY = offsetY + (localRow - 1) * 2.2;
+        for(let i = 1; i <= chairsCount; i++) {
+          const cols = Math.ceil(chairsCount / 2);
+          const localRow = Math.floor((i - 1) / cols);
+          const localCol = (i - 1) % cols;
+          const seatX = offsetX + (localCol - (cols/2 - 0.5)) * 2.2;
+          const seatY = offsetY + (localRow - 0.5) * 2.2;
           seats.push({
             id: `${tableId}-S${i}`,
             event_id: eventId,
@@ -1111,7 +1125,7 @@ export const api = {
             side: 'left',
             table_id: tableId,
             seat_number: i,
-            seat_code: buildSeatCode(cls, nextRow, 'left', tableOrder, i),
+            seat_code: buildSeatCode(cls, nextRow, 'left', tableOrder, i).replace(`T${tableOrder}`, `T${tableName}`),
             status: 'available',
             position_x: seatX,
             position_y: seatY
@@ -1119,13 +1133,14 @@ export const api = {
         }
         await supabase.from('seats').insert(seats);
       } else if (type === 'wave') {
-        const waveNo = uniqueSuffix % 10000;
+        const waveNo = body?.name || String(uniqueSuffix % 10000);
+        const chairsCount = Number(body?.chairs_count || 8);
         
         const { data: maxSeats } = await supabase.from('seats').select('row_number').eq('event_id', eventId).eq('seat_class', 'C').order('row_number', { ascending: false }).limit(1);
         const nextRow = (maxSeats?.[0]?.row_number || 0) + 1;
         
         const seats = [];
-        for(let i = 1; i <= 8; i++) {
+        for(let i = 1; i <= chairsCount; i++) {
           seats.push({
             id: `${gov}-C-W${waveNo}-S${i}`,
             event_id: eventId,

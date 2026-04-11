@@ -101,6 +101,155 @@ const TableNode = React.memo(({ box, selected, mode, onDoubleClick, onDragStart 
          prev.mode === next.mode;
 });
 
+const TableAssignModalComponent = ({ isOpen, tableId, mapSeats, attendees, governorate, onClose, onAssign, onUnassign }: any) => {
+  const [searchTerm, setSearchTerm] = useState('');
+  const [selectedSeat, setSelectedSeat] = useState<Seat | null>(null);
+  
+  useEffect(() => {
+    if (isOpen) {
+      setSearchTerm('');
+      setSelectedSeat(null);
+    }
+  }, [isOpen]);
+
+  if (!isOpen || !tableId) return null;
+
+  const tableSeats = mapSeats.filter((s: Seat) => s.table_id === tableId);
+  const tClass = tableSeats[0]?.seat_class || 'A';
+  
+  // Find bounding box to center the table view
+  const xs = tableSeats.map((s: Seat) => Number(s.position_x || 0));
+  const ys = tableSeats.map((s: Seat) => Number(s.position_y || 0));
+  const minX = Math.min(...xs);
+  const minY = Math.min(...ys);
+
+  const normalizeGov = (val: string) => {
+    const v = String(val || '').trim().toLowerCase();
+    if (v.includes('minya') || v.includes('منيا')) return 'minya';
+    if (v.includes('asyut') || v.includes('أسيوط') || v.includes('اسيوط')) return 'asyut';
+    if (v.includes('sohag') || v.includes('سوهاج')) return 'sohag';
+    if (v.includes('qena') || v.includes('قنا')) return 'qena';
+    return v;
+  };
+
+  const filteredAttendees = attendees
+    .filter((a: any) => a.seat_class === tClass && !a.seat_number && normalizeGov(a.governorate) === normalizeGov(governorate))
+    .filter((a: any) => {
+       const term = searchTerm.toLowerCase();
+       const name = (a.full_name || a.name || '').toLowerCase();
+       const phone = (a.phone || '').toLowerCase();
+       return name.includes(term) || phone.includes(term);
+    });
+
+  return (
+     <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/80 backdrop-blur-sm" onClick={onClose}>
+        <div className="bg-slate-900 border border-slate-700 rounded-xl w-full max-w-4xl h-[80vh] flex overflow-hidden shadow-2xl" onClick={e => e.stopPropagation()}>
+           
+           {/* Left Side: Table Layout */}
+           <div className="flex-1 border-l border-slate-800 p-6 flex flex-col items-center justify-center relative bg-slate-950">
+             <h2 className="absolute top-6 left-6 text-2xl font-bold text-slate-300">ترابيزة: {tableId.split('-T')[1]}</h2>
+             <div className="relative w-[300px] h-[300px] bg-indigo-900/10 rounded-full border-4 border-indigo-900/30 flex items-center justify-center shadow-[inset_0_0_50px_rgba(0,0,0,0.5)]">
+               <span className="text-4xl font-black text-indigo-800/50">T-{tableId.split('-T')[1]}</span>
+               {tableSeats.map((seat: Seat) => {
+                  const localX = (Number(seat.position_x || 0) - minX);
+                  const localY = (Number(seat.position_y || 0) - minY);
+                  // Approximate circle layout based on grid coords
+                  const isTop = localY < 2;
+                  const leftPos = (localX / 3) * 100;
+                  
+                  return (
+                    <button
+                      key={seat.id}
+                      onClick={() => setSelectedSeat(seat)}
+                      className={`absolute w-12 h-12 rounded-full border-2 flex flex-col items-center justify-center text-white transition-all transform hover:scale-110 ${selectedSeat?.id === seat.id ? 'ring-4 ring-blue-500 scale-110 z-10' : ''} ${seat.status === 'booked' ? 'bg-rose-600 border-rose-400 shadow-[0_0_15px_rgba(225,29,72,0.5)]' : 'bg-slate-600 border-slate-400 opacity-80'}`}
+                      style={{
+                         left: `${leftPos}%`,
+                         top: isTop ? '-10%' : '90%',
+                      }}
+                      title={seat.seat_code}
+                    >
+                      <span className="font-bold text-sm">{seat.seat_number}</span>
+                    </button>
+                  );
+               })}
+             </div>
+             <div className="absolute bottom-6 w-full text-center text-slate-500 text-sm">
+                المسرح / STAGE (الاتجاه الأمامي)
+             </div>
+           </div>
+
+           {/* Right Side: Attendee Selection */}
+           <div className="w-[400px] bg-slate-900 p-6 flex flex-col">
+              {selectedSeat ? (
+                <>
+                  <div className="flex justify-between items-center mb-4">
+                    <h3 className="text-xl font-bold text-white">تسكين المقعد: {selectedSeat.seat_code}</h3>
+                    {selectedSeat.status === 'booked' && (
+                      <button onClick={() => { onUnassign(selectedSeat.id); setSelectedSeat(null); }} className="px-3 py-1 bg-red-600/20 text-red-400 border border-red-600/50 rounded hover:bg-red-600 hover:text-white transition text-xs">
+                        إلغاء التسكين
+                      </button>
+                    )}
+                  </div>
+                  
+                  {selectedSeat.status === 'booked' && (
+                    <div className="p-4 bg-indigo-900/30 border border-indigo-700/50 rounded-lg mb-4">
+                      <p className="text-sm text-indigo-300 mb-1">المقعد محجوز حالياً لـ:</p>
+                      <p className="text-lg font-bold text-white">
+                        {attendees.find((a: any) => a.id === selectedSeat.attendee_id)?.full_name || 'غير معروف'}
+                      </p>
+                    </div>
+                  )}
+
+                  <input 
+                    type="text" 
+                    placeholder="ابحث بالاسم أو رقم التليفون..." 
+                    value={searchTerm}
+                    onChange={e => setSearchTerm(e.target.value)}
+                    className="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-lg text-white mb-4"
+                  />
+                  
+                  <div className="flex-1 flex flex-col gap-2 overflow-y-auto pr-2 custom-scrollbar">
+                    {filteredAttendees.map((a: any) => (
+                          <button 
+                            key={a.id}
+                            onClick={() => {
+                               onAssign(selectedSeat.id, a.id);
+                               setSelectedSeat(null);
+                            }}
+                            className="flex items-center justify-between p-4 rounded-lg border border-slate-700 bg-slate-800/50 hover:bg-indigo-600 hover:border-indigo-500 transition text-right"
+                          >
+                            <div className="flex flex-col">
+                               <span className="font-bold text-white text-sm">{a.full_name || a.name}</span>
+                               <span className="text-xs text-slate-400 mt-1">{a.phone}</span>
+                            </div>
+                            <span className="text-xs bg-slate-700 px-3 py-1.5 rounded text-slate-300">تسكين</span>
+                          </button>
+                       ))
+                    }
+                    {filteredAttendees.length === 0 && (
+                       <div className="text-center text-slate-500 py-8 flex flex-col items-center">
+                          <span className="text-4xl mb-2">🪑</span>
+                          <span>لا يوجد عملاء غير مسكنين في فئة {tClass}</span>
+                       </div>
+                    )}
+                  </div>
+                </>
+              ) : (
+                <div className="flex-1 flex flex-col items-center justify-center text-slate-500 text-center px-4">
+                   <div className="w-20 h-20 bg-slate-800 rounded-full flex items-center justify-center mb-4 border border-slate-700">
+                     <span className="text-3xl">👈</span>
+                   </div>
+                   <h3 className="text-lg font-bold text-slate-300 mb-2">اختر مقعداً من المخطط</h3>
+                   <p className="text-sm">اضغط على أي مقعد فارغ (رمادي) أو محجوز (أحمر) في الترابيزة لبدء التسكين أو التعديل.</p>
+                </div>
+              )}
+              
+              <button onClick={onClose} className="mt-4 py-3 w-full bg-slate-800 text-white rounded-lg hover:bg-slate-700 transition font-bold">إغلاق الترابيزة</button>
+           </div>
+        </div>
+     </div>
+  );
+};
 const AssignmentModalComponent = ({ isOpen, seat, attendees, governorate, onClose, onAssign, onUnassign }: any) => {
   const [searchTerm, setSearchTerm] = useState('');
   
@@ -182,7 +331,25 @@ const AssignmentModalComponent = ({ isOpen, seat, attendees, governorate, onClos
   );
 };
 
+interface EditModeState {
+  action: 'add' | 'move' | 'delete' | null;
+  addType: 'table' | 'wave' | 'seat' | 'blocked' | null;
+  addClass: 'A' | 'B' | 'C' | null;
+  addName: string;
+  addCount: number;
+}
+
 const SeatingManagement: React.FC = () => {
+  const [mainMode, setMainMode] = useState<'assign' | 'edit'>('assign');
+  const [assignMode, setAssignMode] = useState<'tables' | 'chairs'>('tables');
+  const [editModeState, setEditModeState] = useState<EditModeState>({
+    action: 'move',
+    addType: 'table',
+    addClass: 'A',
+    addName: '',
+    addCount: 12
+  });
+
   const [governorate, setGovernorate] = useState('Minya');
   const [eventId, setEventId] = useState('MINYA-2026-MAIN');
   const [loading, setLoading] = useState(false);
@@ -221,7 +388,7 @@ const SeatingManagement: React.FC = () => {
   const [versions, setVersions] = useState<LayoutVersionLite[]>([]);
   const [selectedVersionId, setSelectedVersionId] = useState('');
   const [versionName, setVersionName] = useState('');
-  const [assignmentModal, setAssignmentModal] = useState<{isOpen: boolean, seat: Seat | null}>({isOpen: false, seat: null});
+  const [assignmentModal, setAssignmentModal] = useState<{isOpen: boolean, seat: Seat | null, isTableModal: boolean, tableId: string | null}>({isOpen: false, seat: null, isTableModal: false, tableId: null});
   const [zoomLevel, setZoomLevel] = useState(1);
   const [renameModal, setRenameModal] = useState<{isOpen: boolean, tableId: string, currentName: string}>({isOpen: false, tableId: '', currentName: ''});
 
@@ -377,22 +544,23 @@ const SeatingManagement: React.FC = () => {
     }
   };
 
-  const assignSelected = async (passedAttendeeId?: any) => {
+  const assignSelected = async (passedAttendeeId?: any, passedSeatId?: string) => {
     const aid = typeof passedAttendeeId === 'string' ? passedAttendeeId : selectedAttendeeId;
-    if (!selectedSeatId || !aid) return;
+    const sId = typeof passedSeatId === 'string' ? passedSeatId : selectedSeatId;
+    if (!sId || !aid) return;
     try {
       setLoading(true);
       setError(null);
-      await api.post('/seating/assign-attendee', { event_id: eventId, seat_id: selectedSeatId, attendee_id: aid });
+      await api.post('/seating/assign-attendee', { event_id: eventId, seat_id: sId, attendee_id: aid });
       
       // Optimistic update for instant UI feedback
-      const targetSeat = payload.seats.find(s => s.id === selectedSeatId);
+      const targetSeat = payload.seats.find(s => s.id === sId);
       const oldAttendeeIdInTargetSeat = targetSeat?.attendee_id;
       
       setPayload(prev => ({
         ...prev,
         seats: prev.seats.map(s => {
-          if (s.id === selectedSeatId) return { ...s, status: 'booked', attendee_id: aid };
+          if (s.id === sId) return { ...s, status: 'booked', attendee_id: aid };
           if (s.attendee_id === aid) return { ...s, status: 'available', attendee_id: null };
           return s;
         })
@@ -416,20 +584,21 @@ const SeatingManagement: React.FC = () => {
     }
   };
 
-  const unassignSelected = async () => {
-    if (!selectedSeatId) return;
+  const unassignSelected = async (passedSeatId?: string) => {
+    const sId = typeof passedSeatId === 'string' ? passedSeatId : selectedSeatId;
+    if (!sId) return;
     try {
       setLoading(true);
       setError(null);
-      await api.post('/seating/unassign-attendee', { event_id: eventId, seat_id: selectedSeatId });
+      await api.post('/seating/unassign-attendee', { event_id: eventId, seat_id: sId });
       
-      const targetSeat = payload.seats.find(s => s.id === selectedSeatId);
+      const targetSeat = payload.seats.find(s => s.id === sId);
       const oldAttendeeId = targetSeat?.attendee_id;
       
       setPayload(prev => ({
         ...prev,
         seats: prev.seats.map(s => {
-          if (s.id === selectedSeatId) return { ...s, status: 'available', attendee_id: null };
+          if (s.id === sId) return { ...s, status: 'available', attendee_id: null };
           return s;
         })
       }));
@@ -443,7 +612,7 @@ const SeatingManagement: React.FC = () => {
       setError(e.message || 'فشل إلغاء التسكين');
     } finally {
       setLoading(false);
-      setAssignmentModal({isOpen: false, seat: null});
+      setAssignmentModal({isOpen: false, seat: null, isTableModal: false, tableId: null});
     }
   };
 
@@ -694,14 +863,33 @@ const SeatingManagement: React.FC = () => {
   const [selectedElement, setSelectedElement] = useState<{id: string, type: 'table' | 'element' | 'wave' | 'seat'} | null>(null);
   
   const handleSeatClick = useCallback((seat: Seat) => {
+    if (mainMode === 'edit' && editModeState.action === 'delete') {
+       if (seat.status === 'booked') {
+          if (!window.confirm('هذا المقعد محجوز! هل أنت متأكد من مسحه؟ (سيتم إلغاء تسكين الشخص)')) return;
+       } else {
+          if (!window.confirm('هل أنت متأكد من حذف هذا الكرسي؟')) return;
+       }
+       handleDeleteElement(seat.id, 'seat');
+       return;
+    }
+    if (mainMode === 'assign' && assignMode === 'tables' && seat.seat_class !== 'C') {
+        setSelectedSeatId(seat.id);
+        setAssignmentModal({ isOpen: true, seat, isTableModal: true, tableId: seat.table_id || null });
+        return;
+    }
     setSelectedSeatId(seat.id);
     setSelectedElement({ id: seat.id, type: 'seat' });
-  }, []);
+    setEditSeatState({
+      position_x: Number(seat.position_x || 0),
+      position_y: Number(seat.position_y || 0),
+      row_number: seat.row_number
+    });
+  }, [mainMode, editModeState.action, assignMode]);
   
   const handleSeatDoubleClick = useCallback((seat: Seat) => {
     if (mode === 'assign') {
         setSelectedSeatId(seat.id);
-        setAssignmentModal({ isOpen: true, seat });
+        setAssignmentModal({ isOpen: true, seat, isTableModal: false, tableId: null });
     }
   }, [mode]);
 
@@ -773,8 +961,11 @@ const SeatingManagement: React.FC = () => {
         </div>
 
         <div className="mt-4 grid grid-cols-2 md:grid-cols-5 gap-2">
-          <button onClick={() => setMode('assign')} className={`px-4 py-2 rounded-md text-sm border ${mode === 'assign' ? 'bg-indigo-600 border-indigo-500' : 'border-slate-700 bg-slate-800'}`}>مود التسكين</button>
-          <button onClick={() => setMode('edit')} className={`px-4 py-2 rounded-md text-sm border ${mode === 'edit' ? 'bg-indigo-600 border-indigo-500' : 'border-slate-700 bg-slate-800'}`}>مود التعديل</button>
+          <button onClick={() => setMainMode('assign')} className={`px-4 py-2 rounded-md text-sm border ${mainMode === 'assign' ? 'bg-indigo-600 border-indigo-500' : 'border-slate-700 bg-slate-800'}`}>مود التسكين</button>
+          <button onClick={() => {
+             setMainMode('edit');
+             setEditModeState(p => ({...p, action: 'move'}));
+          }} className={`px-4 py-2 rounded-md text-sm border ${mainMode === 'edit' ? 'bg-indigo-600 border-indigo-500' : 'border-slate-700 bg-slate-800'}`}>مود التعديل</button>
           <button onClick={initHall} className="px-4 py-2 rounded-md text-sm border border-slate-700 bg-slate-800">تهيئة ذكية للقاعة</button>
           <button onClick={async () => {
              if (!window.confirm('هل أنت متأكد من تسكين جميع العملاء المتبقين عشوائياً؟')) return;
@@ -788,7 +979,6 @@ const SeatingManagement: React.FC = () => {
           }} className="px-4 py-2 rounded-md text-sm border border-slate-700 bg-slate-800 text-blue-400">تسكين تلقائي للكل</button>
           <button onClick={handleClearMap} className="px-4 py-2 rounded-md text-sm bg-red-600">تفريغ الخريطة بالكامل</button>
           <button onClick={() => autoAssign()} className="px-4 py-2 rounded-md text-sm bg-emerald-600">تسكين تلقائي شامل</button>
-          <button onClick={() => autoAssign(classFilter)} className="px-4 py-2 rounded-md text-sm border border-slate-700 bg-slate-800">تسكين تلقائي {classFilter}</button>
         </div>
         <div className="mt-2 grid grid-cols-2 md:grid-cols-6 gap-2">
           <button onClick={undoLayout} disabled={historyIndex <= 0} className="px-3 py-2 rounded-md text-sm border border-slate-700 bg-slate-800 disabled:opacity-50">Undo</button>
@@ -811,9 +1001,19 @@ const SeatingManagement: React.FC = () => {
       {error && <div className="p-3 rounded-md border border-rose-700 bg-rose-950/60 text-rose-200">{error}</div>}
 
       <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
-        <button onClick={() => setClassFilter('A')} className={`px-3 py-2 rounded-md text-sm border ${classFilter === 'A' ? 'bg-indigo-600 border-indigo-500' : 'bg-slate-900 border-slate-700'}`}>Class A</button>
-        <button onClick={() => setClassFilter('B')} className={`px-3 py-2 rounded-md text-sm border ${classFilter === 'B' ? 'bg-indigo-600 border-indigo-500' : 'bg-slate-900 border-slate-700'}`}>Class B</button>
-        <button onClick={() => setClassFilter('C')} className={`px-3 py-2 rounded-md text-sm border ${classFilter === 'C' ? 'bg-indigo-600 border-indigo-500' : 'bg-slate-900 border-slate-700'}`}>Class C</button>
+        {mainMode === 'assign' && (
+           <>
+             <button onClick={() => setAssignMode('tables')} className={`px-3 py-2 rounded-md text-sm border ${assignMode === 'tables' ? 'bg-indigo-600 border-indigo-500' : 'bg-slate-900 border-slate-700'}`}>الترابيزات (Class A, B)</button>
+             <button onClick={() => setAssignMode('chairs')} className={`px-3 py-2 rounded-md text-sm border ${assignMode === 'chairs' ? 'bg-indigo-600 border-indigo-500' : 'bg-slate-900 border-slate-700'}`}>الكراسي الحرة (Class C)</button>
+           </>
+        )}
+        {mainMode === 'edit' && (
+           <>
+             <button onClick={() => setEditModeState(p => ({...p, action: 'add'}))} className={`px-3 py-2 rounded-md text-sm border ${editModeState.action === 'add' ? 'bg-emerald-600 border-emerald-500' : 'bg-slate-900 border-slate-700'}`}>إضافة (Add)</button>
+             <button onClick={() => setEditModeState(p => ({...p, action: 'move'}))} className={`px-3 py-2 rounded-md text-sm border ${editModeState.action === 'move' ? 'bg-amber-600 border-amber-500' : 'bg-slate-900 border-slate-700'}`}>تحريك (Move)</button>
+             <button onClick={() => setEditModeState(p => ({...p, action: 'delete'}))} className={`px-3 py-2 rounded-md text-sm border ${editModeState.action === 'delete' ? 'bg-red-600 border-red-500' : 'bg-slate-900 border-slate-700'}`}>مسح (Delete)</button>
+           </>
+        )}
         <div className="px-3 py-2 rounded-md bg-slate-900 border border-slate-700 text-sm">الإجمالي: {seatStats.total}</div>
         <div className="px-3 py-2 rounded-md bg-slate-900 border border-slate-700 text-sm">المتاح: {seatStats.available}</div>
       </div>
@@ -852,18 +1052,32 @@ const SeatingManagement: React.FC = () => {
                   const draft = layoutDraft[box.id];
                   const x = draft ? draft.position_x * 8 : box.x;
                   const y = draft ? draft.position_y * 4 : box.y;
+                  const isFade = mainMode === 'assign' && assignMode === 'chairs';
                   return (
-                     <TableNode 
-                        key={box.id} 
-                        box={{ ...box, x, y }} 
-                        selected={selectedElement?.id === box.id} 
-                        mode={mode}
-                        onDoubleClick={(id: string, currentName: string) => setRenameModal({ isOpen: true, tableId: id, currentName })}
-                        onDragStart={(b: any, type: string, clientX: number, clientY: number, target: any) => {
-                           startDrag({ id: b.id, position_x: box.x/8, position_y: box.y/4 }, 'table', clientX, clientY, target);
-                           setSelectedElement({ id: b.id, type: 'table' });
-                        }}
-                     />
+                     <div key={box.id} style={{ opacity: isFade ? 0.2 : 1, pointerEvents: isFade ? 'none' : 'auto', transition: 'opacity 0.3s' }}>
+                       <TableNode 
+                          box={{ ...box, x, y }} 
+                          selected={selectedElement?.id === box.id} 
+                          mode={mainMode === 'edit' && editModeState.action === 'move' ? 'edit' : 'view'}
+                          onDoubleClick={(id: string, currentName: string) => {
+                             if (mainMode === 'assign' && assignMode === 'tables') {
+                                setAssignmentModal({ isOpen: true, seat: null, isTableModal: true, tableId: id });
+                             } else if (mainMode === 'edit') {
+                                setRenameModal({ isOpen: true, tableId: id, currentName });
+                             }
+                          }}
+                          onDragStart={(b: any, type: string, clientX: number, clientY: number, target: any) => {
+                             if (mainMode === 'edit' && editModeState.action === 'move') {
+                                startDrag({ id: b.id, position_x: box.x/8, position_y: box.y/4 }, 'table', clientX, clientY, target);
+                                setSelectedElement({ id: b.id, type: 'table' });
+                             } else if (mainMode === 'edit' && editModeState.action === 'delete') {
+                                if (window.confirm('هل أنت متأكد من مسح هذه الترابيزة بالكامل؟ (سيتم إلغاء تسكين جميع كراسيها)')) {
+                                   handleDeleteElement(b.id, 'table');
+                                }
+                             }
+                          }}
+                       />
+                     </div>
                   );
               })} 
               {/* Layout elements removed as they require DB migration */}
@@ -872,7 +1086,7 @@ const SeatingManagement: React.FC = () => {
               {renameModal.isOpen && (
                  <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setRenameModal({isOpen: false, tableId: '', currentName: ''})}>
                     <div className="bg-slate-900 border border-slate-700 rounded-xl w-full max-w-sm p-6 flex flex-col gap-4 shadow-2xl" onClick={e => e.stopPropagation()}>
-                       <h3 className="text-lg font-bold text-white">تغيير اسم الترابيزة</h3>
+                       <h3 className="text-lg font-bold text-white">تغيير اسم/رقم الترابيزة</h3>
                        <input 
                          type="text" 
                          autoFocus
@@ -901,30 +1115,55 @@ const SeatingManagement: React.FC = () => {
                     </div>
                  </div>
               )}
-              <AssignmentModalComponent 
-                 isOpen={assignmentModal.isOpen} 
-                 seat={assignmentModal.seat} 
-                 attendees={attendees} 
-                 governorate={governorate} 
-                 onClose={() => setAssignmentModal({isOpen: false, seat: null})} 
-                 onAssign={(id: string) => {
-                    setAssignmentModal({isOpen: false, seat: null});
-                    assignSelected(id);
-                 }}
-                 onUnassign={unassignSelected}
-              />
+              {assignmentModal.isOpen && !assignmentModal.isTableModal && assignmentModal.seat && (
+                 <AssignmentModalComponent 
+                    isOpen={assignmentModal.isOpen} 
+                    seat={assignmentModal.seat} 
+                    attendees={attendees} 
+                    governorate={governorate} 
+                    onClose={() => setAssignmentModal({isOpen: false, seat: null, isTableModal: false, tableId: null})} 
+                    onAssign={(id: string) => {
+                       setAssignmentModal({isOpen: false, seat: null, isTableModal: false, tableId: null});
+                       assignSelected(id);
+                    }}
+                    onUnassign={unassignSelected}
+                 />
+              )}
+              {assignmentModal.isOpen && assignmentModal.isTableModal && assignmentModal.tableId && (
+                 <TableAssignModalComponent
+                    isOpen={assignmentModal.isOpen}
+                    tableId={assignmentModal.tableId}
+                    mapSeats={payload.seats}
+                    attendees={attendees}
+                    governorate={governorate}
+                    onClose={() => setAssignmentModal({isOpen: false, seat: null, isTableModal: false, tableId: null})}
+                    onAssign={(seatId: string, attendeeId: string) => {
+                       setSelectedSeatId(seatId);
+                       assignSelected(attendeeId, seatId);
+                    }}
+                    onUnassign={(seatId: string) => {
+                       setSelectedSeatId(seatId);
+                       unassignSelected(seatId);
+                    }}
+                 />
+              )}
               {mapSeats.map((seat) => {
                 const seatView = getSeatView(seat);
+                const isTableSeat = !!seat.table_id;
+                const isFade = mainMode === 'assign' && ((assignMode === 'tables' && !isTableSeat) || (assignMode === 'chairs' && isTableSeat)) || (mainMode === 'edit' && editModeState.action === 'move' && isTableSeat);
+                const isScale = mainMode === 'assign' && assignMode === 'chairs' && !isTableSeat;
+                
                 return (
-                   <SeatNode 
-                      key={seat.id} 
-                      seat={seatView} 
-                      selected={selectedSeatId === seat.id}
-                      mode={mode}
-                      onSeatClick={handleSeatClick}
-                      onSeatDoubleClick={handleSeatDoubleClick}
-                      onDragStart={startDrag}
-                   />
+                   <div key={seat.id} style={{ opacity: isFade ? 0.2 : 1, pointerEvents: isFade ? 'none' : 'auto', transition: 'opacity 0.3s, transform 0.3s', transform: isScale ? 'scale(1.2)' : 'scale(1)' }}>
+                     <SeatNode 
+                        seat={seatView} 
+                        selected={selectedSeatId === seat.id}
+                        mode={mainMode === 'edit' && editModeState.action === 'move' ? 'edit' : 'view'}
+                        onSeatClick={handleSeatClick}
+                        onSeatDoubleClick={handleSeatDoubleClick}
+                        onDragStart={startDrag}
+                     />
+                   </div>
                 );
               })}
               <div className="absolute top-[110px] left-4 text-xs text-indigo-200 bg-indigo-900/40 border border-indigo-700/50 px-2 py-1 rounded pointer-events-none">CLASS A</div>
