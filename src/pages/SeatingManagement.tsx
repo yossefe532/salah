@@ -1275,7 +1275,7 @@ const SeatingManagement: React.FC = () => {
                           selected={selectedElement?.id === box.id} 
                           mode={mainMode === 'edit' && editModeState.action === 'move' ? 'edit' : 'view'}
                           onDoubleClick={(id: string, currentName: string) => {
-                             if (mainMode === 'assign' && assignMode === 'tables') {
+                             if (mainMode === 'assign') {
                                 setAssignmentModal({ isOpen: true, seat: null, isTableModal: true, tableId: id });
                              } else if (mainMode === 'edit' && editModeState.action === 'edit_details') {
                                 const currentTable = payload.tables.find(t => t.id === id);
@@ -1368,6 +1368,18 @@ const SeatingManagement: React.FC = () => {
                        <div className="flex gap-2 mt-4">
                          <button 
                            onClick={async () => {
+                              const tableSeats = payload.seats.filter(s => s.table_id === editTableModal.tableId);
+                              if (editTableModal.currentCount < tableSeats.length) {
+                                  const emptySeats = tableSeats.filter(s => s.status === 'available');
+                                  const seatsToRemoveCount = tableSeats.length - editTableModal.currentCount;
+                                  
+                                  if (seatsToRemoveCount > emptySeats.length) {
+                                      const bookedToRemove = seatsToRemoveCount - emptySeats.length;
+                                      if (!window.confirm(`تنبيه! سيتم حذف ${bookedToRemove} مقعد محجوز وإلغاء تسكين أصحابهم. هل تريد المتابعة؟`)) {
+                                          return;
+                                      }
+                                  }
+                              }
                               try {
                                  setLoading(true);
                                  await api.post('/seating/edit-table', { 
@@ -1441,7 +1453,10 @@ const SeatingManagement: React.FC = () => {
                    const tableDraft = layoutDraft[seat.table_id] as any;
                    if (tableDraft?.is_deleted) return null;
                 }
-                const isFade = mainMode === 'assign' && ((assignMode === 'tables' && !isTableSeat) || (assignMode === 'chairs' && isTableSeat)) || (mainMode === 'edit' && editModeState.action === 'move' && isTableSeat);
+                const isFade = (mainMode === 'assign' && assignMode === 'tables') || 
+                               (mainMode === 'assign' && assignMode === 'chairs' && isTableSeat) || 
+                               (mainMode === 'edit' && editModeState.action === 'move' && isTableSeat) ||
+                               (mainMode === 'edit' && editModeState.action === 'edit_details' && isTableSeat);
                 const isScale = mainMode === 'assign' && assignMode === 'chairs' && !isTableSeat;
                 
                 return (

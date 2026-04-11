@@ -1084,17 +1084,20 @@ export const api = {
       if (newCount > currentCount) {
          // Add new seats
          const newSeats = [];
-         for (let i = currentCount + 1; i <= newCount; i++) {
+         const existingNumbers = existingSeats.map(s => s.seat_number);
+         let nextNum = existingNumbers.length > 0 ? Math.max(...existingNumbers) + 1 : 1;
+         for (let i = 0; i < (newCount - currentCount); i++) {
+             const num = nextNum++;
              newSeats.push({
-               id: `${nextTableId}-S${i}`,
+               id: `${nextTableId}-S${num}`,
                event_id: eventId,
                governorate: gov,
                seat_class: newClass,
                row_number: table.row_number,
                side: 'left',
                table_id: nextTableId,
-               seat_number: i,
-               seat_code: buildSeatCode(newClass as any, table.row_number, 'left', tableOrder, i).replace(`T${tableOrder}`, `T${newName}`),
+               seat_number: num,
+               seat_code: buildSeatCode(newClass as any, table.row_number, 'left', tableOrder, num).replace(`T${tableOrder}`, `T${newName}`),
                status: 'available',
                position_x: Number(existingSeats[0]?.position_x || 50) + (i * 2), // rough offset
                position_y: Number(existingSeats[0]?.position_y || 50)
@@ -1102,8 +1105,15 @@ export const api = {
          }
          await supabase.from('seats').insert(newSeats);
       } else if (newCount < currentCount) {
-         // Remove excess seats
-         const seatsToRemove = existingSeats.slice(newCount);
+         // Remove excess seats prioritizing empty ones
+         const seatsToRemoveCount = currentCount - newCount;
+         const sortedForRemoval = [...existingSeats].sort((a, b) => {
+             const aEmpty = a.status === 'available' ? 0 : 1;
+             const bEmpty = b.status === 'available' ? 0 : 1;
+             if (aEmpty !== bEmpty) return aEmpty - bEmpty;
+             return b.seat_number - a.seat_number; 
+         });
+         const seatsToRemove = sortedForRemoval.slice(0, seatsToRemoveCount);
          for (const s of seatsToRemove) {
              if (s.attendee_id) {
                  await updateAttendeeSafely(String(s.attendee_id), { seat_number: null, barcode: null });
