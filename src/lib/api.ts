@@ -328,20 +328,33 @@ const buildSeatCode = (seatClass: 'A' | 'B' | 'C', rowNumber: number, side: 'lef
   return `${seatClass}-R${rowNumber}-T${tableOrder}-S${seatNumber}`;
 };
 
-const syncSeatStatus = async (attendeeId: string, governorate: string, seatClass: string, seatNumber: number | null) => {
+const syncSeatStatus = async (attendeeId: string, governorate: string, seatClass: string, seatNumber: number | null, seatCode: string | null = null) => {
   // Free any seat currently booked by this attendee
   await supabase.from('seats').update({ status: 'available', attendee_id: null }).eq('attendee_id', attendeeId);
 
-  // Book the new seat if seatNumber is provided
-  if (seatNumber) {
-    const eventId = `${normalizeGovernorate(governorate).toUpperCase()}-2026-MAIN`;
+  const eventId = `${normalizeGovernorate(governorate).toUpperCase()}-2026-MAIN`;
+
+  // Book the new seat if seatCode is provided
+  if (seatCode) {
+    const { data: seatToUpdate } = await supabase.from('seats')
+      .select('id, seat_code')
+      .eq('event_id', eventId)
+      .eq('seat_code', seatCode)
+      .eq('status', 'available')
+      .limit(1).maybeSingle();
+
+    if (seatToUpdate) {
+      await supabase.from('seats').update({ status: 'booked', attendee_id: attendeeId }).eq('id', seatToUpdate.id);
+      return seatToUpdate.seat_code; // Return actual seat code for barcode
+    }
+  } else if (seatNumber) {
     const { data: seatToUpdate } = await supabase.from('seats')
       .select('id, seat_code')
       .eq('event_id', eventId)
       .eq('seat_class', seatClass)
       .eq('seat_number', seatNumber)
       .eq('status', 'available')
-      .limit(1).single();
+      .limit(1).maybeSingle();
 
     if (seatToUpdate) {
       await supabase.from('seats').update({ status: 'booked', attendee_id: attendeeId }).eq('id', seatToUpdate.id);
@@ -1903,7 +1916,7 @@ export const api = {
       if (error) throw new Error(error.message);
       
       if (data) {
-        const newBarcode = await syncSeatStatus(data.id, data.governorate, data.seat_class, data.seat_number);
+        const newBarcode = await syncSeatStatus(data.id, data.governorate, data.seat_class, data.seat_number, data.barcode);
         if (newBarcode && newBarcode !== data.barcode) {
           await supabase.from('attendees').update({ barcode: newBarcode }).eq('id', data.id);
           data.barcode = newBarcode;
@@ -2046,6 +2059,11 @@ export const api = {
       const { data: updated, error: updateError } = await updateAttendeeSafely(attendeeId, updatePayload);
       if (updateError || !updated) throw new Error(updateError?.message || 'فشل تحديث العميل');
 
+      const newBarcode = await syncSeatStatus(updated.id, updated.governorate, updated.seat_class, updated.seat_number, updated.barcode);
+      if (newBarcode && newBarcode !== updated.barcode) {
+         await supabase.from('attendees').update({ barcode: newBarcode }).eq('id', updated.id);
+      }
+
       const { data: socialUser } = await supabase
         .from('users')
         .select('id, commission_balance')
@@ -2136,6 +2154,11 @@ export const api = {
 
       const { data: updated, error: updateError } = await updateAttendeeSafely(attendeeId, updatePayload);
       if (updateError || !updated) throw new Error(updateError?.message || 'فشل تحديث العميل');
+
+      const newBarcode = await syncSeatStatus(updated.id, updated.governorate, updated.seat_class, updated.seat_number, updated.barcode);
+      if (newBarcode && newBarcode !== updated.barcode) {
+         await supabase.from('attendees').update({ barcode: newBarcode }).eq('id', updated.id);
+      }
 
       if (!oldRecord.social_media_user_id) throw new Error('لا يوجد مسؤول سوشيال لهذا العميل');
 
@@ -2391,7 +2414,7 @@ export const api = {
     if (error) throw new Error(error.message);
 
     if (table === 'attendees' && data) {
-        const newBarcode = await syncSeatStatus(data.id, data.governorate, data.seat_class, data.seat_number);
+        const newBarcode = await syncSeatStatus(data.id, data.governorate, data.seat_class, data.seat_number, data.barcode);
         if (newBarcode && newBarcode !== data.barcode) {
            await supabase.from('attendees').update({ barcode: newBarcode }).eq('id', data.id);
            data.barcode = newBarcode;
