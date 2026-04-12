@@ -424,8 +424,8 @@ const syncSeatStatus = async (attendeeId: string, governorate: string, seatClass
       return null;
     }
     
-    // If no target seat but we have a current assignment, keep it
-    if (currentAssignment) return currentAssignment.seat_code;
+    // If no target seat but we have a current assignment, keep it ONLY if they didn't explicitly request no seat
+    if (currentAssignment && seatNumber !== null && seatCode !== null) return currentAssignment.seat_code;
     
     return null;
   }

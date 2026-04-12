@@ -327,7 +327,7 @@ const Register: React.FC = () => {
       }
 
       // Check for duplicate phone
-      const isDuplicatePhone = existingAttendees.some((a: any) => 
+      const isDuplicatePhone = data.phone_primary && existingAttendees.some((a: any) => 
         a.phone_primary === data.phone_primary && !a.is_deleted
       );
 
@@ -347,17 +347,13 @@ const Register: React.FC = () => {
       let finalSeatNumber = data.status === 'registered' && data.seat_number ? Number(data.seat_number) : null;
       let finalBarcode = null;
       if (data.status === 'registered') {
-         if (!finalSeatNumber && availableSeatsList.length > 0) {
-            const randomSeat = availableSeatsList[Math.floor(Math.random() * availableSeatsList.length)];
-            finalSeatNumber = randomSeat.seat_number;
-            finalBarcode = randomSeat.seat_code;
-         } else if (finalSeatNumber) {
+         if (finalSeatNumber) {
             const selectedSeat = availableSeatsList.find(s => s.seat_number === finalSeatNumber);
             if (selectedSeat) finalBarcode = selectedSeat.seat_code;
          }
       }
       
-      // We will let the API handle seat resolution if not provided
+      // We will let the API handle seat resolution if provided
       
       const isCompanyToggle = (document.getElementById('is_company_toggle') as HTMLInputElement)?.checked;
       const companyCount = isCompanyToggle ? Number((document.getElementById('company_members_count') as HTMLInputElement)?.value || 1) : 1;
@@ -1051,7 +1047,7 @@ const Register: React.FC = () => {
                             }}
                             className="shadow-sm focus:ring-indigo-500 focus:border-indigo-500 block w-full sm:text-sm border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-md p-2 border"
                           >
-                            <option value="">تسكين تلقائي / اختر مقعد</option>
+                            <option value="">بدون مقعد (يتم التسكين لاحقاً)</option>
                             {availableSeatsList.map((seat) => (
                               <option key={seat.id} value={seat.seat_code}>{seat.seat_code}</option>
                             ))}

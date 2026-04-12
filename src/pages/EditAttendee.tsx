@@ -357,17 +357,13 @@ const EditAttendee: React.FC = () => {
       let finalSeatNumber = data.status === 'registered' && data.seat_number ? Number(data.seat_number) : null;
       let finalBarcode = null;
       if (data.status === 'registered') {
-         if (!finalSeatNumber && availableSeatsList.length > 0) {
-            const randomSeat = availableSeatsList[Math.floor(Math.random() * availableSeatsList.length)];
-            finalSeatNumber = randomSeat.seat_number;
-            finalBarcode = randomSeat.seat_code.replace(' (مقعدك الحالي)', '');
-         } else if (finalSeatNumber) {
+         if (finalSeatNumber) {
             const selectedSeat = availableSeatsList.find(s => s.seat_number === finalSeatNumber);
             if (selectedSeat) finalBarcode = selectedSeat.seat_code.replace(' (مقعدك الحالي)', '');
          }
       }
       
-      // Seat number is now optional, resolveSeat will pick a random one if not provided
+      // Seat number is now optional
       const updatedAttendee = {
           ...data,
           full_name_en: fullNameEnFinal,
@@ -748,7 +744,7 @@ const EditAttendee: React.FC = () => {
                           }}
                           className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm p-2 border"
                         >
-                          <option value="">تسكين تلقائي / اختر مقعد</option>
+                          <option value="">بدون مقعد (يتم التسكين لاحقاً)</option>
                           {availableSeatsList.map((seat) => (
                             <option key={seat.id} value={seat.seat_code}>{seat.seat_code}</option>
                           ))}
