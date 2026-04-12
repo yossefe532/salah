@@ -2,7 +2,7 @@ import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { api, normalizeGovernorate } from '../lib/api';
 import { Attendee } from '../types';
-import { QRCodeSVG } from 'qrcode.react';
+import { QRCodeCanvas } from 'qrcode.react';
 import { useReactToPrint } from 'react-to-print';
 import { Printer, ArrowLeft, Ticket, ScanFace, FileBadge2, Download } from 'lucide-react';
 import { parseTableOrWaveFromSeatCode, parseSeatNumberFromSeatCode } from '../lib/seat-code';
@@ -95,20 +95,32 @@ const IDCard: React.FC = () => {
 
   const handleDownloadQr = useCallback(() => {
     if (!attendee) return;
-    const svgEl = ticketPrintRef.current?.querySelector('svg');
-    if (!svgEl) return;
-    const serializer = new XMLSerializer();
-    const source = serializer.serializeToString(svgEl);
-    const blob = new Blob([source], { type: 'image/svg+xml;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    const baseName = String(attendee.full_name || attendee.id || 'attendee').replace(/[\\/:*?"<>|]/g, '_');
-    a.href = url;
-    a.download = `qr-${baseName}.svg`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    const canvas = document.getElementById('qr-code-canvas') as HTMLCanvasElement;
+    if (!canvas) {
+       alert('QR Code غير متوفر للتحميل');
+       return;
+    }
+    
+    // Create a new canvas to add a white margin
+    const padding = 10;
+    const paddedCanvas = document.createElement('canvas');
+    paddedCanvas.width = canvas.width + (padding * 2);
+    paddedCanvas.height = canvas.height + (padding * 2);
+    const ctx = paddedCanvas.getContext('2d');
+    if (ctx) {
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, paddedCanvas.width, paddedCanvas.height);
+      ctx.drawImage(canvas, padding, padding);
+      
+      const pngUrl = paddedCanvas.toDataURL('image/png');
+      const a = document.createElement('a');
+      const baseName = String(attendee.full_name || attendee.id || 'attendee').replace(/[\\/:*?"<>|]/g, '_');
+      a.href = pngUrl;
+      a.download = `qr-${baseName}.png`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    }
   }, [attendee]);
 
   const normalizeGovernorate = (value?: string) => {
@@ -266,7 +278,7 @@ const IDCard: React.FC = () => {
         <div className="absolute z-10 flex justify-center" style={{ top: '70.5%', left: '49.5%', width: '100%', transform: 'translateX(-50%)' }}>
           {attendee.qr_code || attendee.id ? (
             <div className="bg-white p-[3px] rounded-[3px]">
-               <QRCodeSVG value={attendee.qr_code || attendee.id} size={62} level="H" includeMargin={false} />
+               <QRCodeCanvas id="qr-code-canvas" value={attendee.qr_code || attendee.id} size={62} level="H" includeMargin={false} />
             </div>
           ) : (
             <div className="h-[62px]" />

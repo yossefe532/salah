@@ -308,10 +308,7 @@ const enrichAttendeesNeighborLabels = (items: any[]) => {
   });
 };
 
-const buildSeatBarcode = (seatClass?: string, seatNumber?: number | null) => {
-  if (!seatClass || !seatNumber || Number(seatNumber) <= 0) return null;
-  return `${seatClass}-${String(Number(seatNumber)).padStart(3, '0')}`;
-};
+
 
 const isMissingTable = (error: any) => String(error?.message || '').includes('Could not find the table');
 
@@ -1965,7 +1962,6 @@ export const api = {
       }
       const companyId = getCompanyIdForCreatedRecords(currentUser);
       const resolvedSeat = await resolveSeat({ ...body, company_id: companyId });
-      const generatedBarcode = buildSeatBarcode(body.seat_class, resolvedSeat);
       const baseTicketPrice = getBaseTicketPrice(body);
       const paidAmount = Number(body.payment_amount || 0);
       const remainingAmount = Math.max(0, baseTicketPrice - paidAmount);
@@ -1979,7 +1975,7 @@ export const api = {
         certificate_included: certificateIncluded,
         remaining_amount: remainingAmount,
         seat_number: resolvedSeat,
-        barcode: generatedBarcode || body.barcode || null,
+        barcode: body.barcode || null,
         ticket_printed: false,
         ticket_printed_at: null,
         certificate_printed: false,
@@ -2126,7 +2122,7 @@ export const api = {
         social_commission_amount: commissionSocial,
         sales_commission_amount: 0,
         commission_distributed: true,
-        barcode: buildSeatBarcode(oldRecord.seat_class, resolvedSeat),
+        barcode: body.barcode || null,
       };
 
       const { data: updated, error: updateError } = await updateAttendeeSafely(attendeeId, updatePayload);
@@ -2222,7 +2218,7 @@ export const api = {
         sales_commission_amount: salesShare,
         commission_distributed: true,
         seat_number: resolvedSeat,
-        barcode: buildSeatBarcode(oldRecord.seat_class, resolvedSeat),
+        barcode: body.barcode || null,
       };
 
       const { data: updated, error: updateError } = await updateAttendeeSafely(attendeeId, updatePayload);
@@ -2475,7 +2471,7 @@ export const api = {
           certificate_included: certificateIncluded,
           remaining_amount: remainingAmount,
           seat_number: resolvedSeat,
-          barcode: buildSeatBarcode(merged.seat_class, resolvedSeat) || body.barcode || oldRecord.barcode || null
+          barcode: body.barcode || oldRecord.barcode || null
         };
       }
     }
