@@ -55,7 +55,7 @@ const SeatNode = React.memo(({ seat, selected, mode, onSeatClick, onSeatDoubleCl
          e.stopPropagation();
          onDragStart(seat, 'seat', e.clientX, e.clientY, e.currentTarget);
       }}
-      className={`absolute text-[8px] w-6 h-6 rounded-full border border-white/20 flex flex-col items-center justify-center text-white ${selected ? 'bg-blue-600 ring-2 ring-blue-300 scale-110 z-10' : (statusColor[seat.status] || 'bg-slate-500')} ${mode === 'edit' ? 'cursor-move' : ''}`}
+      className={`absolute text-[8px] w-6 h-6 rounded-full border flex flex-col items-center justify-center text-white ${selected ? 'bg-blue-600 ring-2 ring-blue-300 scale-110 z-10' : (statusColor[seat.status] || 'bg-slate-500')} ${mode === 'edit' ? 'cursor-move' : ''} ${inGroup ? 'outline outline-2 outline-orange-500 outline-dashed outline-offset-2 z-20' : 'border-white/20'}`}
       style={{
         left: `${Number(seat.position_x || 0) * 8}px`,
         top: `${Number(seat.position_y || 0) * 4}px`
@@ -67,12 +67,13 @@ const SeatNode = React.memo(({ seat, selected, mode, onSeatClick, onSeatDoubleCl
     </button>
   );
 }, (prev, next) => {
-  return prev.seat.position_x === next.seat.position_x &&
-         prev.seat.position_y === next.seat.position_y &&
-         prev.seat.status === next.seat.status &&
-         prev.selected === next.selected &&
-         prev.mode === next.mode;
-});
+    return prev.seat.position_x === next.seat.position_x &&
+           prev.seat.position_y === next.seat.position_y &&
+           prev.seat.status === next.seat.status &&
+           prev.selected === next.selected &&
+           prev.inGroup === next.inGroup &&
+           prev.mode === next.mode;
+  });
 
 const TableNode = React.memo(({ box, selected, mode, onDoubleClick, onDragStart, inGroup }: any) => {
   return (
@@ -85,7 +86,7 @@ const TableNode = React.memo(({ box, selected, mode, onDoubleClick, onDragStart,
          e.stopPropagation();
          onDragStart(box, 'table', e.clientX, e.clientY, e.currentTarget);
       }}
-      className={`absolute border-2 ${selected ? 'border-red-500 bg-red-500/40' : 'border-indigo-400 bg-indigo-600/30'} rounded-lg flex flex-col items-center justify-center ${mode === 'edit' ? 'cursor-move' : 'cursor-pointer hover:bg-indigo-500/50'} ${inGroup ? 'ring-4 ring-purple-500 shadow-[0_0_15px_rgba(168,85,247,0.5)]' : ''} transition-colors`}
+      className={`absolute border-2 ${selected ? 'border-red-500 bg-red-500/40' : 'border-indigo-400 bg-indigo-600/30'} rounded-lg flex flex-col items-center justify-center ${mode === 'edit' ? 'cursor-move' : 'cursor-pointer hover:bg-indigo-500/50'} ${inGroup ? 'outline outline-2 outline-orange-500 outline-dashed outline-offset-4 z-20' : ''} transition-colors`}
         style={{ left: box.x, top: box.y, width: box.w, height: box.h }}
         title={box.id}
       >
@@ -101,133 +102,12 @@ const TableNode = React.memo(({ box, selected, mode, onDoubleClick, onDragStart,
            prev.inGroup === next.inGroup &&
            prev.mode === next.mode;
   });
-
-const TableAssignModalComponent = ({ isOpen, tableId, mapSeats, attendees, governorate, onClose, onAssign, onUnassign }: any) => {
-  const [searchTerm, setSearchTerm] = useState('');
-  const [selectedSeat, setSelectedSeat] = useState<Seat | null>(null);
-  
-  useEffect(() => {
-    if (isOpen) {
-      setSearchTerm('');
-      setSelectedSeat(null);
-    }
-  }, [isOpen]);
-
-  if (!isOpen || !tableId) return null;
-
-  const tableSeats = mapSeats.filter((s: Seat) => s.table_id === tableId);
-  const tClass = tableSeats[0]?.seat_class || 'A';
-  
-  // Find bounding box to center the table view
-  const xs = tableSeats.map((s: Seat) => Number(s.position_x || 0));
-  const ys = tableSeats.map((s: Seat) => Number(s.position_y || 0));
-  const minX = Math.min(...xs);
-  const minY = Math.min(...ys);
-
-  const normalizeGov = (val: string) => {
-    const v = String(val || '').trim().toLowerCase();
-    if (v.includes('minya') || v.includes('منيا')) return 'minya';
-    if (v.includes('asyut') || v.includes('أسيوط') || v.includes('اسيوط')) return 'asyut';
-    if (v.includes('sohag') || v.includes('سوهاج')) return 'sohag';
-    if (v.includes('qena') || v.includes('قنا')) return 'qena';
-    return v;
-  };
-
-  const filteredAttendees = attendees
-    .filter((a: any) => a.seat_class === tClass && !a.seat_number && normalizeGov(a.governorate) === normalizeGov(governorate))
-    .filter((a: any) => {
-       const term = searchTerm.toLowerCase();
-       const name = (a.full_name || a.name || '').toLowerCase();
-       const phone = (a.phone || '').toLowerCase();
-       return name.includes(term) || phone.includes(term);
-    });
-
-  return (
-     <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/80 backdrop-blur-sm" onClick={onClose}>
-        <div className="bg-slate-900 border border-slate-700 rounded-xl w-full max-w-4xl h-[80vh] flex overflow-hidden shadow-2xl" onClick={e => e.stopPropagation()}>
-           
-           {/* Left Side: Table Layout */}
-           <div className="flex-1 border-l border-slate-800 p-6 flex flex-col items-center justify-center relative bg-slate-950">
-             <h2 className="absolute top-6 left-6 text-2xl font-bold text-slate-300">ترابيزة: {tableId.split('-T')[1]}</h2>
-             <div className="relative w-[300px] h-[300px] bg-indigo-900/10 rounded-full border-4 border-indigo-900/30 flex items-center justify-center shadow-[inset_0_0_50px_rgba(0,0,0,0.5)]">
-               <span className="text-4xl font-black text-indigo-800/50">T-{tableId.split('-T')[1]}</span>
-               {tableSeats.map((seat: Seat, index: number) => {
-                  // Perfect circle layout based on index and total seats
-                  const totalSeats = tableSeats.length;
-                  const angle = (index / totalSeats) * 2 * Math.PI - Math.PI / 2; // -PI/2 starts at top
-                  const radius = 45; // 45% radius to fit within 100% container
-                  const leftPos = 50 + radius * Math.cos(angle);
-                  const topPos = 50 + radius * Math.sin(angle);
-                  
-                  return (
-                    <button
-                      key={seat.id}
-                      onClick={() => setSelectedSeat(seat)}
-                      className={`absolute w-12 h-12 rounded-full border-2 flex flex-col items-center justify-center text-white transition-all transform hover:scale-110 -translate-x-1/2 -translate-y-1/2 ${selectedSeat?.id === seat.id ? 'ring-4 ring-blue-500 scale-110 z-10' : ''} ${seat.status === 'booked' ? 'bg-rose-600 border-rose-400 shadow-[0_0_15px_rgba(225,29,72,0.5)]' : 'bg-slate-600 border-slate-400 opacity-80'}`}
-                      style={{
-                         left: `${leftPos}%`,
-                         top: `${topPos}%`,
-                      }}
-                      title={seat.seat_code}
-                    >
-                      <span className="font-bold text-sm">{seat.seat_number}</span>
-                    </button>
-                  );
-               })}
-             </div>
-             <div className="absolute bottom-6 w-full text-center text-slate-500 text-sm">
-                المسرح / STAGE (الاتجاه الأمامي)
-             </div>
-           </div>
-
-           {/* Right Side: Attendee Selection */}
-           <div className="w-[400px] bg-slate-900 p-6 flex flex-col">
-              {selectedSeat ? (
-                <>
-                  <div className="flex justify-between items-center mb-4">
-                    <h3 className="text-xl font-bold text-white">تسكين المقعد: {selectedSeat.seat_code}</h3>
-                    {selectedSeat.status === 'booked' && (
-                      <button onClick={() => { onUnassign(selectedSeat.id); setSelectedSeat(null); }} className="px-3 py-1 bg-red-600/20 text-red-400 border border-red-600/50 rounded hover:bg-red-600 hover:text-white transition text-xs">
-                        إلغاء التسكين
-                      </button>
-                    )}
-                  </div>
-                  
-                  {selectedSeat.status === 'booked' && (
-                    <div className="p-4 bg-indigo-900/30 border border-indigo-700/50 rounded-lg mb-4">
-                      <p className="text-sm text-indigo-300 mb-1">المقعد محجوز حالياً لـ:</p>
-                      <p className="text-lg font-bold text-white">
-                        {attendees.find((a: any) => a.id === selectedSeat.attendee_id)?.full_name || 'غير معروف'}
-                      </p>
-                    </div>
-                  )}
-
-                  <input 
-                    type="text" 
-                    placeholder="ابحث بالاسم أو رقم التليفون..." 
-                    value={searchTerm}
-                    onChange={e => setSearchTerm(e.target.value)}
-                    className="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-lg text-white mb-4"
-                  />
-                  
-                  <div className="flex-1 flex flex-col gap-2 overflow-y-auto pr-2 custom-scrollbar">
-                    {filteredAttendees.map((a: any) => (
-                          <button 
-                            key={a.id}
-                            onClick={() => {
-                               onAssign(selectedSeat.id, a.id);
-                               setSelectedSeat(null);
-                            }}
-                            className="flex items-center justify-between p-4 rounded-lg border border-slate-700 bg-slate-800/50 hover:bg-indigo-600 hover:border-indigo-500 transition text-right"
-                          >
-                            <div className="flex flex-col">
                                <span className="font-bold text-white text-sm">{a.full_name || a.name}</span>
                                <span className="text-xs text-slate-400 mt-1">{a.phone}</span>
                             </div>
                             <span className="text-xs bg-slate-700 px-3 py-1.5 rounded text-slate-300">تسكين</span>
                           </button>
-                       ))
-                    }
+                       ))}
                     {filteredAttendees.length === 0 && (
                        <div className="text-center text-slate-500 py-8 flex flex-col items-center">
                           <span className="text-4xl mb-2">🪑</span>
@@ -342,6 +222,300 @@ interface EditModeState {
 }
 
 const SeatingManagement: React.FC = () => {
+  const [copiedGroup, setCopiedGroup] = useState<any[]>([]);
+  const [mainMode, setMainMode] = useState<'assign' | 'edit'>('assign');
+  const [assignMode, setAssignMode] = useState<'tables' | 'chairs'>('tables');
+  const [classFilter, setClassFilter] = useState('A');
+  const [editModeState, setEditModeState] = useState<EditModeState>({
+    action: null,
+    addType: 'table',
+    addClass: 'A',
+    addName: '',
+    addCount: 12
+  });
+  const [editSeatState, setEditSeatState] = useState<any>({});
+  const [selectedSeatId, setSelectedSeatId] = useState<string | null>(null);
+  const [selectedElement, setSelectedElement] = useState<{id: string, type: 'table' | 'element' | 'wave' | 'seat'} | null>(null);
+  
+  const [selectionBox, setSelectionBox] = useState<{startX: number, startY: number, endX: number, endY: number} | null>(null);
+  const [selectedGroup, setSelectedGroup] = useState<string[]>([]);
+  const [dragState, setDragState] = useState<{
+    id: string;
+    type: 'seat' | 'table' | 'element' | 'wave';
+    startX: number;
+    startY: number;
+    originX: number;
+    originY: number;
+    groupOrigins?: Record<string, {x: number, y: number, type: string}>;
+  } | null>(null);
+  const [layoutDraft, setLayoutDraft] = useState<Record<string, { type: 'seat' | 'table' | 'element' | 'wave' | 'stage' | 'aisle' | 'blocked'; position_x: number; position_y: number; is_deleted?: boolean; is_new?: boolean }>>({});
+  const [history, setHistory] = useState<Array<Record<string, { type: 'seat' | 'table' | 'element' | 'wave' | 'stage' | 'aisle' | 'blocked'; position_x: number; position_y: number; is_deleted?: boolean; is_new?: boolean }>>>([{}]);
+  const [historyIndex, setHistoryIndex] = useState(0);
+
+  const [versions, setVersions] = useState<LayoutVersionLite[]>([]);
+  const [selectedVersionId, setSelectedVersionId] = useState('');
+  const [versionName, setVersionName] = useState('');
+  const [assignmentModal, setAssignmentModal] = useState<{isOpen: boolean, seat: Seat | null, isTableModal: boolean, tableId: string | null}>({isOpen: false, seat: null, isTableModal: false, tableId: null});
+  const [zoomLevel, setZoomLevel] = useState(1);
+  const [editTableModal, setEditTableModal] = useState<{isOpen: boolean, tableId: string, currentName: string, currentClass: string, currentCount: number}>({isOpen: false, tableId: '', currentName: '', currentClass: 'A', currentCount: 12});
+
+  const [drawState, setDrawState] = useState<{
+    active: boolean;
+    startX: number;
+    startY: number;
+    endX: number;
+    endY: number;
+  } | null>(null);
+
+  const [drawModal, setDrawModal] = useState<{
+    isOpen: boolean;
+    type: string;
+    startX: number;
+    startY: number;
+    endX: number;
+    endY: number;
+    name: string;
+    shape: string;
+    count: number;
+    seatClass: string;
+  }>({ isOpen: false, type: '', startX: 0, startY: 0, endX: 0, endY: 0, name: '', shape: 'rect', count: 10, seatClass: 'C' });
+
+  const commitDraftHistory = useCallback((nextDraft: Record<string, any>) => {
+    const nextHistory = history.slice(0, historyIndex + 1);
+    nextHistory.push(nextDraft);
+    setHistory(nextHistory);
+    setHistoryIndex(nextHistory.length - 1);
+  }, [history, historyIndex]);
+
+  const [governorate, setGovernorate] = useState('Minya');
+  const [eventId, setEventId] = useState('MINYA-2026-MAIN');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [payload, setPayload] = useState<SeatingMapPayload>({ event_id: 'MINYA-2026-MAIN', tables: [], seats: [], layout_elements: [] });
+  const [attendees, setAttendees] = useState<any[]>([]);
+
+  const mapSeats = useMemo(() => {
+    const baseSeats = payload.seats.filter(s => {
+       const draft = layoutDraft[s.id] as any;
+       return !draft?.is_deleted;
+    });
+    
+    const newSeats = Object.entries(layoutDraft)
+        .filter(([_, v]) => (v as any).is_new && (v as any).type === 'seat')
+        .map(([id, v]: any) => ({
+            id,
+            ...v,
+            status: 'available',
+            event_id: eventId,
+            governorate
+        }));
+    
+    return [...baseSeats, ...newSeats].sort((a, b) => {
+      const ay = Number(a.position_y || 0);
+      const by = Number(b.position_y || 0);
+      if (ay !== by) return ay - by;
+      return Number(a.position_x || 0) - Number(b.position_x || 0);
+    });
+  }, [payload.seats, layoutDraft]);
+
+  const mapElements = useMemo(() => {
+      const baseEls = (payload.layout_elements || []).filter(el => {
+         const draft = layoutDraft[el.id] as any;
+         return !draft?.is_deleted;
+      });
+      const newEls = Object.entries(layoutDraft)
+          .filter(([_, v]) => (v as any).is_new && ['element', 'stage', 'aisle', 'blocked'].includes((v as any).type))
+          .map(([id, v]: any) => ({
+              id,
+              ...v,
+              event_id: eventId,
+              governorate
+          }));
+      return [...baseEls, ...newEls];
+  }, [payload.layout_elements, layoutDraft]);
+
+  const tableBoxes = useMemo(() => {
+    const seatsByTable = new Map<string, Seat[]>();
+    for (const seat of mapSeats || []) {
+      if (!seat.table_id) continue;
+      const list = seatsByTable.get(seat.table_id) || [];
+      list.push(seat as any);
+      seatsByTable.set(seat.table_id, list as any);
+    }
+    const boxes: Array<{ id: string; x: number; y: number; w: number; h: number; cls: string }> = [];
+    for (const [tableId, list] of seatsByTable.entries()) {
+      if (!list.length) continue;
+      const xs = list.map((s: any) => Number(s.position_x || 0));
+      const ys = list.map((s: any) => Number(s.position_y || 0));
+      const minX = Math.min(...xs) * 8;
+      const maxX = Math.max(...xs) * 8 + 24; 
+      const minY = Math.min(...ys) * 4;
+      const maxY = Math.max(...ys) * 4 + 24; 
+      
+      const tableW = Math.max(32, maxX - minX - 24);
+      const tableH = Math.max(16, maxY - minY - 32);
+
+      boxes.push({
+        id: tableId,
+        x: minX + 12,
+        y: minY + 16,
+        w: tableW,
+        h: tableH,
+        cls: list[0].seat_class as string
+      });
+    }
+    return boxes;
+  }, [mapSeats]);
+
+  const handleDeleteElement = useCallback(async (id: string, type: 'table' | 'element' | 'wave' | 'seat') => {
+    const targets = selectedGroup.includes(id) && selectedGroup.length > 1 ? selectedGroup : [id];
+    
+    if (targets.length > 1) {
+       if (!window.confirm(`هل أنت متأكد من مسح ${targets.length} عناصر معاً؟ (سيتم إلغاء تسكين أي كراسي محجوزة)`)) return;
+    } else {
+       if (type === 'seat') {
+         const seat = payload.seats.find(s => s.id === id);
+         if (seat && seat.status === 'booked') {
+           if (!window.confirm('هذا المقعد محجوز! هل أنت متأكد من مسحه؟ (سيتم إلغاء تسكين الشخص)')) return;
+         }
+       } else if (type === 'table') {
+         if (!window.confirm('هل أنت متأكد من مسح هذه الترابيزة بالكامل؟ (سيتم إلغاء تسكين جميع كراسيها)')) return;
+       } else if (type === 'element') {
+         if (!window.confirm('هل أنت متأكد من مسح هذه المنطقة؟')) return;
+       }
+    }
+    
+    const nextDraft = { ...layoutDraft };
+    targets.forEach(tId => {
+       const isTable = tableBoxes.some(t => t.id === tId);
+       const isElement = mapElements?.some(e => e.id === tId);
+       let tType = isTable ? 'table' : isElement ? 'element' : 'seat';
+       nextDraft[tId] = { type: tType as any, position_x: 0, position_y: 0, is_deleted: true };
+    });
+    
+    setLayoutDraft(nextDraft as any);
+    commitDraftHistory(nextDraft as any);
+    setSelectedGroup([]);
+    setSelectedElement(null);
+    setSelectedSeatId('');
+  }, [selectedGroup, payload.seats, tableBoxes, mapElements, layoutDraft, commitDraftHistory]);
+
+  useEffect(() => {
+     const handleKeyDown = (e: KeyboardEvent) => {
+        if (mainMode !== 'edit') return;
+        
+        // Disable shortcuts if typing in an input or modal is open
+        if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+        if (assignmentModal.isOpen || editTableModal.isOpen || drawModal.isOpen) return;
+
+        // Delete
+        if (e.key === 'Delete' || e.key === 'Backspace') {
+           if (selectedGroup.length > 0) {
+               const firstId = selectedGroup[0];
+               const isTable = tableBoxes.some(t => t.id === firstId);
+               const isElement = mapElements?.some(el => el.id === firstId);
+               handleDeleteElement(firstId, isTable ? 'table' : isElement ? 'element' : 'seat');
+           } else if (selectedElement) {
+               handleDeleteElement(selectedElement.id, selectedElement.type);
+           }
+        }
+        
+        // Undo (Ctrl+Z)
+        if (e.ctrlKey && e.key === 'z') {
+           e.preventDefault();
+           if (historyIndex > 0) {
+              const newIndex = historyIndex - 1;
+              setHistoryIndex(newIndex);
+              setLayoutDraft(history[newIndex] || {});
+           }
+        }
+        
+        // Redo (Ctrl+Y or Ctrl+Shift+Z)
+        if (e.ctrlKey && (e.key === 'y' || (e.shiftKey && e.key === 'Z'))) {
+           e.preventDefault();
+           if (historyIndex < history.length - 1) {
+              const newIndex = historyIndex + 1;
+              setHistoryIndex(newIndex);
+              setLayoutDraft(history[newIndex] || {});
+           }
+        }
+        
+        // Copy (Ctrl+C)
+        if (e.ctrlKey && e.key === 'c') {
+           const itemsToCopy = selectedGroup.length > 0 ? selectedGroup : (selectedElement ? [selectedElement.id] : []);
+           if (itemsToCopy.length > 0) {
+               const copiedData = itemsToCopy.map(id => {
+                   const patch = layoutDraft[id] as any;
+                   const isTable = tableBoxes.find(t => t.id === id);
+                   if (isTable) return { id, type: 'table', x: patch && !patch.is_new ? patch.position_x : isTable.x / 8, y: patch && !patch.is_new ? patch.position_y : isTable.y / 4 };
+                   
+                   const isElement = mapElements?.find(el => el.id === id);
+                   if (isElement) return { id, type: 'element', x: patch && !patch.is_new ? patch.position_x : Number(isElement.position_x || 0), y: patch && !patch.is_new ? patch.position_y : Number(isElement.position_y || 0), width: isElement.width, height: isElement.height, name: isElement.name, elType: isElement.type };
+                   
+                   const isSeat = mapSeats.find(s => s.id === id);
+                   if (isSeat) return { id, type: 'seat', x: patch && !patch.is_new ? patch.position_x : Number(isSeat.position_x || 0), y: patch && !patch.is_new ? patch.position_y : Number(isSeat.position_y || 0), seat_class: isSeat.seat_class, table_id: isSeat.table_id };
+                   
+                   return null;
+               }).filter(Boolean);
+               
+               if (copiedData.length > 0) {
+                   // Calculate center of copied items to offset on paste
+                   const xs = copiedData.map(d => d.x);
+                   const ys = copiedData.map(d => d.y);
+                   const cx = (Math.min(...xs) + Math.max(...xs)) / 2;
+                   const cy = (Math.min(...ys) + Math.max(...ys)) / 2;
+                   setCopiedGroup(copiedData.map(d => ({ ...d, dx: d.x - cx, dy: d.y - cy })));
+               }
+           }
+        }
+        
+        // Paste (Ctrl+V)
+        if (e.ctrlKey && e.key === 'v' && copiedGroup.length > 0) {
+           const timestamp = Date.now();
+           const nextDraft = { ...layoutDraft };
+           const newSelection: string[] = [];
+           
+           // Paste roughly in the center of the view, offset by 10 units
+           const pasteCx = 50; 
+           const pasteCy = 50;
+           
+           copiedGroup.forEach((item, index) => {
+               const newId = `local-${item.type}-${timestamp}-${index}`;
+               const px = pasteCx + item.dx + 5; // Slight offset so it doesn't perfectly overlap
+               const py = pasteCy + item.dy + 5;
+               
+               if (item.type === 'element') {
+                   nextDraft[newId] = { is_new: true, type: item.elType, position_x: px, position_y: py, width: item.width, height: item.height, name: item.name } as any;
+                   newSelection.push(newId);
+               } else if (item.type === 'seat' && !item.table_id) { // Only paste free seats, table seats are pasted via table
+                   nextDraft[newId] = { is_new: true, type: 'seat', position_x: px, position_y: py, seat_class: item.seat_class, seat_number: index + 1, seat_code: `C-COPY-S${index+1}` } as any;
+                   newSelection.push(newId);
+               } else if (item.type === 'table') {
+                   // To paste a table, we need to recreate its seats
+                   const originalSeats = mapSeats.filter(s => s.table_id === item.id);
+                   originalSeats.forEach((s, sIdx) => {
+                       const sId = `${newId}-S${sIdx+1}`;
+                       const sPatch = layoutDraft[s.id] as any;
+                       const sx = sPatch && !sPatch.is_new ? sPatch.position_x : Number(s.position_x || 0);
+                       const sy = sPatch && !sPatch.is_new ? sPatch.position_y : Number(s.position_y || 0);
+                       const sDx = sx - item.x;
+                       const sDy = sy - item.y;
+                       nextDraft[sId] = { is_new: true, type: 'seat', position_x: px + sDx, position_y: py + sDy, seat_class: s.seat_class, seat_number: sIdx + 1, seat_code: `COPY-T-S${sIdx+1}`, table_id: newId } as any;
+                   });
+                   newSelection.push(newId); // Select the table
+               }
+           });
+           
+           setLayoutDraft(nextDraft);
+           commitDraftHistory(nextDraft);
+           setSelectedGroup(newSelection);
+        }
+     };
+     
+     window.addEventListener('keydown', handleKeyDown);
+     return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [mainMode, selectedGroup, selectedElement, layoutDraft, copiedGroup, payload, tableBoxes, history, historyIndex, mapSeats, mapElements]);
+
   const [mainMode, setMainMode] = useState<'assign' | 'edit'>('assign');
   const [assignMode, setAssignMode] = useState<'tables' | 'chairs'>('tables');
   const [editModeState, setEditModeState] = useState<EditModeState>({
@@ -442,16 +616,80 @@ const SeatingManagement: React.FC = () => {
   }, [eventId]);
 
   const mapSeats = useMemo(() => {
-    return [...(payload.seats || [])].sort((a, b) => {
+    const baseSeats = payload.seats.filter(s => {
+       const draft = layoutDraft[s.id] as any;
+       return !draft?.is_deleted;
+    });
+    
+    const newSeats = Object.entries(layoutDraft)
+        .filter(([_, v]) => (v as any).is_new && (v as any).type === 'seat')
+        .map(([id, v]: any) => ({
+            id,
+            ...v,
+            status: 'available',
+            event_id: eventId,
+            governorate
+        }));
+    
+    return [...baseSeats, ...newSeats].sort((a, b) => {
       const ay = Number(a.position_y || 0);
       const by = Number(b.position_y || 0);
       if (ay !== by) return ay - by;
       return Number(a.position_x || 0) - Number(b.position_x || 0);
     });
-  }, [payload.seats]);
+  }, [payload.seats, layoutDraft]);
+
+  const mapElements = useMemo(() => {
+      const baseEls = (payload.layout_elements || []).filter(el => {
+         const draft = layoutDraft[el.id] as any;
+         return !draft?.is_deleted;
+      });
+      const newEls = Object.entries(layoutDraft)
+          .filter(([_, v]) => (v as any).is_new && ['element', 'stage', 'aisle', 'blocked'].includes((v as any).type))
+          .map(([id, v]: any) => ({
+              id,
+              ...v,
+              event_id: eventId,
+              governorate
+          }));
+      return [...baseEls, ...newEls];
+  }, [payload.layout_elements, layoutDraft]);
+
+  const tableBoxes = useMemo(() => {
+    const seatsByTable = new Map<string, Seat[]>();
+    for (const seat of mapSeats || []) {
+      if (!seat.table_id) continue;
+      const list = seatsByTable.get(seat.table_id) || [];
+      list.push(seat as any);
+      seatsByTable.set(seat.table_id, list as any);
+    }
+    const boxes: Array<{ id: string; x: number; y: number; w: number; h: number; cls: string }> = [];
+    for (const [tableId, list] of seatsByTable.entries()) {
+      if (!list.length) continue;
+      const xs = list.map((s: any) => Number(s.position_x || 0));
+      const ys = list.map((s: any) => Number(s.position_y || 0));
+      const minX = Math.min(...xs) * 8;
+      const maxX = Math.max(...xs) * 8 + 24; 
+      const minY = Math.min(...ys) * 4;
+      const maxY = Math.max(...ys) * 4 + 24; 
+      
+      const tableW = Math.max(32, maxX - minX - 24);
+      const tableH = Math.max(16, maxY - minY - 32);
+
+      boxes.push({
+        id: tableId,
+        x: minX + 12,
+        y: minY + 16,
+        w: tableW,
+        h: tableH,
+        cls: list[0].seat_class as string
+      });
+    }
+    return boxes;
+  }, [mapSeats]);
 
   const seatStats = useMemo(() => {
-    const list = (payload.seats || []).filter((s) => s.seat_class === classFilter);
+    const list = mapSeats.filter((s) => s.seat_class === classFilter);
     return {
       total: list.length,
       available: list.filter((s) => s.status === 'available').length,
@@ -459,43 +697,8 @@ const SeatingManagement: React.FC = () => {
       reserved: list.filter((s) => s.status === 'reserved').length,
       vip: list.filter((s) => s.status === 'vip').length
     };
-  }, [payload.seats, classFilter]);
-
-  const tableBoxes = useMemo(() => {
-    const seatsByTable = new Map<string, Seat[]>();
-    for (const seat of payload.seats || []) {
-      if (!seat.table_id) continue;
-      const list = seatsByTable.get(seat.table_id) || [];
-      list.push(seat as any);
-      seatsByTable.set(seat.table_id, list as any);
-    }
-    const boxes: Array<{ id: string; x: number; y: number; w: number; h: number; cls: string }> = [];
-    for (const table of payload.tables || []) {
-      const list = seatsByTable.get(table.id) || [];
-      if (!list.length) continue;
-      const xs = list.map((s: any) => Number(s.position_x || 0));
-      const ys = list.map((s: any) => Number(s.position_y || 0));
-      const minX = Math.min(...xs) * 8;
-      const maxX = Math.max(...xs) * 8 + 24; // chair width is 24px
-      const minY = Math.min(...ys) * 4;
-      const maxY = Math.max(...ys) * 4 + 24; // chair height is 24px
-      
-      const tableW = Math.max(32, maxX - minX - 24);
-      const tableH = Math.max(16, maxY - minY - 32);
-
-      boxes.push({
-        id: table.id,
-        x: minX + 12,
-        y: minY + 16,
-        w: tableW,
-        h: tableH,
-        cls: table.seat_class
-      });
-    }
-    return boxes;
-  }, [payload.seats, payload.tables]);
-
-  const selectedSeat = useMemo(() => payload.seats.find((s) => s.id === selectedSeatId) || null, [payload.seats, selectedSeatId]);
+  }, [mapSeats, classFilter]);
+  const selectedSeat = useMemo(() => mapSeats.find((s) => s.id === selectedSeatId) || null, [mapSeats, selectedSeatId]);
   const selectedSeatAttendee = useMemo(() => attendees.find((a) => a.id === selectedSeat?.attendee_id) || null, [attendees, selectedSeat?.attendee_id]);
 
   const getSeatView = (seat: Seat) => {
@@ -504,8 +707,8 @@ const SeatingManagement: React.FC = () => {
     if (patch.is_deleted) return { ...seat, is_deleted: true };
     return {
       ...seat,
-      position_x: patch.position_x,
-      position_y: patch.position_y
+      position_x: patch.position_x !== undefined ? patch.position_x : seat.position_x,
+      position_y: patch.position_y !== undefined ? patch.position_y : seat.position_y
     };
   };
 
@@ -699,26 +902,26 @@ const SeatingManagement: React.FC = () => {
     try {
       const updates = [];
       const deletions = [];
+      const inserts: any = { seats: [], elements: [] };
+      
       for (const [id, val] of Object.entries(layoutDraft)) {
-        if ((val as any).is_deleted) {
-          deletions.push({ id, type: val.type });
+        const anyVal = val as any;
+        if (anyVal.is_deleted) {
+          if (!anyVal.is_new) deletions.push({ id, type: anyVal.type });
+        } else if (anyVal.is_new) {
+          if (anyVal.type === 'seat') inserts.seats.push({ id, ...anyVal });
+          else inserts.elements.push({ id, ...anyVal });
         } else {
           updates.push({
             id,
-            type: val.type,
-            position_x: val.position_x,
-            position_y: val.position_y
+            type: anyVal.type,
+            position_x: anyVal.position_x,
+            position_y: anyVal.position_y
           });
         }
       }
       
-      for (const del of deletions) {
-        await api.post('/seating/delete-element', { event_id: eventId, id: del.id, type: del.type });
-      }
-      
-      if (updates.length) {
-        await api.post('/seating/update-layout', { event_id: eventId, updates });
-      }
+      await api.post('/seating/bulk-save', { event_id: eventId, updates, deletions, inserts });
       
       setLayoutDraft({});
       setHistory([{}]);
@@ -731,18 +934,11 @@ const SeatingManagement: React.FC = () => {
     }
   };
 
-  const undoLayout = () => {
-    if (historyIndex <= 0) return;
-    const nextIndex = historyIndex - 1;
-    setHistoryIndex(nextIndex);
-    setLayoutDraft(JSON.parse(JSON.stringify(history[nextIndex] || {})));
-  };
-
-  const redoLayout = () => {
-    if (historyIndex >= history.length - 1) return;
-    const nextIndex = historyIndex + 1;
-    setHistoryIndex(nextIndex);
-    setLayoutDraft(JSON.parse(JSON.stringify(history[nextIndex] || {})));
+  const commitDraftHistory = (nextDraft: Record<string, any>) => {
+    const nextHistory = history.slice(0, historyIndex + 1);
+    nextHistory.push(nextDraft);
+    setHistory(nextHistory);
+    setHistoryIndex(nextHistory.length - 1);
   };
 
   const handleDeleteElement = async (id: string, type: 'table' | 'element' | 'wave' | 'seat') => {
@@ -766,7 +962,7 @@ const SeatingManagement: React.FC = () => {
     const nextDraft = { ...layoutDraft };
     targets.forEach(tId => {
        const isTable = tableBoxes.some(t => t.id === tId);
-       const isElement = payload.layout_elements?.some(e => e.id === tId);
+       const isElement = mapElements?.some(e => e.id === tId);
        let tType = isTable ? 'table' : isElement ? 'element' : 'seat';
        nextDraft[tId] = { type: tType as any, position_x: 0, position_y: 0, is_deleted: true };
     });
@@ -781,8 +977,54 @@ const SeatingManagement: React.FC = () => {
   const handleAddElement = async (type: string, cls: string, name: string, count: number) => {
     try {
       setLoading(true);
-      await api.post('/seating/add-element', { event_id: eventId, governorate, type, seat_class: cls, name, chairs_count: count });
-      await loadMap();
+      const gov = eventId.split('-')[0] || 'MINYA';
+      const offsetX = 40 + Math.floor(Math.random() * 20);
+      const offsetY = 40 + Math.floor(Math.random() * 20);
+      const timestamp = Date.now();
+      const uniqueSuffix = Math.floor(Math.random() * 1000000);
+      
+      const nextDraft = { ...layoutDraft };
+      
+      if (type === 'table') {
+        const tableName = name || String(uniqueSuffix % 1000);
+        const chairsCount = Number(count || 12);
+        const tableId = `${gov}-${cls}-T${tableName}`;
+        
+        for(let i = 1; i <= chairsCount; i++) {
+          const cols = Math.ceil(chairsCount / 2);
+          const localRow = Math.floor((i - 1) / cols);
+          const localCol = (i - 1) % cols;
+          const seatX = offsetX + (localCol - (cols/2 - 0.5)) * 2.2;
+          const seatY = offsetY + (localRow - 0.5) * 2.2;
+          const newId = `${tableId}-S${i}`;
+          
+          nextDraft[newId] = {
+            is_new: true,
+            type: 'seat',
+            position_x: seatX,
+            position_y: seatY,
+            seat_class: cls,
+            seat_number: i,
+            seat_code: `T${tableName}-S${i}`,
+            table_id: tableId
+          };
+        }
+      } else if (type === 'seat') {
+         const newId = `${gov}-${cls}-S${uniqueSuffix}`;
+         nextDraft[newId] = {
+            is_new: true,
+            type: 'seat',
+            position_x: offsetX,
+            position_y: offsetY,
+            seat_class: cls,
+            seat_number: 1,
+            seat_code: `S${uniqueSuffix}`
+         };
+      }
+      
+      setLayoutDraft(nextDraft as any);
+      commitDraftHistory(nextDraft as any);
+      setEditModeState(p => ({...p, addName: '', addCount: 12}));
     } catch(e: any) {
       setError(e.message || 'Failed to add element');
     } finally {
@@ -811,6 +1053,9 @@ const SeatingManagement: React.FC = () => {
         for (const s of looseSeats) {
            await api.post('/seating/delete-element', { event_id: eventId, id: s.id, type: 'seat' });
         }
+        setLayoutDraft({});
+        setHistory([{}]);
+        setHistoryIndex(0);
         await loadMap();
      } catch(e: any) {
         setError(e.message || 'فشل مسح الخريطة');
@@ -834,8 +1079,8 @@ const SeatingManagement: React.FC = () => {
     
     groupIds.forEach(gId => {
        const isTable = tableBoxes.some(t => t.id === gId);
-       const isElement = payload.layout_elements?.some(e => e.id === gId);
-       const isSeat = payload.seats.some(s => s.id === gId);
+       const isElement = mapElements?.some(e => e.id === gId);
+       const isSeat = mapSeats.some(s => s.id === gId);
        
        let tType = isTable ? 'table' : isElement ? 'element' : isSeat ? 'seat' : null;
        if (!tType) return;
@@ -846,27 +1091,27 @@ const SeatingManagement: React.FC = () => {
        if (tType === 'table') {
           const box = tableBoxes.find(t => t.id === gId);
           if (!box) return;
-          ox = patch ? patch.position_x : box.x / 8;
-          oy = patch ? patch.position_y : box.y / 4;
+          ox = patch && !patch.is_new ? patch.position_x : box.x / 8;
+          oy = patch && !patch.is_new ? patch.position_y : box.y / 4;
           
-          payload.seats.filter(s => s.table_id === gId).forEach(s => {
+          mapSeats.filter(s => s.table_id === gId).forEach(s => {
              const sPatch = layoutDraft[s.id] as any;
              groupOrigins[s.id] = {
-                x: sPatch ? sPatch.position_x : Number(s.position_x || 0),
-                y: sPatch ? sPatch.position_y : Number(s.position_y || 0),
+                x: sPatch && !sPatch.is_new ? sPatch.position_x : Number(s.position_x || 0),
+                y: sPatch && !sPatch.is_new ? sPatch.position_y : Number(s.position_y || 0),
                 type: 'seat'
              };
           });
        } else if (tType === 'element') {
-          const el = payload.layout_elements?.find(e => e.id === gId);
+          const el = mapElements?.find(e => e.id === gId);
           if (!el) return;
-          ox = patch ? patch.position_x : Number(el.position_x || 0);
-          oy = patch ? patch.position_y : Number(el.position_y || 0);
+          ox = patch && !patch.is_new ? patch.position_x : Number(el.position_x || 0);
+          oy = patch && !patch.is_new ? patch.position_y : Number(el.position_y || 0);
        } else if (tType === 'seat') {
-          const seat = payload.seats.find(s => s.id === gId);
+          const seat = mapSeats.find(s => s.id === gId);
           if (!seat) return;
-          ox = patch ? patch.position_x : Number(seat.position_x || 0);
-          oy = patch ? patch.position_y : Number(seat.position_y || 0);
+          ox = patch && !patch.is_new ? patch.position_x : Number(seat.position_x || 0);
+          oy = patch && !patch.is_new ? patch.position_y : Number(seat.position_y || 0);
        }
        
        groupOrigins[gId] = { x: ox, y: oy, type: tType };
@@ -886,7 +1131,7 @@ const SeatingManagement: React.FC = () => {
       groupOrigins
     });
     setSelectedElement({ id: element.id, type });
-  }, [mainMode, layoutDraft, payload.seats, tableBoxes, payload.layout_elements, zoomLevel, selectedGroup]);
+  }, [mainMode, layoutDraft, mapSeats, tableBoxes, mapElements, zoomLevel, selectedGroup]);
 
   const [drawState, setDrawState] = useState<{
     active: boolean;
@@ -961,8 +1206,8 @@ const SeatingManagement: React.FC = () => {
           tableBoxes.forEach(box => {
              const draft = layoutDraft[box.id] as any;
              if (draft?.is_deleted) return;
-             const bx = draft ? draft.position_x : box.x / 8;
-             const by = draft ? draft.position_y : box.y / 4;
+             const bx = draft && !draft.is_new ? draft.position_x : box.x / 8;
+             const by = draft && !draft.is_new ? draft.position_y : box.y / 4;
              const bw = box.w / 8;
              const bh = box.h / 4;
              if (bx < maxX && bx + bw > minX && by < maxY && by + bh > minY) {
@@ -970,22 +1215,22 @@ const SeatingManagement: React.FC = () => {
              }
           });
           
-          payload.seats.forEach(seat => {
+          mapSeats.forEach(seat => {
              if (seat.table_id) return; 
              const draft = layoutDraft[seat.id] as any;
              if (draft?.is_deleted) return;
-             const sx = draft ? draft.position_x : Number(seat.position_x || 0);
-             const sy = draft ? draft.position_y : Number(seat.position_y || 0);
+             const sx = draft && !draft.is_new ? draft.position_x : Number(seat.position_x || 0);
+             const sy = draft && !draft.is_new ? draft.position_y : Number(seat.position_y || 0);
              if (sx >= minX && sx <= maxX && sy >= minY && sy <= maxY) {
                 newSelection.push(seat.id);
              }
           });
           
-          payload.layout_elements?.forEach(el => {
+          mapElements?.forEach(el => {
              const draft = layoutDraft[el.id] as any;
              if (draft?.is_deleted) return;
-             const ex = draft ? draft.position_x : Number(el.position_x || 0);
-             const ey = draft ? draft.position_y : Number(el.position_y || 0);
+             const ex = draft && !draft.is_new ? draft.position_x : Number(el.position_x || 0);
+             const ey = draft && !draft.is_new ? draft.position_y : Number(el.position_y || 0);
              const ew = Number(el.width || 8);
              const eh = Number(el.height || 4);
              if (ex < maxX && ex + ew > minX && ey < maxY && ey + eh > minY) {
@@ -1319,7 +1564,7 @@ const SeatingManagement: React.FC = () => {
                   backgroundSize: '24px 24px'
                 }}
               >
-              {drawState && editModeState.addType === 'wave' && (
+              {drawState?.active && editModeState.addType === 'wave' && (
                    <svg className="absolute top-0 left-0 w-full h-full pointer-events-none z-[200]">
                        <line 
                            x1={drawState.startX / zoomLevel} 
@@ -1330,7 +1575,7 @@ const SeatingManagement: React.FC = () => {
                        />
                    </svg>
               )}
-              {drawState && editModeState.addType === 'aisle' && (
+              {drawState?.active && editModeState.addType === 'aisle' && (
                    <svg className="absolute top-0 left-0 w-full h-full pointer-events-none z-[200]">
                        <line 
                            x1={drawState.startX / zoomLevel} 
@@ -1341,7 +1586,7 @@ const SeatingManagement: React.FC = () => {
                        />
                    </svg>
               )}
-              {drawState && ['stage', 'blocked'].includes(editModeState.addType || '') && (
+              {drawState?.active && ['stage', 'blocked'].includes(editModeState.addType || '') && (
                  <div 
                     className="absolute pointer-events-none z-[200]"
                     style={{
@@ -1406,7 +1651,7 @@ const SeatingManagement: React.FC = () => {
                   );
               })} 
               {/* Drawn Shapes Layer */}
-              {payload.layout_elements?.map((el) => {
+              {mapElements?.map((el) => {
                   const draft = layoutDraft[el.id] as any;
                   if (draft?.is_deleted) return null;
                   const x = draft ? draft.position_x * 8 : Number(el.position_x || 0) * 8;
@@ -1418,7 +1663,7 @@ const SeatingManagement: React.FC = () => {
                   try { if (el.name && el.name.startsWith('{')) meta = JSON.parse(el.name); } catch(e) {}
                   
                   const isSelected = selectedGroup.includes(el.id) || selectedElement?.id === el.id;
-                  const baseClasses = `absolute flex items-center justify-center transition-all ${mainMode === 'edit' ? (editModeState.action === 'move' ? 'cursor-move' : 'cursor-pointer') : ''} ${isSelected ? 'ring-4 ring-purple-500 shadow-[0_0_15px_rgba(168,85,247,0.5)] z-50' : 'z-0'}`;
+                  const baseClasses = `absolute flex items-center justify-center transition-all ${mainMode === 'edit' ? (editModeState.action === 'move' ? 'cursor-move' : 'cursor-pointer') : ''} ${isSelected ? 'outline outline-2 outline-orange-500 outline-dashed outline-offset-2 z-[60]' : 'z-0'}`;
                   
                   if (el.type === 'aisle' || meta.shape === 'line') {
                        const length = Math.hypot((meta.endX - meta.startX)*8, (meta.endY - meta.startY)*4);
@@ -1531,12 +1776,29 @@ const SeatingManagement: React.FC = () => {
                            onClick={async () => {
                               try {
                                   setLoading(true);
+                                  const gov = eventId.split('-')[0] || 'MINYA';
+                                  const timestamp = Date.now();
+                                  const nextDraft = { ...layoutDraft };
+                                  
                                   if (drawModal.type === 'wave') {
-                                      await api.post('/seating/add-element', {
-                                          event_id: eventId, governorate, type: 'wave', seat_class: drawModal.seatClass,
-                                          name: drawModal.name, chairs_count: drawModal.count, 
-                                          startX: drawModal.startX, startY: drawModal.startY, endX: drawModal.endX, endY: drawModal.endY
-                                      });
+                                      const count = drawModal.count;
+                                      for (let i = 0; i < count; i++) {
+                                          const t = count > 1 ? i / (count - 1) : 0.5;
+                                          const sx = drawModal.startX + t * (drawModal.endX - drawModal.startX);
+                                          const sy = drawModal.startY + t * (drawModal.endY - drawModal.startY);
+                                          const newId = `${gov}-${drawModal.seatClass}-${drawModal.name}-S${i+1}-${crypto.randomUUID().slice(0,4)}`;
+                                          
+                                          nextDraft[newId] = {
+                                              is_new: true,
+                                              type: 'seat',
+                                              seat_class: drawModal.seatClass,
+                                              wave_number: drawModal.name,
+                                              seat_number: i + 1,
+                                              seat_code: `${drawModal.seatClass}-${drawModal.name}-S${i+1}`,
+                                              position_x: Math.round(sx * 10) / 10,
+                                              position_y: Math.round(sy * 10) / 10
+                                          };
+                                      }
                                   } else {
                                       const px = Math.min(drawModal.startX, drawModal.endX);
                                       const py = Math.min(drawModal.startY, drawModal.endY);
@@ -1544,12 +1806,20 @@ const SeatingManagement: React.FC = () => {
                                       const h = Math.abs(drawModal.endY - drawModal.startY);
                                       const meta = JSON.stringify({ label: drawModal.name, shape: drawModal.type === 'aisle' ? 'line' : drawModal.shape, startX: drawModal.startX, startY: drawModal.startY, endX: drawModal.endX, endY: drawModal.endY });
                                       
-                                      await api.post('/seating/add-element', {
-                                          event_id: eventId, governorate, type: drawModal.type === 'blocked' ? 'element' : drawModal.type,
-                                          position_x: px, position_y: py, width: w, height: h, name: meta
-                                      });
+                                      const newId = `local-element-${timestamp}`;
+                                      nextDraft[newId] = {
+                                          is_new: true,
+                                          type: drawModal.type === 'blocked' ? 'element' : drawModal.type,
+                                          position_x: px,
+                                          position_y: py,
+                                          width: w,
+                                          height: h,
+                                          name: meta
+                                      };
                                   }
-                                  await loadMap();
+                                  
+                                  setLayoutDraft(nextDraft as any);
+                                  commitDraftHistory(nextDraft as any);
                                   setDrawModal(p => ({...p, isOpen: false}));
                               } catch(e: any) { alert(e.message); } finally { setLoading(false); }
                            }}

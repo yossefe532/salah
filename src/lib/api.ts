@@ -1439,62 +1439,64 @@ export const api = {
       return { success: true, status: nextStatus };
     }
 
-    if (endpoint === '/seating/update-layout') {
+    if (endpoint === '/seating/bulk-save') {
       const eventId = body?.event_id || DEFAULT_EVENT_ID;
-      const updates = Array.isArray(body?.updates) ? body.updates : [];
-      if (!updates.length) return { success: true, updated: 0 };
+      const { updates = [], deletions = [], inserts = { seats: [], elements: [] } } = body || {};
+
+      for (const del of deletions) {
+        if (del.type === 'table') {
+          const { data: seats } = await supabase.from('seats').select('attendee_id').eq('table_id', del.id).not('attendee_id', 'is', null);
+          if (seats && seats.length > 0) {
+             for (const s of seats) { await updateAttendeeSafely(String(s.attendee_id), { seat_number: null, barcode: null }); }
+          }
+          await supabase.from('seats').delete().eq('table_id', del.id);
+          await supabase.from('seat_tables').delete().eq('id', del.id);
+        } else if (['element', 'stage', 'aisle', 'blocked'].includes(del.type)) {
+          await supabase.from('layout_elements').delete().eq('id', del.id);
+        } else if (del.type === 'seat') {
+          const { data: seat } = await supabase.from('seats').select('attendee_id').eq('id', del.id).single();
+          if (seat && seat.attendee_id) { await updateAttendeeSafely(String(seat.attendee_id), { seat_number: null, barcode: null }); }
+          await supabase.from('seats').delete().eq('id', del.id);
+        }
+      }
 
       for (const item of updates) {
-        if (item.type === 'element') {
-           await supabase
-             .from('layout_elements')
-             .update({
-               position_x: Number(item.position_x ?? 0),
-               position_y: Number(item.position_y ?? 0)
-             })
-             .eq('event_id', eventId)
-             .eq('id', item.id);
-           continue;
+        if (['element', 'stage', 'aisle', 'blocked'].includes(item.type)) {
+           await supabase.from('layout_elements').update({ position_x: Number(item.position_x ?? 0), position_y: Number(item.position_y ?? 0) }).eq('event_id', eventId).eq('id', item.id);
+        } else if (item.type === 'seat') {
+           await supabase.from('seats').update({ position_x: Number(item.position_x ?? 0), position_y: Number(item.position_y ?? 0) }).eq('event_id', eventId).eq('id', item.id);
         }
-        
-        // Tables are handled by moving their seats proportionally on the frontend
-        // so we don't strictly need to update a position for tables in DB since tables don't have position_x/y
-        // but we just skip it because frontend recalculates table boxes from seats.
-        if (item.type === 'table') continue;
-
-        const { data: currentSeat, error: seatErr } = await supabase
-          .from('seats')
-          .select('id, seat_class, row_number, side, table_id, seat_number')
-          .eq('event_id', eventId)
-          .eq('id', item.id)
-          .single();
-        if (seatErr || !currentSeat) continue;
-        const nextRow = Number(item.row_number ?? currentSeat.row_number);
-        const nextSide = item.side ?? currentSeat.side;
-        const nextTableId = item.table_id ?? currentSeat.table_id;
-        const tableOrder = getTableOrderFromTableId(nextTableId);
-        const nextCode = buildSeatCode(
-          currentSeat.seat_class as 'A' | 'B' | 'C',
-          nextRow,
-          nextSide as 'left' | 'right',
-          tableOrder,
-          Number(currentSeat.seat_number || 1)
-        );
-
-        await supabase
-          .from('seats')
-          .update({
-            position_x: Number(item.position_x ?? 0),
-            position_y: Number(item.position_y ?? 0),
-            row_number: nextRow,
-            side: nextSide,
-            table_id: nextTableId,
-            seat_code: nextCode
-          })
-          .eq('event_id', eventId)
-          .eq('id', item.id);
       }
-      return { success: true, updated: updates.length };
+
+      if (inserts.elements && inserts.elements.length > 0) {
+          const gov = eventId.split('-')[0] || 'MINYA';
+          const elPayload = inserts.elements.map((e: any) => ({
+              id: e.id, event_id: eventId, governorate: gov, type: e.type, position_x: e.position_x, position_y: e.position_y, width: e.width, height: e.height, name: e.name
+          }));
+          await supabase.from('layout_elements').insert(elPayload);
+      }
+
+      if (inserts.seats && inserts.seats.length > 0) {
+          const gov = eventId.split('-')[0] || 'MINYA';
+          const tableIds = new Set(inserts.seats.map((s: any) => s.table_id).filter(Boolean));
+          const tablePayload = Array.from(tableIds).map((tId: any) => {
+              const parts = tId.split('-');
+              const cls = parts[2] || 'A';
+              const nameStr = parts[3] ? parts[3].replace('T', '') : '1';
+              const count = inserts.seats.filter((s: any) => s.table_id === tId).length;
+              return { id: tId, event_id: eventId, governorate: gov, seat_class: cls, row_number: 99, side: 'left', table_order: parseInt(nameStr) || 1, seats_count: count };
+          });
+          if (tablePayload.length > 0) {
+              await supabase.from('seat_tables').insert(tablePayload);
+          }
+          
+          const seatPayload = inserts.seats.map((s: any) => ({
+              id: s.id, event_id: eventId, governorate: gov, seat_class: s.seat_class || 'C', row_number: 99, side: 'left', table_id: s.table_id || null, seat_number: s.seat_number || 1, seat_code: s.seat_code || s.id, status: 'available', position_x: s.position_x, position_y: s.position_y, wave_number: s.wave_number || null
+          }));
+          await supabase.from('seats').insert(seatPayload);
+      }
+
+      return { success: true };
     }
 
     if (endpoint === '/seating/layout-version/save') {
