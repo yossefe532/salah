@@ -5,6 +5,7 @@ import { Attendee } from '../types';
 import { QRCodeCanvas } from 'qrcode.react';
 import { useReactToPrint } from 'react-to-print';
 import { Printer, ArrowLeft, Ticket, ScanFace, FileBadge2, Download } from 'lucide-react';
+import { jsPDF } from 'jspdf';
 import { parseTableOrWaveFromSeatCode, parseSeatNumberFromSeatCode } from '../lib/seat-code';
 
 const IDCard: React.FC = () => {
@@ -101,7 +102,6 @@ const IDCard: React.FC = () => {
        return;
     }
     
-    // Create a new canvas to add a white margin
     const padding = 10;
     const paddedCanvas = document.createElement('canvas');
     paddedCanvas.width = canvas.width + (padding * 2);
@@ -112,14 +112,16 @@ const IDCard: React.FC = () => {
       ctx.fillRect(0, 0, paddedCanvas.width, paddedCanvas.height);
       ctx.drawImage(canvas, padding, padding);
       
-      const pngUrl = paddedCanvas.toDataURL('image/png');
-      const a = document.createElement('a');
+      const imgData = paddedCanvas.toDataURL('image/png');
+      const pdf = new jsPDF({
+         orientation: 'portrait',
+         unit: 'px',
+         format: [paddedCanvas.width, paddedCanvas.height]
+      });
+      pdf.addImage(imgData, 'PNG', 0, 0, paddedCanvas.width, paddedCanvas.height);
+      
       const baseName = String(attendee.full_name || attendee.id || 'attendee').replace(/[\\/:*?"<>|]/g, '_');
-      a.href = pngUrl;
-      a.download = `qr-${baseName}.png`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
+      pdf.save(`qr-${baseName}.pdf`);
     }
   }, [attendee]);
 

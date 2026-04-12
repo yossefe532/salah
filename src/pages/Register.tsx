@@ -77,7 +77,7 @@ const transliterateArabicToEnglish = (input?: string | null) => {
     'بيتر': 'Peter', 'جرجس': 'Gerges', 'ابانوب': 'Abanoub', 'أبانوب': 'Abanoub',
     'مكاريوس': 'Makarios', 'ياسين': 'Yassin', 'سيف': 'Seif', 'مروان': 'Marwan',
     'مازن': 'Mazen', 'كريم': 'Karim', 'زياد': 'Ziad', 'طارق': 'Tarek',
-    'شريف': 'Sherif', 'اشرف': 'Ashraf', 'أشرف': 'Ashraf', 'وائل': 'Wael',
+    'شريف': 'Sherif', 'اشرف': 'Ashraf', 'أشرف': 'Ashraf',
     'علاء': 'Alaa', 'حسام': 'Hossam', 'وليد': 'Walid', 'بهاء': 'Bahaa',
     'باسم': 'Basem', 'تامر': 'Tamer', 'امير': 'Amir', 'أمير': 'Amir',
     'نبيل': 'Nabil', 'مجدي': 'Magdy', 'عصام': 'Essam', 'سمير': 'Samir',
@@ -92,10 +92,10 @@ const transliterateArabicToEnglish = (input?: string | null) => {
     'نادر': 'Nader', 'عماد': 'Emad', 'عمار': 'Ammar', 'صالح': 'Saleh',
     'مايكل': 'Michael', 'ابرام': 'Abram', 'أبرام': 'Abram', 'فيلوباتر': 'Philopater',
     'بشوي': 'Bishoy', 'بيشوي': 'Bishoy', 'ديفيد': 'David', 'جورج': 'George',
-    'امجد': 'Amgad', 'أمجد': 'Amgad', 'ايهاب': 'Ehab', 'إيهاب': 'Ehab',
+    'امجد': 'Amgad', 'أمجد': 'Amgad', 
     'ماجد': 'Maged', 'رفيق': 'Rafik', 'نور': 'Nour', 'ندى': 'Noha',
     'نورهان': 'Nourhan', 'ياسمين': 'Yasmine', 'يارا': 'Yara', 'رنا': 'Rana',
-    'ريم': 'Reem', 'سلمى': 'Salma', 'دينا': 'Dina', 'دنيا': 'Dina',
+    'ريم': 'Reem', 'سلمى': 'Salma', 'دينا': 'Dina',
     'هدى': 'Hoda', 'سمر': 'Samar', 'سهام': 'Sahar', 'عبير': 'Abeer'
   };
   const map: Record<string, string> = {

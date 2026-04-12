@@ -68,7 +68,7 @@ const transliterateArabicToEnglish = (input?: string | null) => {
     'بيتر': 'Peter', 'جرجس': 'Gerges', 'ابانوب': 'Abanoub', 'أبانوب': 'Abanoub',
     'مكاريوس': 'Makarios', 'ياسين': 'Yassin', 'سيف': 'Seif', 'مروان': 'Marwan',
     'مازن': 'Mazen', 'كريم': 'Karim', 'زياد': 'Ziad', 'طارق': 'Tarek',
-    'شريف': 'Sherif', 'اشرف': 'Ashraf', 'أشرف': 'Ashraf', 'وائل': 'Wael',
+    'شريف': 'Sherif', 'اشرف': 'Ashraf', 'أشرف': 'Ashraf',
     'علاء': 'Alaa', 'حسام': 'Hossam', 'وليد': 'Walid', 'بهاء': 'Bahaa',
     'باسم': 'Basem', 'تامر': 'Tamer', 'امير': 'Amir', 'أمير': 'Amir',
     'نبيل': 'Nabil', 'مجدي': 'Magdy', 'عصام': 'Essam', 'سمير': 'Samir',
@@ -83,10 +83,10 @@ const transliterateArabicToEnglish = (input?: string | null) => {
     'نادر': 'Nader', 'عماد': 'Emad', 'عمار': 'Ammar', 'صالح': 'Saleh',
     'مايكل': 'Michael', 'ابرام': 'Abram', 'أبرام': 'Abram', 'فيلوباتر': 'Philopater',
     'بشوي': 'Bishoy', 'بيشوي': 'Bishoy', 'ديفيد': 'David', 'جورج': 'George',
-    'امجد': 'Amgad', 'أمجد': 'Amgad', 'ايهاب': 'Ehab', 'إيهاب': 'Ehab',
+    'امجد': 'Amgad', 'أمجد': 'Amgad', 
     'ماجد': 'Maged', 'رفيق': 'Rafik', 'نور': 'Nour', 'ندى': 'Noha',
     'نورهان': 'Nourhan', 'ياسمين': 'Yasmine', 'يارا': 'Yara', 'رنا': 'Rana',
-    'ريم': 'Reem', 'سلمى': 'Salma', 'دينا': 'Dina', 'دنيا': 'Dina',
+    'ريم': 'Reem', 'سلمى': 'Salma', 'دينا': 'Dina',
     'هدى': 'Hoda', 'سمر': 'Samar', 'سهام': 'Sahar', 'عبير': 'Abeer'
   };
   const map: Record<string, string> = {
@@ -151,6 +151,7 @@ const EditAttendee: React.FC = () => {
   const [photoProcessing, setPhotoProcessing] = useState(false);
   const [availableSeatsList, setAvailableSeatsList] = useState<{id: string, seat_number: number, seat_code: string}[]>([]);
   const [attendeesOptions, setAttendeesOptions] = useState<Attendee[]>([]);
+  const [selectedBarcode, setSelectedBarcode] = useState<string | null>(null);
 
   const { register, handleSubmit, watch, setValue, reset, formState: { errors } } = useForm<FormData>({
     resolver: zodResolver(schema),
@@ -242,6 +243,7 @@ const EditAttendee: React.FC = () => {
         if (data.phone_secondary) setShowSecondaryPhone(true);
         if (data.email_secondary) setShowSecondaryEmail(true);
         setEnglishNameEdited(Boolean(data.full_name_en));
+        setSelectedBarcode(data.barcode || null);
         setLoading(false);
       } catch (error) {
         console.error('Error fetching attendee:', error);
@@ -289,11 +291,17 @@ const EditAttendee: React.FC = () => {
       const mapData = await api.get(`/seating/map?eventId=${eventId}`);
       const validSeats = (mapData.seats || []).filter((s: any) => s.seat_class === seatClass && (s.status === 'available' || s.attendee_id === id));
       
-      setAvailableSeatsList(validSeats.map((s: any) => ({
-         id: s.id,
-         seat_number: s.seat_number,
-         seat_code: s.seat_code + (s.attendee_id === id ? ' (مقعدك الحالي)' : '')
-      })));
+      setAvailableSeatsList(validSeats.map((s: any) => {
+         const code = s.seat_code + (s.attendee_id === id ? ' (مقعدك الحالي)' : '');
+         if (s.attendee_id === id && !selectedBarcode) {
+            setSelectedBarcode(code);
+         }
+         return {
+           id: s.id,
+           seat_number: s.seat_number,
+           seat_code: code
+         };
+      }));
 
       if (selectedSeatNumber && occupied.includes(Number(selectedSeatNumber)) && Number(selectedSeatNumber) !== Number(attendees.find((a: any) => a.id === id)?.seat_number)) {
         setValue('seat_number', undefined);
@@ -392,10 +400,13 @@ const EditAttendee: React.FC = () => {
           updated_at: new Date().toISOString(),
       };
 
-      if ((window as any)._tempSelectedBarcodeEdit) {
-         updatedAttendee.barcode = (window as any)._tempSelectedBarcodeEdit.replace(' (مقعدك الحالي)', '');
-         delete (window as any)._tempSelectedBarcodeEdit;
+      if (selectedBarcode) {
+         updatedAttendee.barcode = selectedBarcode.replace(' (مقعدك الحالي)', '');
+      } else {
+         updatedAttendee.barcode = null;
       }
+      
+      delete (window as any)._tempSelectedBarcodeEdit;
 
       await api.put(`/attendees/${id}`, updatedAttendee);
 
@@ -715,11 +726,13 @@ const EditAttendee: React.FC = () => {
                         <label className="block text-sm font-medium text-gray-700">رقم المقعد ({governorate})</label>
                         <select
                           id="seat_barcode_select"
-                          value={availableSeatsList.find(s => s.seat_number === selectedSeatNumber)?.seat_code || ''}
+                          value={selectedBarcode || ''}
                           onChange={(e) => {
-                             const selectedSeat = availableSeatsList.find(s => s.seat_code === e.target.value);
+                             const val = e.target.value;
+                             setSelectedBarcode(val || null);
+                             const selectedSeat = availableSeatsList.find(s => s.seat_code === val);
                              setValue('seat_number', selectedSeat ? selectedSeat.seat_number : undefined);
-                             (window as any)._tempSelectedBarcodeEdit = e.target.value;
+                             (window as any)._tempSelectedBarcodeEdit = val;
                           }}
                           className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm p-2 border"
                         >

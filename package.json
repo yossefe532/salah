@@ -19,6 +19,7 @@
     "date-fns": "^4.1.0",
     "express": "^5.2.1",
     "html5-qrcode": "^2.3.8",
+    "jspdf": "^4.2.1",
     "lucide-react": "^0.511.0",
     "pg": "^8.20.0",
     "qrcode.react": "^4.2.0",
