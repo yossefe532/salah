@@ -415,7 +415,19 @@ const syncSeatStatus = async (attendeeId: string, governorate: string, seatClass
   }
 
   if (!targetSeat) {
-    return currentAssignment?.seat_code || null;
+    // If we're deliberately unassigning the user (seatCode is null and seatNumber is null)
+    if (seatCode === null && seatNumber === null) {
+      await supabase
+        .from('seats')
+        .update({ status: 'available', attendee_id: null, reserved_by: null, reserved_until: null })
+        .eq('attendee_id', attendeeId);
+      return null;
+    }
+    
+    // If no target seat but we have a current assignment, keep it
+    if (currentAssignment) return currentAssignment.seat_code;
+    
+    return null;
   }
 
   if (currentAssignment?.id === targetSeat.id) {
@@ -1691,23 +1703,39 @@ export const api = {
     if (endpoint === '/seating/unassign-attendee') {
       const eventId = body?.event_id || DEFAULT_EVENT_ID;
       const seatId = body?.seat_id;
-      if (!seatId) throw new Error('seat_id مطلوب');
+      const attendeeId = body?.attendee_id; // Try to use provided attendeeId first
       
-      const { data: seat } = await supabase.from('seats').select('*').eq('event_id', eventId).eq('id', seatId).single();
-      if (!seat) throw new Error('المقعد غير موجود');
+      if (!seatId && !attendeeId) throw new Error('seat_id أو attendee_id مطلوب');
       
-      if (seat.attendee_id) {
-        await updateAttendeeSafely(String(seat.attendee_id), {
-          seat_number: null,
-          barcode: null
-        });
+      let targetAttendeeId = attendeeId;
+      
+      // If we have a seatId, clear the seat and find the attendee
+      if (seatId) {
+          const { data: seat } = await supabase.from('seats').select('*').eq('event_id', eventId).eq('id', seatId).single();
+          if (seat) {
+              if (!targetAttendeeId) targetAttendeeId = seat.attendee_id;
+              
+              await supabase
+                .from('seats')
+                .update({ status: 'available', attendee_id: null, reserved_by: null, reserved_until: null })
+                .eq('event_id', eventId)
+                .eq('id', seatId);
+          }
       }
       
-      await supabase
-        .from('seats')
-        .update({ status: 'available', attendee_id: null, reserved_by: null, reserved_until: null })
-        .eq('event_id', eventId)
-        .eq('id', seatId);
+      // Also clear any other seats this attendee might have
+      if (targetAttendeeId) {
+          await supabase
+            .from('seats')
+            .update({ status: 'available', attendee_id: null, reserved_by: null, reserved_until: null })
+            .eq('event_id', eventId)
+            .eq('attendee_id', targetAttendeeId);
+            
+          await updateAttendeeSafely(String(targetAttendeeId), {
+            seat_number: null,
+            barcode: null
+          });
+      }
         
       return { success: true };
     }
@@ -2471,7 +2499,7 @@ export const api = {
           || (body.full_name !== undefined ? transliterateArabicToEnglish(nextFullName) : (oldRecord.full_name_en || transliterateArabicToEnglish(nextFullName)));
         
         // If the attendee no longer has a seat, they shouldn't have a barcode
-        const finalBarcode = resolvedSeat === null ? null : (body.barcode || oldRecord.barcode || null);
+        const finalBarcode = body.barcode === null ? null : (resolvedSeat === null ? null : (body.barcode || oldRecord.barcode || null));
 
         bodyToSave = {
           ...body,
@@ -2493,13 +2521,15 @@ export const api = {
     if (error) throw new Error(error.message);
 
     if (table === 'attendees' && data) {
-        // Only run syncSeatStatus if we are actually assigning or modifying a seat
-        if (body.seat_number !== undefined || body.barcode !== undefined) {
-            const newBarcode = await syncSeatStatus(data.id, data.governorate, data.seat_class, data.seat_number, data.barcode);
-            if (newBarcode && newBarcode !== data.barcode) {
-               await updateAttendeeSafely(String(data.id), { barcode: newBarcode });
-               data.barcode = newBarcode;
-            }
+        // Run syncSeatStatus to ensure the seat is properly updated and we get the correct barcode back
+        // Important: if we are trying to unassign, we must explicitly pass nulls
+        const passedSeatNumber = body.seat_number === null ? null : data.seat_number;
+        const passedBarcode = body.barcode === null ? null : data.barcode;
+        
+        const newBarcode = await syncSeatStatus(data.id, data.governorate, data.seat_class, passedSeatNumber, passedBarcode);
+        if (newBarcode !== data.barcode) {
+           await updateAttendeeSafely(String(data.id), { barcode: newBarcode });
+           data.barcode = newBarcode;
         }
     }
 

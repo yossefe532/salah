@@ -806,10 +806,11 @@ const SeatingManagement: React.FC = () => {
     try {
       setLoading(true);
       setError(null);
-      await api.post('/seating/unassign-attendee', { event_id: eventId, seat_id: sId });
       
       const targetSeat = payload.seats.find(s => s.id === sId);
       const oldAttendeeId = targetSeat?.attendee_id;
+      
+      await api.post('/seating/unassign-attendee', { event_id: eventId, seat_id: sId, attendee_id: oldAttendeeId });
       
       setPayload(prev => ({
         ...prev,
