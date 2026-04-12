@@ -392,6 +392,11 @@ const EditAttendee: React.FC = () => {
           updated_at: new Date().toISOString(),
       };
 
+      if ((window as any)._tempSelectedBarcodeEdit) {
+         updatedAttendee.barcode = (window as any)._tempSelectedBarcodeEdit.replace(' (مقعدك الحالي)', '');
+         delete (window as any)._tempSelectedBarcodeEdit;
+      }
+
       await api.put(`/attendees/${id}`, updatedAttendee);
 
       alert('تم تحديث البيانات بنجاح!');
@@ -706,15 +711,21 @@ const EditAttendee: React.FC = () => {
                     </div>
 
                     {availableSeatsList.length > 0 && (
-                      <div>
+                      <div className="sm:col-span-2">
                         <label className="block text-sm font-medium text-gray-700">رقم المقعد ({governorate})</label>
                         <select
-                          {...register('seat_number', { setValueAs: (v) => (v === '' ? undefined : Number(v)) })}
+                          id="seat_barcode_select"
+                          value={availableSeatsList.find(s => s.seat_number === selectedSeatNumber)?.seat_code || ''}
+                          onChange={(e) => {
+                             const selectedSeat = availableSeatsList.find(s => s.seat_code === e.target.value);
+                             setValue('seat_number', selectedSeat ? selectedSeat.seat_number : undefined);
+                             (window as any)._tempSelectedBarcodeEdit = e.target.value;
+                          }}
                           className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm p-2 border"
                         >
                           <option value="">تسكين تلقائي / اختر مقعد</option>
                           {availableSeatsList.map((seat) => (
-                            <option key={seat.id} value={seat.seat_number}>{seat.seat_code}</option>
+                            <option key={seat.id} value={seat.seat_code}>{seat.seat_code}</option>
                           ))}
                         </select>
                         <p className="mt-1 text-xs text-gray-500">
