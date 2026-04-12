@@ -351,10 +351,25 @@ const buildSeatCode = (seatClass: 'A' | 'B' | 'C', rowNumber: number, side: 'lef
 };
 
 const syncSeatStatus = async (attendeeId: string, governorate: string, seatClass: string, seatNumber: number | null, seatCode: string | null = null) => {
-  // Free any seat currently booked by this attendee
-  await supabase.from('seats').update({ status: 'available', attendee_id: null }).eq('attendee_id', attendeeId);
-
   const eventId = `${normalizeGovernorate(governorate).toUpperCase()}-2026-MAIN`;
+
+  // First, check if the attendee is already properly assigned to this exact seat.
+  // If yes, do not touch it (prevents race conditions / accidental unassigns)
+  const { data: currentAssignment } = await supabase.from('seats')
+    .select('id, seat_code')
+    .eq('attendee_id', attendeeId)
+    .eq('event_id', eventId)
+    .eq('status', 'booked')
+    .limit(1)
+    .maybeSingle();
+
+  // If already assigned correctly, return the barcode directly
+  if (currentAssignment && ((seatCode && currentAssignment.seat_code === seatCode) || (!seatCode && seatNumber && currentAssignment.seat_code.endsWith(`-S${seatNumber}`)))) {
+     return currentAssignment.seat_code;
+  }
+
+  // Free any OLD seat currently booked by this attendee (since it doesn't match the new desired seat)
+  await supabase.from('seats').update({ status: 'available', attendee_id: null }).eq('attendee_id', attendeeId);
 
   // Book the new seat if seatCode is provided
   if (seatCode) {
@@ -362,12 +377,19 @@ const syncSeatStatus = async (attendeeId: string, governorate: string, seatClass
       .select('id, seat_code')
       .eq('event_id', eventId)
       .eq('seat_code', seatCode)
-      .eq('status', 'available')
+      // Removing strict 'available' check here because if the admin forces an edit, we override it
+      // but let's just make sure it's not booked by someone else OR if it is, we take it over (force assignment)
       .limit(1).maybeSingle();
 
     if (seatToUpdate) {
+      // Unassign whoever had it before
+      const { data: previousOwner } = await supabase.from('seats').select('attendee_id').eq('id', seatToUpdate.id).single();
+      if (previousOwner?.attendee_id && previousOwner.attendee_id !== attendeeId) {
+         await updateAttendeeSafely(String(previousOwner.attendee_id), { seat_number: null, barcode: null });
+      }
+      
       await supabase.from('seats').update({ status: 'booked', attendee_id: attendeeId }).eq('id', seatToUpdate.id);
-      return seatToUpdate.seat_code; // Return actual seat code for barcode
+      return seatToUpdate.seat_code; 
     }
   } else if (seatNumber) {
     const { data: seatToUpdate } = await supabase.from('seats')
@@ -375,12 +397,16 @@ const syncSeatStatus = async (attendeeId: string, governorate: string, seatClass
       .eq('event_id', eventId)
       .eq('seat_class', seatClass)
       .eq('seat_number', seatNumber)
-      .eq('status', 'available')
       .limit(1).maybeSingle();
 
     if (seatToUpdate) {
+      const { data: previousOwner } = await supabase.from('seats').select('attendee_id').eq('id', seatToUpdate.id).single();
+      if (previousOwner?.attendee_id && previousOwner.attendee_id !== attendeeId) {
+         await updateAttendeeSafely(String(previousOwner.attendee_id), { seat_number: null, barcode: null });
+      }
+
       await supabase.from('seats').update({ status: 'booked', attendee_id: attendeeId }).eq('id', seatToUpdate.id);
-      return seatToUpdate.seat_code; // Return actual seat code for barcode
+      return seatToUpdate.seat_code; 
     }
   }
   return null;
