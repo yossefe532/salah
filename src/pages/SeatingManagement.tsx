@@ -102,6 +102,156 @@ const TableNode = React.memo(({ box, selected, mode, onDoubleClick, onDragStart,
            prev.inGroup === next.inGroup &&
            prev.mode === next.mode;
 });
+const TableAssignModalComponent = ({ isOpen, tableId, mapSeats, attendees, governorate, onClose, onAssign, onUnassign }: any) => {
+  const [searchTerm, setSearchTerm] = useState('');
+  const [selectedSeat, setSelectedSeat] = useState<Seat | null>(null);
+  
+  useEffect(() => {
+    if (isOpen) {
+      setSearchTerm('');
+      setSelectedSeat(null);
+    }
+  }, [isOpen]);
+
+  if (!isOpen || !tableId) return null;
+
+  const tableSeats = mapSeats.filter((s: Seat) => s.table_id === tableId);
+  const tClass = tableSeats[0]?.seat_class || 'A';
+  
+  // Find bounding box to center the table view
+  const xs = tableSeats.map((s: Seat) => Number(s.position_x || 0));
+  const ys = tableSeats.map((s: Seat) => Number(s.position_y || 0));
+  const minX = Math.min(...xs);
+  const minY = Math.min(...ys);
+
+  const normalizeGov = (val: string) => {
+    const v = String(val || '').trim().toLowerCase();
+    if (v.includes('minya') || v.includes('منيا')) return 'minya';
+    if (v.includes('asyut') || v.includes('أسيوط') || v.includes('اسيوط')) return 'asyut';
+    if (v.includes('sohag') || v.includes('سوهاج')) return 'sohag';
+    if (v.includes('qena') || v.includes('قنا')) return 'qena';
+    return v;
+  };
+
+  const filteredAttendees = attendees
+    .filter((a: any) => a.seat_class === tClass && !a.seat_number && normalizeGov(a.governorate) === normalizeGov(governorate))
+    .filter((a: any) => {
+       const term = searchTerm.toLowerCase();
+       const name = (a.full_name || a.name || '').toLowerCase();
+       const phone = (a.phone || '').toLowerCase();
+       return name.includes(term) || phone.includes(term);
+    });
+
+  return (
+     <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/80 backdrop-blur-sm" onClick={onClose}>
+        <div className="bg-slate-900 border border-slate-700 rounded-xl w-full max-w-4xl h-[80vh] flex overflow-hidden shadow-2xl" onClick={e => e.stopPropagation()}>
+           
+           {/* Left Side: Table Layout */}
+           <div className="flex-1 border-l border-slate-800 p-6 flex flex-col items-center justify-center relative bg-slate-950">
+             <h2 className="absolute top-6 left-6 text-2xl font-bold text-slate-300">ترابيزة: {tableId.split('-T')[1]}</h2>
+             <div className="relative w-[300px] h-[300px] bg-indigo-900/10 rounded-full border-4 border-indigo-900/30 flex items-center justify-center shadow-[inset_0_0_50px_rgba(0,0,0,0.5)]">
+               <span className="text-4xl font-black text-indigo-800/50">T-{tableId.split('-T')[1]}</span>
+               {tableSeats.map((seat: Seat, index: number) => {
+                  // Perfect circle layout based on index and total seats
+                  const totalSeats = tableSeats.length;
+                  const angle = (index / totalSeats) * 2 * Math.PI - Math.PI / 2; // -PI/2 starts at top
+                  const radius = 45; // 45% radius to fit within 100% container
+                  const leftPos = 50 + radius * Math.cos(angle);
+                  const topPos = 50 + radius * Math.sin(angle);
+                  
+                  return (
+                    <button
+                      key={seat.id}
+                      onClick={() => setSelectedSeat(seat)}
+                      className={`absolute w-12 h-12 rounded-full border-2 flex flex-col items-center justify-center text-white transition-all transform hover:scale-110 -translate-x-1/2 -translate-y-1/2 ${selectedSeat?.id === seat.id ? 'ring-4 ring-blue-500 scale-110 z-10' : ''} ${seat.status === 'booked' ? 'bg-rose-600 border-rose-400 shadow-[0_0_15px_rgba(225,29,72,0.5)]' : 'bg-slate-600 border-slate-400 opacity-80'}`}
+                      style={{
+                         left: `${leftPos}%`,
+                         top: `${topPos}%`,
+                      }}
+                      title={seat.seat_code}
+                    >
+                      <span className="font-bold text-sm">{seat.seat_number}</span>
+                    </button>
+                  );
+               })}
+             </div>
+             <div className="absolute bottom-6 w-full text-center text-slate-500 text-sm">
+                المسرح / STAGE (الاتجاه الأمامي)
+             </div>
+           </div>
+
+           {/* Right Side: Attendee Selection */}
+           <div className="w-[400px] bg-slate-900 p-6 flex flex-col">
+              {selectedSeat ? (
+                <>
+                  <div className="flex justify-between items-center mb-4">
+                    <h3 className="text-xl font-bold text-white">تسكين المقعد: {selectedSeat.seat_code}</h3>
+                    {selectedSeat.status === 'booked' && (
+                      <button onClick={() => { onUnassign(selectedSeat.id); setSelectedSeat(null); }} className="px-3 py-1 bg-red-600/20 text-red-400 border border-red-600/50 rounded hover:bg-red-600 hover:text-white transition text-xs">
+                        إلغاء التسكين
+                      </button>
+                    )}
+                  </div>
+                  
+                  {selectedSeat.status === 'booked' && (
+                    <div className="p-4 bg-indigo-900/30 border border-indigo-700/50 rounded-lg mb-4">
+                      <p className="text-sm text-indigo-300 mb-1">المقعد محجوز حالياً لـ:</p>
+                      <p className="text-lg font-bold text-white">
+                        {attendees.find((a: any) => a.id === selectedSeat.attendee_id)?.full_name || 'غير معروف'}
+                      </p>
+                    </div>
+                  )}
+
+                  <input 
+                    type="text" 
+                    placeholder="ابحث بالاسم أو رقم التليفون..." 
+                    value={searchTerm}
+                    onChange={e => setSearchTerm(e.target.value)}
+                    className="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-lg text-white mb-4"
+                  />
+                  
+                  <div className="flex-1 flex flex-col gap-2 overflow-y-auto pr-2 custom-scrollbar">
+                    {filteredAttendees.map((a: any) => (
+                          <button 
+                            key={a.id}
+                            onClick={() => {
+                               onAssign(selectedSeat.id, a.id);
+                               setSelectedSeat(null);
+                            }}
+                            className="flex items-center justify-between p-4 rounded-lg border border-slate-700 bg-slate-800/50 hover:bg-indigo-600 hover:border-indigo-500 transition text-right"
+                          >
+                            <div className="flex flex-col">
+                               <span className="font-bold text-white text-sm">{a.full_name || a.name}</span>
+                               <span className="text-xs text-slate-400 mt-1">{a.phone}</span>
+                            </div>
+                            <span className="text-xs bg-slate-700 px-3 py-1.5 rounded text-slate-300">تسكين</span>
+                          </button>
+                       ))
+                    }
+                    {filteredAttendees.length === 0 && (
+                       <div className="text-center text-slate-500 py-8 flex flex-col items-center">
+                          <span className="text-4xl mb-2">🪑</span>
+                          <span>لا يوجد عملاء غير مسكنين في فئة {tClass}</span>
+                       </div>
+                    )}
+                  </div>
+                </>
+              ) : (
+                <div className="flex-1 flex flex-col items-center justify-center text-slate-500 text-center px-4">
+                   <div className="w-20 h-20 bg-slate-800 rounded-full flex items-center justify-center mb-4 border border-slate-700">
+                     <span className="text-3xl">👈</span>
+                   </div>
+                   <h3 className="text-lg font-bold text-slate-300 mb-2">اختر مقعداً من المخطط</h3>
+                   <p className="text-sm">اضغط على أي مقعد فارغ (رمادي) أو محجوز (أحمر) في الترابيزة لبدء التسكين أو التعديل.</p>
+                </div>
+              )}
+              
+              <button onClick={onClose} className="mt-4 py-3 w-full bg-slate-800 text-white rounded-lg hover:bg-slate-700 transition font-bold">إغلاق الترابيزة</button>
+           </div>
+        </div>
+     </div>
+  );
+};
 const AssignmentModalComponent = ({ isOpen, seat, attendees, governorate, onClose, onAssign, onUnassign }: any) => {
   const [searchTerm, setSearchTerm] = useState('');
   
@@ -195,7 +345,7 @@ const SeatingManagement: React.FC = () => {
   const [copiedGroup, setCopiedGroup] = useState<any[]>([]);
   const [mainMode, setMainMode] = useState<'assign' | 'edit'>('assign');
   const [assignMode, setAssignMode] = useState<'tables' | 'chairs'>('tables');
-  const [classFilter, setClassFilter] = useState('A');
+  const [classFilter, setClassFilter] = useState<'A' | 'B' | 'C'>('A');
   const [editModeState, setEditModeState] = useState<EditModeState>({
     action: null,
     addType: 'table',
@@ -206,6 +356,19 @@ const SeatingManagement: React.FC = () => {
   const [editSeatState, setEditSeatState] = useState<any>({});
   const [selectedSeatId, setSelectedSeatId] = useState<string | null>(null);
   const [selectedElement, setSelectedElement] = useState<{id: string, type: 'table' | 'element' | 'wave' | 'seat'} | null>(null);
+  const [selectedAttendeeId, setSelectedAttendeeId] = useState<string>('');
+  const [swapA, setSwapA] = useState<string>('');
+  const [swapB, setSwapB] = useState<string>('');
+  const [adminConfig, setAdminConfig] = useState({
+    classA_rows: 3,
+    classA_tables_per_side: 3,
+    classA_seats_per_table: 12,
+    classB_rows: 3,
+    classB_tables_per_side: 3,
+    classB_seats_per_table: 12,
+    classC_rows: 23,
+    classC_seats_per_side_per_row: 8
+  });
   
   const [selectionBox, setSelectionBox] = useState<{startX: number, startY: number, endX: number, endY: number} | null>(null);
   const [selectedGroup, setSelectedGroup] = useState<string[]>([]);
@@ -218,8 +381,8 @@ const SeatingManagement: React.FC = () => {
     originY: number;
     groupOrigins?: Record<string, {x: number, y: number, type: string}>;
   } | null>(null);
-  const [layoutDraft, setLayoutDraft] = useState<Record<string, { type: 'seat' | 'table' | 'element' | 'wave' | 'stage' | 'aisle' | 'blocked'; position_x: number; position_y: number; is_deleted?: boolean; is_new?: boolean }>>({});
-  const [history, setHistory] = useState<Array<Record<string, { type: 'seat' | 'table' | 'element' | 'wave' | 'stage' | 'aisle' | 'blocked'; position_x: number; position_y: number; is_deleted?: boolean; is_new?: boolean }>>>([{}]);
+  const [layoutDraft, setLayoutDraft] = useState<Record<string, any>>({});
+  const [history, setHistory] = useState<Array<Record<string, any>>>([{}]);
   const [historyIndex, setHistoryIndex] = useState(0);
 
   const [versions, setVersions] = useState<LayoutVersionLite[]>([]);
@@ -251,8 +414,9 @@ const SeatingManagement: React.FC = () => {
   }>({ isOpen: false, type: '', startX: 0, startY: 0, endX: 0, endY: 0, name: '', shape: 'rect', count: 10, seatClass: 'C' });
 
   const commitDraftHistory = useCallback((nextDraft: Record<string, any>) => {
-    const nextHistory = history.slice(0, historyIndex + 1);
-    nextHistory.push(nextDraft);
+    const base = history.slice(0, historyIndex + 1);
+    const cloned = JSON.parse(JSON.stringify(nextDraft || {}));
+    const nextHistory = [...base, cloned];
     setHistory(nextHistory);
     setHistoryIndex(nextHistory.length - 1);
   }, [history, historyIndex]);
@@ -262,7 +426,7 @@ const SeatingManagement: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [payload, setPayload] = useState<SeatingMapPayload>({ event_id: 'MINYA-2026-MAIN', tables: [], seats: [], layout_elements: [] });
-  const [attendees, setAttendees] = useState<any[]>([]);
+  const [attendees, setAttendees] = useState<AttendeeLite[]>([]);
 
   const mapSeats = useMemo(() => {
     const baseSeats = payload.seats.filter(s => {
@@ -486,58 +650,6 @@ const SeatingManagement: React.FC = () => {
      return () => window.removeEventListener('keydown', handleKeyDown);
   }, [mainMode, selectedGroup, selectedElement, layoutDraft, copiedGroup, payload, tableBoxes, history, historyIndex, mapSeats, mapElements]);
 
-  const [mainMode, setMainMode] = useState<'assign' | 'edit'>('assign');
-  const [assignMode, setAssignMode] = useState<'tables' | 'chairs'>('tables');
-  const [editModeState, setEditModeState] = useState<EditModeState>({
-    action: 'move',
-    addType: 'table',
-    addClass: 'A',
-    addName: '',
-    addCount: 12
-  });
-
-  const [governorate, setGovernorate] = useState('Minya');
-  const [eventId, setEventId] = useState('MINYA-2026-MAIN');
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [payload, setPayload] = useState<SeatingMapPayload>({ event_id: 'MINYA-2026-MAIN', tables: [], seats: [], layout_elements: [] });
-  const [attendees, setAttendees] = useState<AttendeeLite[]>([]);
-  const [classFilter, setClassFilter] = useState<'A' | 'B' | 'C'>('A');
-  const [selectedSeatId, setSelectedSeatId] = useState<string>('');
-  const [selectedAttendeeId, setSelectedAttendeeId] = useState<string>('');
-  const [swapA, setSwapA] = useState<string>('');
-  const [swapB, setSwapB] = useState<string>('');
-  const [adminConfig, setAdminConfig] = useState({
-    classA_rows: 3,
-    classA_tables_per_side: 3,
-    classA_seats_per_table: 12,
-    classB_rows: 3,
-    classB_tables_per_side: 3,
-    classB_seats_per_table: 12,
-    classC_rows: 23,
-    classC_seats_per_side_per_row: 8
-  });
-  const [editSeatState, setEditSeatState] = useState({ position_x: 0, position_y: 0, row_number: 1 });
-  const [layoutDraft, setLayoutDraft] = useState<Record<string, { type: 'seat' | 'table' | 'element' | 'wave'; position_x: number; position_y: number; is_deleted?: boolean }>>({});
-  const [history, setHistory] = useState<Array<Record<string, { type: 'seat' | 'table' | 'element' | 'wave'; position_x: number; position_y: number; is_deleted?: boolean }>>>([{}]);
-  const [historyIndex, setHistoryIndex] = useState(0);
-  const [selectionBox, setSelectionBox] = useState<{startX: number, startY: number, endX: number, endY: number} | null>(null);
-  const [selectedGroup, setSelectedGroup] = useState<string[]>([]);
-  const [dragState, setDragState] = useState<{
-    id: string;
-    type: 'seat' | 'table' | 'element' | 'wave';
-    startX: number;
-    startY: number;
-    originX: number;
-    originY: number;
-    groupOrigins?: Record<string, {x: number, y: number, type: string}>;
-  } | null>(null);
-  const [versions, setVersions] = useState<LayoutVersionLite[]>([]);
-  const [selectedVersionId, setSelectedVersionId] = useState('');
-  const [versionName, setVersionName] = useState('');
-  const [assignmentModal, setAssignmentModal] = useState<{isOpen: boolean, seat: Seat | null, isTableModal: boolean, tableId: string | null}>({isOpen: false, seat: null, isTableModal: false, tableId: null});
-  const [zoomLevel, setZoomLevel] = useState(1);
-  const [editTableModal, setEditTableModal] = useState<{isOpen: boolean, tableId: string, currentName: string, currentClass: string, currentCount: number}>({isOpen: false, tableId: '', currentName: '', currentClass: 'A', currentCount: 12});
 
   const loadMap = async () => {
     try {
@@ -584,79 +696,6 @@ const SeatingManagement: React.FC = () => {
     setHistory([{}]);
     setHistoryIndex(0);
   }, [eventId]);
-
-  const mapSeats = useMemo(() => {
-    const baseSeats = payload.seats.filter(s => {
-       const draft = layoutDraft[s.id] as any;
-       return !draft?.is_deleted;
-    });
-    
-    const newSeats = Object.entries(layoutDraft)
-        .filter(([_, v]) => (v as any).is_new && (v as any).type === 'seat')
-        .map(([id, v]: any) => ({
-            id,
-            ...v,
-            status: 'available',
-            event_id: eventId,
-            governorate
-        }));
-    
-    return [...baseSeats, ...newSeats].sort((a, b) => {
-      const ay = Number(a.position_y || 0);
-      const by = Number(b.position_y || 0);
-      if (ay !== by) return ay - by;
-      return Number(a.position_x || 0) - Number(b.position_x || 0);
-    });
-  }, [payload.seats, layoutDraft]);
-
-  const mapElements = useMemo(() => {
-      const baseEls = (payload.layout_elements || []).filter(el => {
-         const draft = layoutDraft[el.id] as any;
-         return !draft?.is_deleted;
-      });
-      const newEls = Object.entries(layoutDraft)
-          .filter(([_, v]) => (v as any).is_new && ['element', 'stage', 'aisle', 'blocked'].includes((v as any).type))
-          .map(([id, v]: any) => ({
-              id,
-              ...v,
-              event_id: eventId,
-              governorate
-          }));
-      return [...baseEls, ...newEls];
-  }, [payload.layout_elements, layoutDraft]);
-
-  const tableBoxes = useMemo(() => {
-    const seatsByTable = new Map<string, Seat[]>();
-    for (const seat of mapSeats || []) {
-      if (!seat.table_id) continue;
-      const list = seatsByTable.get(seat.table_id) || [];
-      list.push(seat as any);
-      seatsByTable.set(seat.table_id, list as any);
-    }
-    const boxes: Array<{ id: string; x: number; y: number; w: number; h: number; cls: string }> = [];
-    for (const [tableId, list] of seatsByTable.entries()) {
-      if (!list.length) continue;
-      const xs = list.map((s: any) => Number(s.position_x || 0));
-      const ys = list.map((s: any) => Number(s.position_y || 0));
-      const minX = Math.min(...xs) * 8;
-      const maxX = Math.max(...xs) * 8 + 24; 
-      const minY = Math.min(...ys) * 4;
-      const maxY = Math.max(...ys) * 4 + 24; 
-      
-      const tableW = Math.max(32, maxX - minX - 24);
-      const tableH = Math.max(16, maxY - minY - 32);
-
-      boxes.push({
-        id: tableId,
-        x: minX + 12,
-        y: minY + 16,
-        w: tableW,
-        h: tableH,
-        cls: list[0].seat_class as string
-      });
-    }
-    return boxes;
-  }, [mapSeats]);
 
   const seatStats = useMemo(() => {
     const list = mapSeats.filter((s) => s.seat_class === classFilter);
@@ -904,46 +943,6 @@ const SeatingManagement: React.FC = () => {
     }
   };
 
-  const commitDraftHistory = (nextDraft: Record<string, any>) => {
-    const nextHistory = history.slice(0, historyIndex + 1);
-    nextHistory.push(nextDraft);
-    setHistory(nextHistory);
-    setHistoryIndex(nextHistory.length - 1);
-  };
-
-  const handleDeleteElement = async (id: string, type: 'table' | 'element' | 'wave' | 'seat') => {
-    const targets = selectedGroup.includes(id) && selectedGroup.length > 1 ? selectedGroup : [id];
-    
-    if (targets.length > 1) {
-       if (!window.confirm(`هل أنت متأكد من مسح ${targets.length} عناصر معاً؟ (سيتم إلغاء تسكين أي كراسي محجوزة)`)) return;
-    } else {
-       if (type === 'seat') {
-         const seat = payload.seats.find(s => s.id === id);
-         if (seat && seat.status === 'booked') {
-           if (!window.confirm('هذا المقعد محجوز! هل أنت متأكد من مسحه؟ (سيتم إلغاء تسكين الشخص)')) return;
-         }
-       } else if (type === 'table') {
-         if (!window.confirm('هل أنت متأكد من مسح هذه الترابيزة بالكامل؟ (سيتم إلغاء تسكين جميع كراسيها)')) return;
-       } else if (type === 'element') {
-         if (!window.confirm('هل أنت متأكد من مسح هذه المنطقة؟')) return;
-       }
-    }
-    
-    const nextDraft = { ...layoutDraft };
-    targets.forEach(tId => {
-       const isTable = tableBoxes.some(t => t.id === tId);
-       const isElement = mapElements?.some(e => e.id === tId);
-       let tType = isTable ? 'table' : isElement ? 'element' : 'seat';
-       nextDraft[tId] = { type: tType as any, position_x: 0, position_y: 0, is_deleted: true };
-    });
-    
-    setLayoutDraft(nextDraft as any);
-    commitDraftHistory(nextDraft as any);
-    setSelectedGroup([]);
-    setSelectedElement(null);
-    setSelectedSeatId('');
-  };
-
   const handleAddElement = async (type: string, cls: string, name: string, count: number) => {
     try {
       setLoading(true);
@@ -1103,26 +1102,6 @@ const SeatingManagement: React.FC = () => {
     setSelectedElement({ id: element.id, type });
   }, [mainMode, layoutDraft, mapSeats, tableBoxes, mapElements, zoomLevel, selectedGroup]);
 
-  const [drawState, setDrawState] = useState<{
-    active: boolean;
-    startX: number;
-    startY: number;
-    endX: number;
-    endY: number;
-  } | null>(null);
-
-  const [drawModal, setDrawModal] = useState<{
-    isOpen: boolean;
-    type: string;
-    startX: number;
-    startY: number;
-    endX: number;
-    endY: number;
-    name: string;
-    shape: string;
-    count: number;
-    seatClass: string;
-  }>({ isOpen: false, type: '', startX: 0, startY: 0, endX: 0, endY: 0, name: '', shape: 'rect', count: 10, seatClass: 'C' });
 
   const handleCanvasMouseDown = (e: React.MouseEvent) => {
      if (mainMode !== 'edit') return;
@@ -1284,7 +1263,6 @@ const SeatingManagement: React.FC = () => {
     setDragState(null);
   };
 
-  const [selectedElement, setSelectedElement] = useState<{id: string, type: 'table' | 'element' | 'wave' | 'seat'} | null>(null);
   
   const handleSeatClick = useCallback((seat: Seat) => {
     if (mainMode === 'edit' && editModeState.action === 'delete') {
@@ -1334,13 +1312,6 @@ const SeatingManagement: React.FC = () => {
     }
   };
 
-  const commitDraftHistory = (nextDraft: Record<string, { type: 'seat' | 'table' | 'element' | 'wave'; position_x: number; position_y: number; is_deleted?: boolean }>) => {
-    const base = history.slice(0, historyIndex + 1);
-    const cloned = JSON.parse(JSON.stringify(nextDraft || {}));
-    const nextHistory = [...base, cloned];
-    setHistory(nextHistory);
-    setHistoryIndex(nextHistory.length - 1);
-  };
 
   const quickMove = (xDelta: number, yDelta: number) => {
     if (!selectedSeatId) return;
@@ -1362,6 +1333,20 @@ const SeatingManagement: React.FC = () => {
       position_x: Math.max(0, prev.position_x + xDelta),
       position_y: Math.max(0, prev.position_y + yDelta)
     }));
+  };
+
+  const undoLayout = () => {
+    if (historyIndex <= 0) return;
+    const nextIndex = historyIndex - 1;
+    setHistoryIndex(nextIndex);
+    setLayoutDraft(JSON.parse(JSON.stringify(history[nextIndex] || {})));   
+  };
+
+  const redoLayout = () => {
+    if (historyIndex >= history.length - 1) return;
+    const nextIndex = historyIndex + 1;
+    setHistoryIndex(nextIndex);
+    setLayoutDraft(JSON.parse(JSON.stringify(history[nextIndex] || {})));   
   };
 
   return (
