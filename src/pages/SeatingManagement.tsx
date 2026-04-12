@@ -40,7 +40,7 @@ const statusLabel: Record<string, string> = {
   vip: 'VIP'
 };
 
-const SeatNode = React.memo(({ seat, selected, mode, onSeatClick, onSeatDoubleClick, onDragStart }: any) => {
+const SeatNode = React.memo(({ seat, selected, mode, onSeatClick, onSeatDoubleClick, onDragStart, inGroup }: any) => {
   return (
     <button
       onClick={(e) => {
@@ -101,37 +101,7 @@ const TableNode = React.memo(({ box, selected, mode, onDoubleClick, onDragStart,
            prev.selected === next.selected &&
            prev.inGroup === next.inGroup &&
            prev.mode === next.mode;
-  });
-                               <span className="font-bold text-white text-sm">{a.full_name || a.name}</span>
-                               <span className="text-xs text-slate-400 mt-1">{a.phone}</span>
-                            </div>
-                            <span className="text-xs bg-slate-700 px-3 py-1.5 rounded text-slate-300">تسكين</span>
-                          </button>
-                       ))}
-                    {filteredAttendees.length === 0 && (
-                       <div className="text-center text-slate-500 py-8 flex flex-col items-center">
-                          <span className="text-4xl mb-2">🪑</span>
-                          <span>لا يوجد عملاء غير مسكنين في فئة {tClass}</span>
-                       </div>
-                    )}
-                  </div>
-                </>
-              ) : (
-                <div className="flex-1 flex flex-col items-center justify-center text-slate-500 text-center px-4">
-                   <div className="w-20 h-20 bg-slate-800 rounded-full flex items-center justify-center mb-4 border border-slate-700">
-                     <span className="text-3xl">👈</span>
-                   </div>
-                   <h3 className="text-lg font-bold text-slate-300 mb-2">اختر مقعداً من المخطط</h3>
-                   <p className="text-sm">اضغط على أي مقعد فارغ (رمادي) أو محجوز (أحمر) في الترابيزة لبدء التسكين أو التعديل.</p>
-                </div>
-              )}
-              
-              <button onClick={onClose} className="mt-4 py-3 w-full bg-slate-800 text-white rounded-lg hover:bg-slate-700 transition font-bold">إغلاق الترابيزة</button>
-           </div>
-        </div>
-     </div>
-  );
-};
+});
 const AssignmentModalComponent = ({ isOpen, seat, attendees, governorate, onClose, onAssign, onUnassign }: any) => {
   const [searchTerm, setSearchTerm] = useState('');
   

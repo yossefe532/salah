@@ -1,10 +1,11 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
-import { api } from '../lib/api';
+import { api, normalizeGovernorate } from '../lib/api';
 import { Attendee } from '../types';
 import { QRCodeSVG } from 'qrcode.react';
 import { useReactToPrint } from 'react-to-print';
-import { Printer, ArrowLeft, Ticket, ScanFace, FileBadge2 } from 'lucide-react';
+import { Printer, ArrowLeft, Ticket, ScanFace, FileBadge2, Download } from 'lucide-react';
+import { parseTableOrWaveFromSeatCode, parseSeatNumberFromSeatCode } from '../lib/seat-code';
 
 const IDCard: React.FC = () => {
   const params = useParams();
@@ -92,6 +93,24 @@ const IDCard: React.FC = () => {
     }
   });
 
+  const handleDownloadQr = useCallback(() => {
+    if (!attendee) return;
+    const svgEl = ticketPrintRef.current?.querySelector('svg');
+    if (!svgEl) return;
+    const serializer = new XMLSerializer();
+    const source = serializer.serializeToString(svgEl);
+    const blob = new Blob([source], { type: 'image/svg+xml;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const baseName = String(attendee.full_name || attendee.id || 'attendee').replace(/[\\/:*?"<>|]/g, '_');
+    a.href = url;
+    a.download = `qr-${baseName}.svg`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }, [attendee]);
+
   const normalizeGovernorate = (value?: string) => {
     const key = String(value || '').trim().toLowerCase();
     if (key.includes('minya') || key.includes('منيا')) return 'Minya';
@@ -177,19 +196,6 @@ const IDCard: React.FC = () => {
     return '36.9px';
   };
 
-  const parseTableOrWaveFromSeatCode = (barcode?: string | null, seatClass?: string) => {
-    const value = String(barcode || '');
-    if (seatClass === 'C') {
-       const wMatch = value.match(/-W?([A-Za-z0-9_]+)-S/i);
-       if (wMatch) return wMatch[1];
-       return '-';
-    } else {
-       const tMatch = value.match(/-T([A-Za-z0-9_]+)-S/i);
-       if (tMatch) return tMatch[1];
-       return '-';
-    }
-  };
-
   const handleImageError = (e: React.SyntheticEvent<HTMLImageElement, Event>) => {
     e.currentTarget.style.opacity = '0';
   };
@@ -201,7 +207,7 @@ const IDCard: React.FC = () => {
     const fullName = getDisplayName(attendee);
     const jobTitle = String(attendee.job_title || '').trim();
     const resolvedBarcode = seatInfo?.seat?.seat_code || attendee.barcode;
-    const resolvedSeatNumber = seatInfo?.seat?.seat_number ?? attendee.seat_number;
+    const resolvedSeatNumber = seatInfo?.seat?.seat_number ?? attendee.seat_number ?? parseSeatNumberFromSeatCode(resolvedBarcode);
     const tableOrWave = parseTableOrWaveFromSeatCode(resolvedBarcode, resolvedSeatClass);
     
     return (
@@ -384,6 +390,10 @@ const IDCard: React.FC = () => {
         <button onClick={() => handlePrintTicket()} className="inline-flex items-center px-4 py-2 rounded-md text-white bg-indigo-600 hover:bg-indigo-700">
           <Printer className="h-4 w-4 ml-2" />
           طباعة التيكت
+        </button>
+        <button onClick={handleDownloadQr} className="inline-flex items-center px-4 py-2 rounded-md text-white bg-slate-700 hover:bg-slate-800">
+          <Download className="h-4 w-4 ml-2" />
+          حفظ QR فقط
         </button>
         <button onClick={() => handlePrintTicket()} className="inline-flex items-center px-4 py-2 rounded-md text-indigo-700 bg-indigo-100 hover:bg-indigo-200">
           <Printer className="h-4 w-4 ml-2" />

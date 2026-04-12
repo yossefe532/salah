@@ -15,6 +15,11 @@ const DEFAULT_EVENT_ID = 'MINYA-MAIN-HALL';
 const SEAT_RESERVED_MINUTES = 5;
 const ATTENDEE_META_PREFIX = '__attendee_meta__:';
 const ATTENDEE_METADATA_FIELDS = [
+  'seat_number',
+  'seat_class',
+  'barcode',
+  'governorate',
+  'status',
   'full_name_en',
   'occupation_type',
   'organization_name',
@@ -352,64 +357,84 @@ const buildSeatCode = (seatClass: 'A' | 'B' | 'C', rowNumber: number, side: 'lef
 
 const syncSeatStatus = async (attendeeId: string, governorate: string, seatClass: string, seatNumber: number | null, seatCode: string | null = null) => {
   const eventId = `${normalizeGovernorate(governorate).toUpperCase()}-2026-MAIN`;
+  const mainEvents = ['MINYA-2026-MAIN', 'ASYUT-2026-MAIN', 'SOHAG-2026-MAIN', 'QENA-2026-MAIN'];
 
-  // First, check if the attendee is already properly assigned to this exact seat.
-  // If yes, do not touch it (prevents race conditions / accidental unassigns)
-  const { data: currentAssignment } = await supabase.from('seats')
-    .select('id, seat_code')
+  const { data: currentAssignments } = await supabase
+    .from('seats')
+    .select('id, seat_code, event_id')
     .eq('attendee_id', attendeeId)
-    .eq('event_id', eventId)
     .eq('status', 'booked')
-    .limit(1)
-    .maybeSingle();
+    .limit(5);
+  const currentAssignment = Array.isArray(currentAssignments) && currentAssignments.length > 0 ? currentAssignments[0] : null;
 
-  // If already assigned correctly, return the barcode directly
-  if (currentAssignment && ((seatCode && currentAssignment.seat_code === seatCode) || (!seatCode && seatNumber && currentAssignment.seat_code.endsWith(`-S${seatNumber}`)))) {
-     return currentAssignment.seat_code;
-  }
+  let targetSeat: any = null;
 
-  // Free any OLD seat currently booked by this attendee (since it doesn't match the new desired seat)
-  await supabase.from('seats').update({ status: 'available', attendee_id: null }).eq('attendee_id', attendeeId);
-
-  // Book the new seat if seatCode is provided
   if (seatCode) {
-    const { data: seatToUpdate } = await supabase.from('seats')
-      .select('id, seat_code')
+    const primary = await supabase
+      .from('seats')
+      .select('id, seat_code, seat_number, seat_class, attendee_id, event_id')
       .eq('event_id', eventId)
       .eq('seat_code', seatCode)
-      // Removing strict 'available' check here because if the admin forces an edit, we override it
-      // but let's just make sure it's not booked by someone else OR if it is, we take it over (force assignment)
-      .limit(1).maybeSingle();
+      .limit(1)
+      .maybeSingle();
 
-    if (seatToUpdate) {
-      // Unassign whoever had it before
-      const { data: previousOwner } = await supabase.from('seats').select('attendee_id').eq('id', seatToUpdate.id).single();
-      if (previousOwner?.attendee_id && previousOwner.attendee_id !== attendeeId) {
-         await updateAttendeeSafely(String(previousOwner.attendee_id), { seat_number: null, barcode: null });
+    targetSeat = primary.data;
+
+    if (!targetSeat) {
+      for (const candidateEvent of mainEvents) {
+        const found = await supabase
+          .from('seats')
+          .select('id, seat_code, seat_number, seat_class, attendee_id, event_id')
+          .eq('event_id', candidateEvent)
+          .eq('seat_code', seatCode)
+          .limit(1)
+          .maybeSingle();
+        if (found.data) {
+          targetSeat = found.data;
+          break;
+        }
       }
-      
-      await supabase.from('seats').update({ status: 'booked', attendee_id: attendeeId }).eq('id', seatToUpdate.id);
-      return seatToUpdate.seat_code; 
     }
   } else if (seatNumber) {
-    const { data: seatToUpdate } = await supabase.from('seats')
-      .select('id, seat_code')
+    const candidates = await supabase
+      .from('seats')
+      .select('id, seat_code, seat_number, seat_class, attendee_id, event_id')
       .eq('event_id', eventId)
       .eq('seat_class', seatClass)
       .eq('seat_number', seatNumber)
-      .limit(1).maybeSingle();
+      .limit(2);
 
-    if (seatToUpdate) {
-      const { data: previousOwner } = await supabase.from('seats').select('attendee_id').eq('id', seatToUpdate.id).single();
-      if (previousOwner?.attendee_id && previousOwner.attendee_id !== attendeeId) {
-         await updateAttendeeSafely(String(previousOwner.attendee_id), { seat_number: null, barcode: null });
-      }
-
-      await supabase.from('seats').update({ status: 'booked', attendee_id: attendeeId }).eq('id', seatToUpdate.id);
-      return seatToUpdate.seat_code; 
+    if (candidates.error) throw new Error(candidates.error.message);
+    if ((candidates.data || []).length > 1) {
+      throw new Error('رقم المقعد غير فريد داخل القاعة. اختر المقعد من القائمة بالكود الكامل.');
     }
+    if ((candidates.data || []).length === 1) targetSeat = candidates.data![0];
   }
-  return null;
+
+  if (!targetSeat) {
+    return currentAssignment?.seat_code || null;
+  }
+
+  if (currentAssignment?.id === targetSeat.id) {
+    return targetSeat.seat_code;
+  }
+
+  if (targetSeat.attendee_id && String(targetSeat.attendee_id) !== String(attendeeId)) {
+    await updateAttendeeSafely(String(targetSeat.attendee_id), { seat_number: null, barcode: null });
+  }
+
+  await supabase
+    .from('seats')
+    .update({ status: 'available', attendee_id: null, reserved_by: null, reserved_until: null })
+    .eq('attendee_id', attendeeId)
+    .neq('id', targetSeat.id);
+
+  await supabase
+    .from('seats')
+    .update({ status: 'booked', attendee_id: attendeeId, reserved_by: null, reserved_until: null })
+    .eq('id', targetSeat.id);
+
+  return targetSeat.seat_code;
 };
 
 export const generateMinyaCustomPlan = (eventId: string) => {
