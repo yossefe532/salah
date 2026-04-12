@@ -120,18 +120,8 @@ const insertAttendeeSafely = async (payload: any) => {
     const { data, error } = await supabase.from('attendees').insert([currentPayload]).select().single();
     if (!error) return { data, error: null };
     
-    // Auto-heal out-of-sync unique barcode constraint
-    if (error.message?.includes('unique constraint') && error.message?.includes('barcode')) {
-        const conflictBarcode = currentPayload.barcode;
-        if (conflictBarcode) {
-            const { data: conflictUser } = await supabase.from('attendees').select('id').eq('barcode', conflictBarcode).single();
-            if (conflictUser) {
-                await supabase.from('attendees').update({ barcode: null, seat_number: null }).eq('id', conflictUser.id);
-                continue; // Try again
-            }
-        }
-    }
-
+    // Auto-heal logic removed to prevent loops/silent failures. Validation is handled by UI.
+    
     const missingColumn = getMissingAttendeeColumn(error);
     if (!missingColumn || !(missingColumn in currentPayload)) return { data: null, error };
     const { [missingColumn]: _omit, ...rest } = currentPayload;
@@ -146,17 +136,7 @@ const updateAttendeeSafely = async (id: string, payload: any) => {
     const { data, error } = await supabase.from('attendees').update(currentPayload).eq('id', id).select().single();
     if (!error) return { data, error: null };
     
-    // Auto-heal out-of-sync unique barcode constraint
-    if (error.message?.includes('unique constraint') && error.message?.includes('barcode')) {
-        const conflictBarcode = currentPayload.barcode;
-        if (conflictBarcode) {
-            const { data: conflictUser } = await supabase.from('attendees').select('id').eq('barcode', conflictBarcode).single();
-            if (conflictUser && conflictUser.id !== id) {
-                await supabase.from('attendees').update({ barcode: null, seat_number: null }).eq('id', conflictUser.id);
-                continue; // Try again
-            }
-        }
-    }
+    // Auto-heal logic removed to prevent loops/silent failures. Validation is handled by UI.
 
     const missingColumn = getMissingAttendeeColumn(error);
     if (!missingColumn || !(missingColumn in currentPayload)) return { data: null, error };

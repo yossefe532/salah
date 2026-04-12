@@ -244,6 +244,7 @@ const EditAttendee: React.FC = () => {
         if (data.email_secondary) setShowSecondaryEmail(true);
         setEnglishNameEdited(Boolean(data.full_name_en));
         setSelectedBarcode(data.barcode || null);
+        (window as any)._originalBarcode = data.barcode || null;
         setLoading(false);
       } catch (error) {
         console.error('Error fetching attendee:', error);
@@ -406,6 +407,15 @@ const EditAttendee: React.FC = () => {
          updatedAttendee.barcode = finalBarcode;
       } else {
          updatedAttendee.barcode = null;
+      }
+      
+      // Validation: Check if the selected barcode is taken by another user
+      if (updatedAttendee.barcode && updatedAttendee.barcode !== (window as any)._originalBarcode) {
+         const { data: conflictUser } = await api.get(`/attendees?barcode=eq.${updatedAttendee.barcode}`).then((res: any) => ({ data: Array.isArray(res) ? res[0] : null })).catch(() => ({ data: null }));
+           
+         if (conflictUser && conflictUser.id !== id) {
+             throw new Error(`المقعد محجوز مسبقاً لمشترك آخر (${conflictUser.full_name}). يرجى اختيار مقعد مختلف.`);
+         }
       }
       
       delete (window as any)._tempSelectedBarcodeEdit;

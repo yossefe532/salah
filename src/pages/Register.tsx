@@ -466,6 +466,15 @@ const Register: React.FC = () => {
               newAttendee.barcode = (window as any)._tempSelectedBarcode;
               delete (window as any)._tempSelectedBarcode;
           }
+
+          // Validation: Check if the selected barcode is taken by another user
+          if (newAttendee.barcode) {
+             const { data: conflictUser } = await api.get(`/attendees?barcode=eq.${newAttendee.barcode}`).then((res: any) => ({ data: Array.isArray(res) ? res[0] : null })).catch(() => ({ data: null }));
+               
+             if (conflictUser) {
+                 throw new Error(`المقعد محجوز مسبقاً لمشترك آخر (${conflictUser.full_name}). يرجى اختيار مقعد مختلف.`);
+             }
+          }
     
           await api.post('/attendees', newAttendee);
       }
