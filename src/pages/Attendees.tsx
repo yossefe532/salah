@@ -370,13 +370,16 @@ const Attendees: React.FC = () => {
                     <td className="px-6 py-4">
                       <div className="flex items-center">
                         <div>
-                          <div className="text-base font-bold text-gray-900 flex flex-wrap items-center gap-2">
-                            <span>{attendee.full_name}</span>
-                            {attendee.preferred_neighbor_name && (
-                              <span className="text-xs px-2 py-0.5 rounded bg-indigo-50 text-indigo-700 border border-indigo-200">
-                                يريد الجلوس بجوار: {attendee.preferred_neighbor_name}
-                              </span>
-                            )}
+                          <div className="text-base font-bold text-gray-900 flex flex-col gap-1">
+                            <span className="flex flex-wrap items-center gap-2">
+                              {attendee.full_name}
+                              {attendee.preferred_neighbor_name && (
+                                <span className="text-xs px-2 py-0.5 rounded bg-indigo-50 text-indigo-700 border border-indigo-200">
+                                  يريد الجلوس بجوار: {attendee.preferred_neighbor_name}
+                                </span>
+                              )}
+                            </span>
+                            <span className="text-xs text-gray-500 font-mono" dir="ltr">{attendee.full_name_en}</span>
                           </div>
                           <div className="mt-1 flex flex-wrap items-center gap-2">
                             <span className={`text-[11px] px-2 py-0.5 rounded border ${attendee.ticket_printed ? 'bg-green-100 text-green-700 border-green-200' : 'bg-gray-100 text-gray-600 border-gray-200'}`}>
@@ -454,9 +457,9 @@ const Attendees: React.FC = () => {
                           <span className="inline-flex items-center px-2 py-0.5 rounded bg-gray-100 text-gray-600 border border-gray-200">بدون شهادة</span>
                         )}
                       </div>
-                      <div className="text-xs text-gray-500 mt-1">
-                        المصدر: {attendee.sales_source_name || attendee.sales_channel || 'مباشر'}
-                      </div>
+                          <div className="text-xs text-gray-500 mt-1">
+                            المصدر: {attendee.sales_source_name || (attendee.sales_channel === 'direct' ? 'مباشر' : attendee.sales_channel === 'sales_team' ? 'تيم سيلز' : attendee.sales_channel === 'external_partner' ? 'شريك خارجي' : attendee.sales_channel === 'sponsor_referral' ? 'ترشيح راعي' : 'مباشر')}
+                          </div>
                       <div className={`text-xs font-bold mt-1 ${attendee.remaining_amount > 0 ? 'text-red-600' : 'text-green-600'}`}>
                         {attendee.remaining_amount > 0 ? `متبقي: ${attendee.remaining_amount}` : 'خالص'}
                       </div>
