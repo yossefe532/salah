@@ -119,6 +119,19 @@ const insertAttendeeSafely = async (payload: any) => {
   for (let i = 0; i < 50; i += 1) {
     const { data, error } = await supabase.from('attendees').insert([currentPayload]).select().single();
     if (!error) return { data, error: null };
+    
+    // Auto-heal out-of-sync unique barcode constraint
+    if (error.message?.includes('unique constraint') && error.message?.includes('barcode')) {
+        const conflictBarcode = currentPayload.barcode;
+        if (conflictBarcode) {
+            const { data: conflictUser } = await supabase.from('attendees').select('id').eq('barcode', conflictBarcode).single();
+            if (conflictUser) {
+                await supabase.from('attendees').update({ barcode: null, seat_number: null }).eq('id', conflictUser.id);
+                continue; // Try again
+            }
+        }
+    }
+
     const missingColumn = getMissingAttendeeColumn(error);
     if (!missingColumn || !(missingColumn in currentPayload)) return { data: null, error };
     const { [missingColumn]: _omit, ...rest } = currentPayload;
@@ -132,6 +145,19 @@ const updateAttendeeSafely = async (id: string, payload: any) => {
   for (let i = 0; i < 50; i += 1) {
     const { data, error } = await supabase.from('attendees').update(currentPayload).eq('id', id).select().single();
     if (!error) return { data, error: null };
+    
+    // Auto-heal out-of-sync unique barcode constraint
+    if (error.message?.includes('unique constraint') && error.message?.includes('barcode')) {
+        const conflictBarcode = currentPayload.barcode;
+        if (conflictBarcode) {
+            const { data: conflictUser } = await supabase.from('attendees').select('id').eq('barcode', conflictBarcode).single();
+            if (conflictUser && conflictUser.id !== id) {
+                await supabase.from('attendees').update({ barcode: null, seat_number: null }).eq('id', conflictUser.id);
+                continue; // Try again
+            }
+        }
+    }
+
     const missingColumn = getMissingAttendeeColumn(error);
     if (!missingColumn || !(missingColumn in currentPayload)) return { data: null, error };
     const { [missingColumn]: _omit, ...rest } = currentPayload;
@@ -2463,6 +2489,10 @@ export const api = {
         const nextFullName = body.full_name ?? oldRecord.full_name ?? '';
         const nextFullNameEn = String(body.full_name_en || '').trim()
           || (body.full_name !== undefined ? transliterateArabicToEnglish(nextFullName) : (oldRecord.full_name_en || transliterateArabicToEnglish(nextFullName)));
+        
+        // If the attendee no longer has a seat, they shouldn't have a barcode
+        const finalBarcode = resolvedSeat === null ? null : (body.barcode || oldRecord.barcode || null);
+
         bodyToSave = {
           ...body,
           warnings: oldRecordRaw?.warnings ?? body.warnings,
@@ -2471,7 +2501,7 @@ export const api = {
           certificate_included: certificateIncluded,
           remaining_amount: remainingAmount,
           seat_number: resolvedSeat,
-          barcode: body.barcode || oldRecord.barcode || null
+          barcode: finalBarcode
         };
       }
     }
@@ -2487,7 +2517,7 @@ export const api = {
         if (body.seat_number !== undefined || body.barcode !== undefined) {
             const newBarcode = await syncSeatStatus(data.id, data.governorate, data.seat_class, data.seat_number, data.barcode);
             if (newBarcode && newBarcode !== data.barcode) {
-               await supabase.from('attendees').update({ barcode: newBarcode }).eq('id', data.id);
+               await updateAttendeeSafely(String(data.id), { barcode: newBarcode });
                data.barcode = newBarcode;
             }
         }

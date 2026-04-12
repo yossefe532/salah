@@ -402,6 +402,8 @@ const EditAttendee: React.FC = () => {
 
       if (selectedBarcode) {
          updatedAttendee.barcode = selectedBarcode.replace(' (مقعدك الحالي)', '');
+      } else if (finalBarcode) {
+         updatedAttendee.barcode = finalBarcode;
       } else {
          updatedAttendee.barcode = null;
       }
