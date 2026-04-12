@@ -335,7 +335,7 @@ const AssignmentModalComponent = ({ isOpen, seat, attendees, governorate, onClos
 
 interface EditModeState {
   action: 'add' | 'move' | 'delete' | 'edit_details' | null;
-  addType: 'table' | 'wave' | 'seat' | 'blocked' | null;
+  addType: 'table' | 'wave' | 'seat' | 'blocked' | 'stage' | 'aisle' | null;
   addClass: 'A' | 'B' | 'C' | null;
   addName: string;
   addCount: number;
@@ -888,19 +888,58 @@ const SeatingManagement: React.FC = () => {
     setSelectedElement({ id: element.id, type });
   }, [mainMode, layoutDraft, payload.seats, tableBoxes, payload.layout_elements, zoomLevel, selectedGroup]);
 
+  const [drawState, setDrawState] = useState<{
+    active: boolean;
+    startX: number;
+    startY: number;
+    endX: number;
+    endY: number;
+  } | null>(null);
+
+  const [drawModal, setDrawModal] = useState<{
+    isOpen: boolean;
+    type: string;
+    startX: number;
+    startY: number;
+    endX: number;
+    endY: number;
+    name: string;
+    shape: string;
+    count: number;
+    seatClass: string;
+  }>({ isOpen: false, type: '', startX: 0, startY: 0, endX: 0, endY: 0, name: '', shape: 'rect', count: 10, seatClass: 'C' });
+
   const handleCanvasMouseDown = (e: React.MouseEvent) => {
      if (mainMode !== 'edit') return;
-     // Only trigger selection box if clicking on the background grid
-     if (e.target === e.currentTarget || (e.target as HTMLElement).id === 'seating-canvas-inner' || (e.target as HTMLElement).classList.contains('bg-grid')) {
+     const isBgClick = e.target === e.currentTarget || (e.target as HTMLElement).id === 'seating-canvas-inner' || (e.target as HTMLElement).classList.contains('bg-grid');
+     
+     if (isBgClick) {
         const rect = e.currentTarget.getBoundingClientRect();
         const startX = e.clientX - rect.left;
         const startY = e.clientY - rect.top;
-        setSelectionBox({ startX, startY, endX: startX, endY: startY });
-        setSelectedGroup([]);
+        
+        if (editModeState.action === 'add' && ['wave', 'stage', 'blocked', 'aisle'].includes(editModeState.addType || '')) {
+            setDrawState({ active: true, startX, startY, endX: startX, endY: startY });
+        } else {
+            setSelectionBox({ startX, startY, endX: startX, endY: startY });
+            setSelectedGroup([]);
+        }
      }
   };
 
   const onCanvasMove = (clientX: number, clientY: number) => {
+    if (drawState?.active) {
+        const container = document.getElementById('seating-canvas-inner');
+        const rect = container?.getBoundingClientRect();
+        if (!rect) return;
+        const endX = clientX - rect.left;
+        const endY = clientY - rect.top;
+        requestAnimationFrame(() => {
+            setDrawState(prev => prev ? { ...prev, endX, endY } : null);
+        });
+        return;
+    }
+    
     if (selectionBox) {
        const container = document.getElementById('seating-canvas-inner');
        const rect = container?.getBoundingClientRect();
@@ -993,6 +1032,21 @@ const SeatingManagement: React.FC = () => {
   };
 
   const endDrag = () => {
+    if (drawState?.active) {
+        setDrawState(prev => prev ? { ...prev, active: false } : null);
+        setDrawModal(prev => ({
+            ...prev,
+            isOpen: true,
+            type: editModeState.addType || 'wave',
+            startX: drawState.startX / zoomLevel / 8,
+            startY: drawState.startY / zoomLevel / 4,
+            endX: drawState.endX / zoomLevel / 8,
+            endY: drawState.endY / zoomLevel / 4,
+            name: editModeState.addType === 'stage' ? 'المسرح' : editModeState.addType === 'aisle' ? 'ممر' : ''
+        }));
+        return;
+    }
+
     if (selectionBox) {
        setSelectionBox(null);
        return;
@@ -1181,9 +1235,11 @@ const SeatingManagement: React.FC = () => {
             <option value="wave">ويف (Wave)</option>
             <option value="seat">كرسي فردي (Chair)</option>
             <option value="blocked">منطقة محظورة (Blocked)</option>
+            <option value="stage">المسرح (Stage)</option>
+            <option value="aisle">ممر (Aisle)</option>
           </select>
 
-          {(editModeState.addType === 'table' || editModeState.addType === 'seat') && (
+          {['table', 'seat'].includes(editModeState.addType || '') && (
             <select 
               value={editModeState.addClass || 'A'} 
               onChange={e => setEditModeState(p => ({...p, addClass: e.target.value as any}))}
@@ -1195,35 +1251,42 @@ const SeatingManagement: React.FC = () => {
             </select>
           )}
 
-          <input 
-            type="text" 
-            placeholder={editModeState.addType === 'table' ? "اسم الترابيزة (مثال: T1)" : editModeState.addType === 'wave' ? "اسم الويف" : "الاسم/المعرف"}
-            value={editModeState.addName}
-            onChange={e => setEditModeState(p => ({...p, addName: e.target.value}))}
-            className="rounded-md px-3 py-2 bg-slate-800 border border-slate-700 text-sm w-48"
-          />
-
-          {(editModeState.addType === 'table' || editModeState.addType === 'wave') && (
-            <input 
-              type="number" 
-              placeholder="عدد الكراسي"
-              value={editModeState.addCount}
-              onChange={e => setEditModeState(p => ({...p, addCount: Number(e.target.value)}))}
-              className="rounded-md px-3 py-2 bg-slate-800 border border-slate-700 text-sm w-32"
-            />
+          {['table'].includes(editModeState.addType || '') && (
+            <>
+              <input 
+                type="text" 
+                placeholder="اسم الترابيزة (مثال: T1)"
+                value={editModeState.addName}
+                onChange={e => setEditModeState(p => ({...p, addName: e.target.value}))}
+                className="rounded-md px-3 py-2 bg-slate-800 border border-slate-700 text-sm w-48"
+              />
+              <input 
+                type="number" 
+                placeholder="عدد الكراسي"
+                value={editModeState.addCount}
+                onChange={e => setEditModeState(p => ({...p, addCount: Number(e.target.value)}))}
+                className="rounded-md px-3 py-2 bg-slate-800 border border-slate-700 text-sm w-32"
+              />
+              <button 
+                onClick={() => handleAddElement(
+                  editModeState.addType || 'table',
+                  editModeState.addClass || 'A',
+                  editModeState.addName,
+                  editModeState.addCount
+                )}
+                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-md text-sm font-bold transition"
+              >
+                حفظ وإضافة
+              </button>
+            </>
           )}
-
-          <button 
-            onClick={() => handleAddElement(
-              editModeState.addType || 'table',
-              editModeState.addClass || 'A',
-              editModeState.addName,
-              editModeState.addCount
-            )}
-            className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-md text-sm font-bold transition"
-          >
-            حفظ وإضافة
-          </button>
+          
+          {['wave', 'stage', 'blocked', 'aisle'].includes(editModeState.addType || '') && (
+             <div className="flex items-center gap-2 px-4 py-2 bg-amber-500/20 border border-amber-500/50 rounded-md text-amber-300 text-sm font-bold animate-pulse shadow-[0_0_15px_rgba(245,158,11,0.2)]">
+                <span className="text-lg">🖌️</span>
+                اضغط واسحب الماوس على القاعة لرسم العنصر
+             </div>
+          )}
         </div>
       )}
 
@@ -1256,6 +1319,41 @@ const SeatingManagement: React.FC = () => {
                   backgroundSize: '24px 24px'
                 }}
               >
+              {drawState && editModeState.addType === 'wave' && (
+                   <svg className="absolute top-0 left-0 w-full h-full pointer-events-none z-[200]">
+                       <line 
+                           x1={drawState.startX / zoomLevel} 
+                           y1={drawState.startY / zoomLevel} 
+                           x2={drawState.endX / zoomLevel} 
+                           y2={drawState.endY / zoomLevel} 
+                           stroke="#0ea5e9" strokeWidth="4" strokeDasharray="5,5" 
+                       />
+                   </svg>
+              )}
+              {drawState && editModeState.addType === 'aisle' && (
+                   <svg className="absolute top-0 left-0 w-full h-full pointer-events-none z-[200]">
+                       <line 
+                           x1={drawState.startX / zoomLevel} 
+                           y1={drawState.startY / zoomLevel} 
+                           x2={drawState.endX / zoomLevel} 
+                           y2={drawState.endY / zoomLevel} 
+                           stroke="#f8fafc" strokeWidth="6" 
+                       />
+                   </svg>
+              )}
+              {drawState && ['stage', 'blocked'].includes(editModeState.addType || '') && (
+                 <div 
+                    className="absolute pointer-events-none z-[200]"
+                    style={{
+                       left: Math.min(drawState.startX, drawState.endX) / zoomLevel,
+                       top: Math.min(drawState.startY, drawState.endY) / zoomLevel,
+                       width: Math.abs(drawState.endX - drawState.startX) / zoomLevel,
+                       height: Math.abs(drawState.endY - drawState.startY) / zoomLevel,
+                       border: editModeState.addType === 'stage' ? '2px dashed #6366f1' : '2px dashed #ef4444',
+                       backgroundColor: editModeState.addType === 'stage' ? 'rgba(99, 102, 241, 0.2)' : 'rgba(239, 68, 68, 0.2)'
+                    }}
+                 />
+              )}
               {selectionBox && (
                  <div 
                     className="absolute border border-purple-500 bg-purple-500/20 pointer-events-none z-[200]"
@@ -1307,11 +1405,55 @@ const SeatingManagement: React.FC = () => {
                      </div>
                   );
               })} 
+              {/* Drawn Shapes Layer */}
               {payload.layout_elements?.map((el) => {
                   const draft = layoutDraft[el.id] as any;
                   if (draft?.is_deleted) return null;
                   const x = draft ? draft.position_x * 8 : Number(el.position_x || 0) * 8;
                   const y = draft ? draft.position_y * 4 : Number(el.position_y || 0) * 4;
+                  const w = Number(el.width || 8) * 8;
+                  const h = Number(el.height || 4) * 4;
+                  
+                  let meta = { label: el.name || '', shape: 'rect', startX: 0, startY: 0, endX: 0, endY: 0 };
+                  try { if (el.name && el.name.startsWith('{')) meta = JSON.parse(el.name); } catch(e) {}
+                  
+                  const isSelected = selectedGroup.includes(el.id) || selectedElement?.id === el.id;
+                  const baseClasses = `absolute flex items-center justify-center transition-all ${mainMode === 'edit' ? (editModeState.action === 'move' ? 'cursor-move' : 'cursor-pointer') : ''} ${isSelected ? 'ring-4 ring-purple-500 shadow-[0_0_15px_rgba(168,85,247,0.5)] z-50' : 'z-0'}`;
+                  
+                  if (el.type === 'aisle' || meta.shape === 'line') {
+                       const length = Math.hypot((meta.endX - meta.startX)*8, (meta.endY - meta.startY)*4);
+                       const angle = Math.atan2((meta.endY - meta.startY)*4, (meta.endX - meta.startX)*8) * 180 / Math.PI;
+                       return (
+                          <div 
+                              key={el.id} 
+                              className={`${baseClasses} bg-white/40 rounded-full hover:bg-white/60`} 
+                              style={{
+                                  left: (meta.startX || 0) * 8, top: (meta.startY || 0) * 4,
+                                  width: length, height: 6, transform: `rotate(${angle}deg)`, transformOrigin: '0 0'
+                              }} 
+                              onMouseDown={(e) => {
+                                 if (mainMode === 'edit' && editModeState.action === 'move') { e.stopPropagation(); startDrag(el, 'element', e.clientX, e.clientY, e.currentTarget); }
+                                 else if (mainMode === 'edit' && editModeState.action === 'delete') { e.stopPropagation(); handleDeleteElement(el.id, 'element'); }
+                              }}
+                              title={meta.label || 'ممر'}
+                          >
+                              {meta.label && <span className="absolute -top-6 text-white/50 text-xs whitespace-nowrap pointer-events-none drop-shadow-md" style={{transform: `rotate(${-angle}deg)`}}>{meta.label}</span>}
+                          </div>
+                       );
+                  }
+                  
+                  let shapeClasses = 'bg-white/10 border-2 border-white/40 text-white/50';
+                  if (el.type === 'stage') shapeClasses = 'bg-indigo-900/60 border-2 border-indigo-500 text-indigo-200 text-xl font-black shadow-[0_0_30px_rgba(79,70,229,0.3)]';
+                  if (el.type === 'element' || el.type === 'blocked') {
+                      shapeClasses = 'bg-red-900/30 border-2 border-red-500 text-red-200';
+                      if (meta.shape === 'hollow_rect') shapeClasses = 'border-4 border-red-600 bg-transparent text-red-500';
+                      if (meta.shape === 'hollow_circle') shapeClasses = 'border-4 border-red-600 bg-transparent rounded-full text-red-500';
+                  }
+                  
+                  if (meta.shape === 'circle') shapeClasses += ' rounded-full';
+                  if (meta.shape === 'half-circle') shapeClasses += ' rounded-t-full';
+                  if (meta.shape === 'quarter-circle') shapeClasses += ' rounded-tl-full';
+
                   return (
                      <div 
                         key={el.id}
@@ -1324,18 +1466,103 @@ const SeatingManagement: React.FC = () => {
                               handleDeleteElement(el.id, 'element');
                            }
                         }}
-                        className={`absolute border-2 border-white/40 bg-white/10 flex items-center justify-center ${mainMode === 'edit' ? (editModeState.action === 'move' ? 'cursor-move' : 'cursor-pointer hover:bg-red-500/30') : ''} ${selectedGroup.includes(el.id) ? 'ring-4 ring-purple-500 shadow-[0_0_15px_rgba(168,85,247,0.5)]' : ''}`}
-                        style={{
-                           left: x,
-                           top: y,
-                           width: `${Number(el.width || 8) * 8}px`,
-                           height: `${Number(el.height || 4) * 4}px`
-                        }}
+                        className={`${baseClasses} ${shapeClasses}`}
+                        style={{ left: x, top: y, width: w, height: h }}
                      >
-                        <span className="text-white/50 text-xs font-bold pointer-events-none">{el.name || 'محظور'}</span>
+                        <span className="pointer-events-none drop-shadow-md text-center px-2">{meta.label || (el.type === 'stage' ? 'STAGE / المسرح' : el.name || 'محظور')}</span>
                      </div>
                   );
               })}
+              {/* Draw Modals */}
+              {drawModal.isOpen && (
+                 <div className="fixed inset-0 z-[300] flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setDrawModal(p => ({...p, isOpen: false}))}>
+                    <div className="bg-slate-900 border border-slate-700 rounded-xl w-full max-w-sm p-6 flex flex-col gap-4 shadow-2xl" onClick={e => e.stopPropagation()}>
+                       <h3 className="text-lg font-bold text-white">
+                          {drawModal.type === 'wave' ? 'تفاصيل الـ Wave' : drawModal.type === 'stage' ? 'تفاصيل المسرح' : drawModal.type === 'aisle' ? 'تفاصيل الممر' : 'تفاصيل المنطقة المحظورة'}
+                       </h3>
+                       
+                       <label className="text-sm text-slate-300">الاسم / المعرف</label>
+                       <input 
+                         type="text" autoFocus value={drawModal.name} onChange={e => setDrawModal(p => ({...p, name: e.target.value}))}
+                         className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white"
+                         placeholder={drawModal.type === 'wave' ? 'مثال: W1' : 'الاسم...'}
+                       />
+                       
+                       {drawModal.type === 'wave' && (
+                          <>
+                             <label className="text-sm text-slate-300">عدد الكراسي</label>
+                             <input type="number" value={drawModal.count} onChange={e => setDrawModal(p => ({...p, count: Number(e.target.value)}))} className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white" />
+                             
+                             <label className="text-sm text-slate-300">الفئة</label>
+                             <select value={drawModal.seatClass} onChange={e => setDrawModal(p => ({...p, seatClass: e.target.value}))} className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white">
+                               <option value="A">Class A</option>
+                               <option value="B">Class B</option>
+                               <option value="C">Class C</option>
+                             </select>
+                          </>
+                       )}
+
+                       {(drawModal.type === 'stage' || drawModal.type === 'blocked') && (
+                          <>
+                             <label className="text-sm text-slate-300">الشكل الهندسي</label>
+                             <select value={drawModal.shape} onChange={e => setDrawModal(p => ({...p, shape: e.target.value}))} className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white">
+                               {drawModal.type === 'stage' ? (
+                                  <>
+                                     <option value="rect">مستطيل / مربع</option>
+                                     <option value="circle">دائري</option>
+                                     <option value="half-circle">نصف دائري</option>
+                                     <option value="quarter-circle">ربع دائري</option>
+                                  </>
+                               ) : (
+                                  <>
+                                     <option value="rect">مستطيل / مربع (مصمت)</option>
+                                     <option value="hollow_rect">مستطيل مفرغ</option>
+                                     <option value="circle">دائري مصمت</option>
+                                     <option value="hollow_circle">دائري مفرغ</option>
+                                     <option value="line">خط مستقيم</option>
+                                  </>
+                               )}
+                             </select>
+                          </>
+                       )}
+
+                       <div className="flex gap-2 mt-4">
+                         <button 
+                           onClick={async () => {
+                              try {
+                                  setLoading(true);
+                                  if (drawModal.type === 'wave') {
+                                      await api.post('/seating/add-element', {
+                                          event_id: eventId, governorate, type: 'wave', seat_class: drawModal.seatClass,
+                                          name: drawModal.name, chairs_count: drawModal.count, 
+                                          startX: drawModal.startX, startY: drawModal.startY, endX: drawModal.endX, endY: drawModal.endY
+                                      });
+                                  } else {
+                                      const px = Math.min(drawModal.startX, drawModal.endX);
+                                      const py = Math.min(drawModal.startY, drawModal.endY);
+                                      const w = Math.abs(drawModal.endX - drawModal.startX);
+                                      const h = Math.abs(drawModal.endY - drawModal.startY);
+                                      const meta = JSON.stringify({ label: drawModal.name, shape: drawModal.type === 'aisle' ? 'line' : drawModal.shape, startX: drawModal.startX, startY: drawModal.startY, endX: drawModal.endX, endY: drawModal.endY });
+                                      
+                                      await api.post('/seating/add-element', {
+                                          event_id: eventId, governorate, type: drawModal.type === 'blocked' ? 'element' : drawModal.type,
+                                          position_x: px, position_y: py, width: w, height: h, name: meta
+                                      });
+                                  }
+                                  await loadMap();
+                                  setDrawModal(p => ({...p, isOpen: false}));
+                              } catch(e: any) { alert(e.message); } finally { setLoading(false); }
+                           }}
+                           className="flex-1 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition font-bold"
+                         >
+                           إضافة
+                         </button>
+                         <button onClick={() => setDrawModal(p => ({...p, isOpen: false}))} className="flex-1 py-2 bg-slate-800 text-white rounded-lg hover:bg-slate-700 transition">إلغاء</button>
+                       </div>
+                    </div>
+                 </div>
+              )}
+
               {/* Edit Table Modal */}
               {editTableModal.isOpen && (
                  <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setEditTableModal({isOpen: false, tableId: '', currentName: '', currentClass: 'A', currentCount: 12})}>

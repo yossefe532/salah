@@ -1141,8 +1141,8 @@ export const api = {
         }
         await supabase.from('seats').delete().eq('table_id', id);
         await supabase.from('seat_tables').delete().eq('id', id);
-      } else if (type === 'element') {
-        await supabase.from('layout_elements').delete().eq('id', id);
+      } else if (['element', 'stage', 'aisle', 'blocked'].includes(type)) {
+       await supabase.from('layout_elements').delete().eq('id', id);
       } else if (type === 'wave') {
          // wave uses row_number for C
          const { data: seats } = await supabase.from('seats').select('attendee_id').eq('row_number', id).eq('seat_class', 'C').eq('event_id', eventId).not('attendee_id', 'is', null);
@@ -1174,15 +1174,15 @@ export const api = {
       const offsetY = 40 + Math.floor(Math.random() * 20);
       const uniqueSuffix = Math.floor(Math.random() * 1000000);
       
-      if (['stage', 'blocked', 'allowed'].includes(type)) {
+      if (['stage', 'blocked', 'element', 'aisle'].includes(type)) {
         const id = `${gov}-${type}-${uniqueSuffix}`;
         await supabase.from('layout_elements').insert([{
           id,
           event_id: eventId,
           governorate: gov,
           type,
-          position_x: offsetX,
-          position_y: offsetY,
+          position_x: body.position_x ?? offsetX,
+          position_y: body.position_y ?? offsetY,
           width: body?.width || 8,
           height: body?.height || 4,
           name: body?.name || null
@@ -1231,29 +1231,33 @@ export const api = {
         }
         await supabase.from('seats').insert(seats);
       } else if (type === 'wave') {
-        const waveNo = body?.name || String(uniqueSuffix % 10000);
-        const chairsCount = Number(body?.chairs_count || 8);
-        
-        const { data: maxSeats } = await supabase.from('seats').select('row_number').eq('event_id', eventId).eq('seat_class', 'C').order('row_number', { ascending: false }).limit(1);
-        const nextRow = (maxSeats?.[0]?.row_number || 0) + 1;
-        
-        const seats = [];
-        for(let i = 1; i <= chairsCount; i++) {
-          seats.push({
-            id: `${gov}-C-W${waveNo}-S${i}`,
-            event_id: eventId,
-            governorate: gov,
-            seat_class: 'C',
-            row_number: nextRow,
-            side: 'left',
-            seat_number: i,
-            seat_code: `C-W${waveNo}-S${i}`,
-            status: 'available',
-            position_x: offsetX + (i * 3),
-            position_y: offsetY
-          });
-        }
-        await supabase.from('seats').insert(seats);
+         const count = Number(body?.chairs_count || 10);
+         const startX = Number(body?.startX || 0);
+         const startY = Number(body?.startY || 0);
+         const endX = Number(body?.endX || 0);
+         const endY = Number(body?.endY || 0);
+         const waveName = body?.name || 'W';
+         const seatClass = body?.seat_class || 'C';
+         
+         const seats = [];
+         for (let i = 0; i < count; i++) {
+             const t = count > 1 ? i / (count - 1) : 0.5;
+             const sx = startX + t * (endX - startX);
+             const sy = startY + t * (endY - startY);
+             seats.push({
+                 id: `${gov}-${seatClass}-${waveName}-S${i+1}-${crypto.randomUUID().slice(0,4)}`,
+                 event_id: eventId,
+                 governorate: gov,
+                 seat_class: seatClass,
+                 wave_number: waveName,
+                 seat_number: i + 1,
+                 seat_code: `${seatClass}-${waveName}-S${i+1}`,
+                 status: 'available',
+                 position_x: Math.round(sx * 10) / 10,
+                 position_y: Math.round(sy * 10) / 10
+             });
+         }
+         await supabase.from('seats').insert(seats);
       } else if (type === 'seat') {
         const { data: maxSeats } = await supabase.from('seats').select('row_number, seat_code').eq('event_id', eventId).eq('seat_class', cls).order('row_number', { ascending: false }).limit(1);
         const nextRow = (maxSeats?.[0]?.row_number || 0) + 1;

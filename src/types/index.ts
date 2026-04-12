@@ -176,13 +176,12 @@ export interface SeatTable {
 export interface LayoutElement {
   id: string;
   event_id: string;
-  element_type: 'stage' | 'blocked' | 'allowed';
+  governorate: string;
+  type: string;
   position_x: number;
   position_y: number;
-  width: number;
-  height: number;
-  label?: string;
-  governorate?: string;
+  width?: number;
+  height?: number;
   name?: string | null;
 }
 
