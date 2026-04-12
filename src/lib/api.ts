@@ -2462,10 +2462,13 @@ export const api = {
     if (error) throw new Error(error.message);
 
     if (table === 'attendees' && data) {
-        const newBarcode = await syncSeatStatus(data.id, data.governorate, data.seat_class, data.seat_number, data.barcode);
-        if (newBarcode && newBarcode !== data.barcode) {
-           await supabase.from('attendees').update({ barcode: newBarcode }).eq('id', data.id);
-           data.barcode = newBarcode;
+        // Only run syncSeatStatus if we are actually assigning or modifying a seat
+        if (body.seat_number !== undefined || body.barcode !== undefined) {
+            const newBarcode = await syncSeatStatus(data.id, data.governorate, data.seat_class, data.seat_number, data.barcode);
+            if (newBarcode && newBarcode !== data.barcode) {
+               await supabase.from('attendees').update({ barcode: newBarcode }).eq('id', data.id);
+               data.barcode = newBarcode;
+            }
         }
     }
 
