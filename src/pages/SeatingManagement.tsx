@@ -910,6 +910,51 @@ const SeatingManagement: React.FC = () => {
        // Limit to max 50 updates per second for performance
        requestAnimationFrame(() => {
           setSelectionBox(prev => prev ? { ...prev, endX, endY } : null);
+          
+          // Live preview of selection
+          const minX = Math.min(selectionBox.startX, endX) / zoomLevel / 8;
+          const maxX = Math.max(selectionBox.startX, endX) / zoomLevel / 8;
+          const minY = Math.min(selectionBox.startY, endY) / zoomLevel / 4;
+          const maxY = Math.max(selectionBox.startY, endY) / zoomLevel / 4;
+          
+          const newSelection: string[] = [];
+          
+          tableBoxes.forEach(box => {
+             const draft = layoutDraft[box.id] as any;
+             if (draft?.is_deleted) return;
+             const bx = draft ? draft.position_x : box.x / 8;
+             const by = draft ? draft.position_y : box.y / 4;
+             const bw = box.w / 8;
+             const bh = box.h / 4;
+             if (bx < maxX && bx + bw > minX && by < maxY && by + bh > minY) {
+                newSelection.push(box.id);
+             }
+          });
+          
+          payload.seats.forEach(seat => {
+             if (seat.table_id) return; 
+             const draft = layoutDraft[seat.id] as any;
+             if (draft?.is_deleted) return;
+             const sx = draft ? draft.position_x : Number(seat.position_x || 0);
+             const sy = draft ? draft.position_y : Number(seat.position_y || 0);
+             if (sx >= minX && sx <= maxX && sy >= minY && sy <= maxY) {
+                newSelection.push(seat.id);
+             }
+          });
+          
+          payload.layout_elements?.forEach(el => {
+             const draft = layoutDraft[el.id] as any;
+             if (draft?.is_deleted) return;
+             const ex = draft ? draft.position_x : Number(el.position_x || 0);
+             const ey = draft ? draft.position_y : Number(el.position_y || 0);
+             const ew = Number(el.width || 8);
+             const eh = Number(el.height || 4);
+             if (ex < maxX && ex + ew > minX && ey < maxY && ey + eh > minY) {
+                newSelection.push(el.id);
+             }
+          });
+          
+          setSelectedGroup(newSelection);
        });
        return;
     }
@@ -949,49 +994,6 @@ const SeatingManagement: React.FC = () => {
 
   const endDrag = () => {
     if (selectionBox) {
-       const minX = Math.min(selectionBox.startX, selectionBox.endX) / zoomLevel / 8;
-       const maxX = Math.max(selectionBox.startX, selectionBox.endX) / zoomLevel / 8;
-       const minY = Math.min(selectionBox.startY, selectionBox.endY) / zoomLevel / 4;
-       const maxY = Math.max(selectionBox.startY, selectionBox.endY) / zoomLevel / 4;
-       
-       const newSelection: string[] = [];
-       
-       tableBoxes.forEach(box => {
-          const draft = layoutDraft[box.id] as any;
-          if (draft?.is_deleted) return;
-          const bx = draft ? draft.position_x : box.x / 8;
-          const by = draft ? draft.position_y : box.y / 4;
-          const bw = box.w / 8;
-          const bh = box.h / 4;
-          if (bx < maxX && bx + bw > minX && by < maxY && by + bh > minY) {
-             newSelection.push(box.id);
-          }
-       });
-       
-       payload.seats.forEach(seat => {
-          if (seat.table_id) return; 
-          const draft = layoutDraft[seat.id] as any;
-          if (draft?.is_deleted) return;
-          const sx = draft ? draft.position_x : Number(seat.position_x || 0);
-          const sy = draft ? draft.position_y : Number(seat.position_y || 0);
-          if (sx >= minX && sx <= maxX && sy >= minY && sy <= maxY) {
-             newSelection.push(seat.id);
-          }
-       });
-       
-       payload.layout_elements?.forEach(el => {
-          const draft = layoutDraft[el.id] as any;
-          if (draft?.is_deleted) return;
-          const ex = draft ? draft.position_x : Number(el.position_x || 0);
-          const ey = draft ? draft.position_y : Number(el.position_y || 0);
-          const ew = Number(el.width || 8);
-          const eh = Number(el.height || 4);
-          if (ex < maxX && ex + ew > minX && ey < maxY && ey + eh > minY) {
-             newSelection.push(el.id);
-          }
-       });
-       
-       setSelectedGroup(newSelection);
        setSelectionBox(null);
        return;
     }
