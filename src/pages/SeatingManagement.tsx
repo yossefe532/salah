@@ -893,9 +893,9 @@ const SeatingManagement: React.FC = () => {
      // Only trigger selection box if clicking on the background grid
      if (e.target === e.currentTarget || (e.target as HTMLElement).id === 'seating-canvas-inner' || (e.target as HTMLElement).classList.contains('bg-grid')) {
         const rect = e.currentTarget.getBoundingClientRect();
-        const scaledX = (e.clientX - rect.left) / zoomLevel;
-        const scaledY = (e.clientY - rect.top) / zoomLevel;
-        setSelectionBox({ startX: scaledX, startY: scaledY, endX: scaledX, endY: scaledY });
+        const startX = e.clientX - rect.left;
+        const startY = e.clientY - rect.top;
+        setSelectionBox({ startX, startY, endX: startX, endY: startY });
         setSelectedGroup([]);
      }
   };
@@ -905,9 +905,12 @@ const SeatingManagement: React.FC = () => {
        const container = document.getElementById('seating-canvas-inner');
        const rect = container?.getBoundingClientRect();
        if (!rect) return;
-       const scaledX = (clientX - rect.left) / zoomLevel;
-       const scaledY = (clientY - rect.top) / zoomLevel;
-       setSelectionBox(prev => prev ? { ...prev, endX: scaledX, endY: scaledY } : null);
+       const endX = clientX - rect.left;
+       const endY = clientY - rect.top;
+       // Limit to max 50 updates per second for performance
+       requestAnimationFrame(() => {
+          setSelectionBox(prev => prev ? { ...prev, endX, endY } : null);
+       });
        return;
     }
     
@@ -946,10 +949,10 @@ const SeatingManagement: React.FC = () => {
 
   const endDrag = () => {
     if (selectionBox) {
-       const minX = Math.min(selectionBox.startX, selectionBox.endX) / 8;
-       const maxX = Math.max(selectionBox.startX, selectionBox.endX) / 8;
-       const minY = Math.min(selectionBox.startY, selectionBox.endY) / 4;
-       const maxY = Math.max(selectionBox.startY, selectionBox.endY) / 4;
+       const minX = Math.min(selectionBox.startX, selectionBox.endX) / zoomLevel / 8;
+       const maxX = Math.max(selectionBox.startX, selectionBox.endX) / zoomLevel / 8;
+       const minY = Math.min(selectionBox.startY, selectionBox.endY) / zoomLevel / 4;
+       const maxY = Math.max(selectionBox.startY, selectionBox.endY) / zoomLevel / 4;
        
        const newSelection: string[] = [];
        
@@ -1253,12 +1256,12 @@ const SeatingManagement: React.FC = () => {
               >
               {selectionBox && (
                  <div 
-                    className="absolute border border-purple-500 bg-purple-500/20 pointer-events-none z-50"
+                    className="absolute border border-purple-500 bg-purple-500/20 pointer-events-none z-[200]"
                     style={{
-                       left: Math.min(selectionBox.startX, selectionBox.endX) * zoomLevel,
-                       top: Math.min(selectionBox.startY, selectionBox.endY) * zoomLevel,
-                       width: Math.abs(selectionBox.endX - selectionBox.startX) * zoomLevel,
-                       height: Math.abs(selectionBox.endY - selectionBox.startY) * zoomLevel
+                       left: Math.min(selectionBox.startX, selectionBox.endX) / zoomLevel,
+                       top: Math.min(selectionBox.startY, selectionBox.endY) / zoomLevel,
+                       width: Math.abs(selectionBox.endX - selectionBox.startX) / zoomLevel,
+                       height: Math.abs(selectionBox.endY - selectionBox.startY) / zoomLevel
                     }}
                  />
               )}
