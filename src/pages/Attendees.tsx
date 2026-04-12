@@ -1,10 +1,12 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { api, supabase } from '../lib/api';
 import { Attendee } from '../types';
-import { Search, Eye, QrCode, CheckCircle, XCircle, UserCheck, UserX, Trash2, RefreshCcw, AlertTriangle, MessageCircle, Phone, Upload, Edit2, FileSpreadsheet, Copy, Zap, Ticket, FileBadge2, Image as ImageIcon } from 'lucide-react';
+import { Search, Eye, QrCode, CheckCircle, XCircle, UserCheck, UserX, Trash2, RefreshCcw, AlertTriangle, MessageCircle, Phone, Upload, Edit2, FileSpreadsheet, Copy, Zap, Ticket, FileBadge2, Image as ImageIcon, Download } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import * as XLSX from 'xlsx';
+import { QRCodeCanvas } from 'qrcode.react';
+import { jsPDF } from 'jspdf';
 
 const Attendees: React.FC = () => {
   const { user } = useAuth();
@@ -20,6 +22,43 @@ const Attendees: React.FC = () => {
     payment_type: '',
     attendance: '', 
   });
+  const [downloadingQr, setDownloadingQr] = useState<Attendee | null>(null);
+
+  useEffect(() => {
+    if (downloadingQr) {
+      setTimeout(() => {
+        const canvas = document.getElementById('hidden-qr-canvas') as HTMLCanvasElement;
+        if (!canvas) {
+          alert('QR Code غير متوفر للتحميل');
+          setDownloadingQr(null);
+          return;
+        }
+
+        const padding = 10;
+        const paddedCanvas = document.createElement('canvas');
+        paddedCanvas.width = canvas.width + (padding * 2);
+        paddedCanvas.height = canvas.height + (padding * 2);
+        const ctx = paddedCanvas.getContext('2d');
+        if (ctx) {
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(0, 0, paddedCanvas.width, paddedCanvas.height);
+          ctx.drawImage(canvas, padding, padding);
+          
+          const imgData = paddedCanvas.toDataURL('image/png');
+          const pdf = new jsPDF({
+            orientation: 'portrait',
+            unit: 'px',
+            format: [paddedCanvas.width, paddedCanvas.height]
+          });
+          pdf.addImage(imgData, 'PNG', 0, 0, paddedCanvas.width, paddedCanvas.height);
+          
+          const baseName = String(downloadingQr.full_name || downloadingQr.id || 'attendee').replace(/[\\/:*?"<>|]/g, '_');
+          pdf.save(`qr-${baseName}.pdf`);
+        }
+        setDownloadingQr(null);
+      }, 100);
+    }
+  }, [downloadingQr]);
 
   const fetchAttendees = useCallback(async () => {
     setLoading(true);
@@ -525,6 +564,14 @@ const Attendees: React.FC = () => {
                               <Edit2 className="h-5 w-5" />
                             </Link>
 
+                            <button
+                              onClick={() => setDownloadingQr(attendee)}
+                              className="p-2 bg-purple-50 text-purple-600 hover:bg-purple-100 rounded-full border border-purple-200 transition-colors shadow-sm"
+                              title="تحميل QR Code كـ PDF"
+                            >
+                              <QrCode className="h-5 w-5" />
+                            </button>
+
                             {/* Only Owner can delete */}
                             {user?.role === 'owner' && (
                               <button
@@ -565,6 +612,18 @@ const Attendees: React.FC = () => {
           </div>
         )}
       </div>
+
+      {/* Hidden QR Code Canvas for downloading */}
+      {downloadingQr && (
+        <div style={{ display: 'none' }}>
+          <QRCodeCanvas
+            id="hidden-qr-canvas"
+            value={downloadingQr.qr_code || downloadingQr.id}
+            size={200}
+            level="H"
+          />
+        </div>
+      )}
     </div>
   );
 };
