@@ -21,7 +21,7 @@ const schema = z.object({
   year: z.string().optional().or(z.literal('')),
   notes: z.string().optional().or(z.literal('')),
   profile_photo_url: z.string().optional().or(z.literal('')),
-  phone_primary: z.string().min(10, 'رقم الهاتف غير صالح'),
+  phone_primary: z.string().optional().or(z.literal('')),
   phone_secondary: z.string().optional().or(z.literal('')),
   email_primary: z.string().email('بريد إلكتروني غير صالح').optional().or(z.literal('')),
   email_secondary: z.string().email('بريد إلكتروني غير صالح').optional().or(z.literal('')),
@@ -595,7 +595,7 @@ const EditAttendee: React.FC = () => {
             </div>
 
             <div className="sm:col-span-3">
-              <label className="block text-sm font-medium text-gray-700">رقم الهاتف الأساسي *</label>
+              <label className="block text-sm font-medium text-gray-700">رقم الهاتف الأساسي</label>
               <input
                 type="text"
                 {...register('phone_primary')}

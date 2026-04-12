@@ -21,7 +21,7 @@ const schema = z.object({
   year: z.string().optional(),
   notes: z.string().optional(),
   profile_photo_url: z.string().optional().or(z.literal('')),
-  phone_primary: z.string().min(10, 'Phone number must be valid'),
+  phone_primary: z.string().optional().or(z.literal('')),
   phone_secondary: z.string().optional(),
   email_primary: z.string().email('Invalid email address').optional().or(z.literal('')),
   email_secondary: z.string().email('Invalid email address').optional().or(z.literal('')),
@@ -745,7 +745,7 @@ const Register: React.FC = () => {
 
             <div className="sm:col-span-3">
               <label htmlFor="phone_primary" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                رقم الهاتف *
+                رقم الهاتف
               </label>
               <div className="mt-1">
                 <input
