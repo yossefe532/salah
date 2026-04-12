@@ -168,47 +168,43 @@ const transliterateArabicToEnglish = (input?: string | null) => {
   const value = String(input || '').trim();
   if (!value) return '';
   const dictionary: Record<string, string> = {
-    'محمد': 'Mohamed',
-    'أحمد': 'Ahmed',
-    'محمود': 'Mahmoud',
-    'مصطفى': 'Mostafa',
-    'حاتم': 'Hatem',
-    'علي': 'Ali',
-    'عبدالله': 'Abdullah',
-    'عبد الله': 'Abdullah',
-    'عبدالرحمن': 'Abdelrahman',
-    'عبد الرحمن': 'Abdelrahman',
-    'حسن': 'Hassan',
-    'حسين': 'Hussein',
-    'إبراهيم': 'Ibrahim',
-    'اسماعيل': 'Ismail',
-    'إسماعيل': 'Ismail',
-    'ياسر': 'Yasser',
-    'يوسف': 'Youssef',
-    'خالد': 'Khaled',
-    'هاني': 'Hany',
-    'سعيد': 'Saeed',
-    'طارق': 'Tarek',
-    'عمرو': 'Amr',
-    'عمر': 'Omar',
-    'فاطمة': 'Fatma',
-    'فاطمه': 'Fatma',
-    'سارة': 'Sara',
-    'ساره': 'Sara',
-    'مريم': 'Mariam',
-    'نور': 'Nour',
-    'ايمان': 'Eman',
-    'إيمان': 'Eman',
-    'زينب': 'Zainab',
-    'مي': 'Mai',
-    'منى': 'Mona',
-    'نهى': 'Noha',
-    'رضا': 'Reda',
-    'ربيع': 'Rabie',
-    'صلاح': 'Salah'
+    'محمد': 'Mohamed', 'أحمد': 'Ahmed', 'محمود': 'Mahmoud', 'مصطفى': 'Mostafa',
+    'حاتم': 'Hatem', 'علي': 'Ali', 'عبدالله': 'Abdullah', 'عبد الله': 'Abdullah',
+    'عبدالرحمن': 'Abdelrahman', 'عبد الرحمن': 'Abdelrahman', 'عبد': 'Abdel',
+    'حسن': 'Hassan', 'حسين': 'Hussein', 'إبراهيم': 'Ibrahim', 'اسماعيل': 'Ismail', 'إسماعيل': 'Ismail',
+    'ياسر': 'Yasser', 'يوسف': 'Youssef', 'خالد': 'Khaled', 'هاني': 'Hany',
+    'سعيد': 'Saeed', 'طارق': 'Tarek', 'عمرو': 'Amr', 'عمر': 'Omar',
+    'فاطمة': 'Fatma', 'فاطمه': 'Fatma', 'سارة': 'Sara', 'ساره': 'Sara',
+    'مريم': 'Mariam', 'نور': 'Nour', 'ايمان': 'Eman', 'إيمان': 'Eman',
+    'زينب': 'Zainab', 'مي': 'Mai', 'منى': 'Mona', 'نهى': 'Noha',
+    'رضا': 'Reda', 'ربيع': 'Rabie', 'صلاح': 'Salah', 'كيرلس': 'Kirollos',
+    'مرزوق': 'Marzouk', 'نجيب': 'Naguib', 'مينا': 'Mina', 'ماريو': 'Mario',
+    'بيتر': 'Peter', 'جرجس': 'Gerges', 'ابانوب': 'Abanoub', 'أبانوب': 'Abanoub',
+    'مكاريوس': 'Makarios', 'ياسين': 'Yassin', 'سيف': 'Seif', 'مروان': 'Marwan',
+    'مازن': 'Mazen', 'كريم': 'Karim', 'زياد': 'Ziad', 'طارق': 'Tarek',
+    'شريف': 'Sherif', 'اشرف': 'Ashraf', 'أشرف': 'Ashraf', 'وائل': 'Wael',
+    'علاء': 'Alaa', 'حسام': 'Hossam', 'وليد': 'Walid', 'بهاء': 'Bahaa',
+    'باسم': 'Basem', 'تامر': 'Tamer', 'امير': 'Amir', 'أمير': 'Amir',
+    'نبيل': 'Nabil', 'مجدي': 'Magdy', 'عصام': 'Essam', 'سمير': 'Samir',
+    'عادل': 'Adel', 'كمال': 'Kamal', 'ممدوح': 'Mamdouh', 'مختار': 'Mokhtar',
+    'سامي': 'Samy', 'رمضان': 'Ramadan', 'شعبان': 'Shaaban', 'سيد': 'Sayed',
+    'عطية': 'Attia', 'شوقي': 'Shawky', 'محسن': 'Mohsen', 'صبري': 'Sabry',
+    'جمال': 'Gamal', 'جلال': 'Galal', 'منصور': 'Mansour', 'محفوظ': 'Mahfouz',
+    'عزت': 'Ezzat', 'فاروق': 'Farouk', 'فؤاد': 'Fouad', 'حمدي': 'Hamdy',
+    'يحيى': 'Yehia', 'يحيي': 'Yehia', 'أيمن': 'Ayman', 'ايهاب': 'Ehab',
+    'إيهاب': 'Ehab', 'عاطف': 'Atef', 'مجاهد': 'Mogahed', 'شادي': 'Shady',
+    'فادي': 'Fady', 'هيثم': 'Haitham', 'رامي': 'Ramy', 'وائل': 'Wael',
+    'نادر': 'Nader', 'عماد': 'Emad', 'عمار': 'Ammar', 'صالح': 'Saleh',
+    'مايكل': 'Michael', 'ابرام': 'Abram', 'أبرام': 'Abram', 'فيلوباتر': 'Philopater',
+    'بشوي': 'Bishoy', 'بيشوي': 'Bishoy', 'ديفيد': 'David', 'جورج': 'George',
+    'امجد': 'Amgad', 'أمجد': 'Amgad', 'ايهاب': 'Ehab', 'إيهاب': 'Ehab',
+    'ماجد': 'Maged', 'رفيق': 'Rafik', 'نور': 'Nour', 'ندى': 'Noha',
+    'نورهان': 'Nourhan', 'ياسمين': 'Yasmine', 'يارا': 'Yara', 'رنا': 'Rana',
+    'ريم': 'Reem', 'سلمى': 'Salma', 'دينا': 'Dina', 'دنيا': 'Dina',
+    'هدى': 'Hoda', 'سمر': 'Samar', 'سهام': 'Sahar', 'عبير': 'Abeer'
   };
   const map: Record<string, string> = {
-    'ا': 'a', 'أ': 'a', 'إ': 'e', 'آ': 'aa', 'ء': 'a', 'ؤ': 'o', 'ئ': 'e',
+    'ا': 'a', 'أ': 'a', 'إ': 'e', 'آ': 'a', 'ء': 'a', 'ؤ': 'o', 'ئ': 'e',
     'ب': 'b', 'ت': 't', 'ث': 'th', 'ج': 'g', 'ح': 'h', 'خ': 'kh',
     'د': 'd', 'ذ': 'z', 'ر': 'r', 'ز': 'z', 'س': 's', 'ش': 'sh',
     'ص': 's', 'ض': 'd', 'ط': 't', 'ظ': 'z', 'ع': 'a', 'غ': 'gh',
@@ -220,11 +216,37 @@ const transliterateArabicToEnglish = (input?: string | null) => {
   const parts = value.replace(/\s+/g, ' ').trim().split(' ');
   const normalized = parts.map((part) => {
     if (dictionary[part]) return dictionary[part];
-    const raw = part
-      .split('')
-      .map((ch) => map[ch] ?? ch)
-      .join('')
-      .trim();
+    
+    // Smart Fallback Handling
+    let raw = '';
+    for (let i = 0; i < part.length; i++) {
+      let char = part[i];
+      
+      // Handle Al (ال) at the beginning of words
+      if (i === 0 && part.startsWith('ال')) {
+         raw += 'El';
+         i++; // skip 'ل'
+         continue;
+      }
+      
+      // Handle double 'ي' at the end
+      if (i === part.length - 1 && char === 'ي' && part[i-1] === 'ي') {
+         raw += 'y';
+         continue;
+      }
+      
+      // Handle 'ة' at the end
+      if (i === part.length - 1 && char === 'ة') {
+         raw += 'a';
+         continue;
+      }
+
+      raw += map[char] ?? char;
+    }
+    
+    // Clean up common bad mappings (like 'w' -> 'o' in the middle of words)
+    raw = raw.replace(/aw/g, 'o').replace(/iy/g, 'y').replace(/ey/g, 'y');
+    
     return raw ? raw.charAt(0).toUpperCase() + raw.slice(1).toLowerCase() : '';
   }).filter(Boolean);
   return normalized.join(' ');

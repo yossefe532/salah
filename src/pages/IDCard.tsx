@@ -162,13 +162,11 @@ const IDCard: React.FC = () => {
   const parseTableOrWaveFromSeatCode = (barcode?: string | null, seatClass?: string) => {
     const value = String(barcode || '');
     if (seatClass === 'C') {
-       const wMatch = value.match(/-W(\d+)-/i);
+       const wMatch = value.match(/-W?([A-Za-z0-9_]+)-S/i);
        if (wMatch) return wMatch[1];
-       const rMatch = value.match(/-R(\d+)-/i);
-       if (rMatch) return rMatch[1];
        return '-';
     } else {
-       const tMatch = value.match(/-T(\d+)-/i);
+       const tMatch = value.match(/-T([A-Za-z0-9_]+)-S/i);
        if (tMatch) return tMatch[1];
        return '-';
     }
@@ -250,7 +248,7 @@ const IDCard: React.FC = () => {
 
         <div className="absolute z-10 flex justify-end" style={{ top: '89.5%', right: '10%', width: '30%' }}>
           <div className="font-bold text-[#e0d3c2]" dir="ltr" style={{ fontSize: '13px', lineHeight: '1', textAlign: 'right', whiteSpace: 'nowrap' }}>
-            {attendee.seat_class === 'C' ? (seatInfo?.seat?.wave_number || '-') : (seatInfo?.table?.table_order || '-')}
+            {tableOrWave}
           </div>
         </div>
 

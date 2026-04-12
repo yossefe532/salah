@@ -64,13 +64,42 @@ const transliterateArabicToEnglish = (input?: string | null) => {
   if (!value) return '';
   const dictionary: Record<string, string> = {
     'محمد': 'Mohamed', 'أحمد': 'Ahmed', 'محمود': 'Mahmoud', 'مصطفى': 'Mostafa',
-    'حاتم': 'Hatem', 'علي': 'Ali', 'عبدالله': 'Abdullah', 'عبد': 'Abdel',
-    'الرحمن': 'Rahman', 'عبدالرحمن': 'Abdelrahman', 'ربيع': 'Rabie',
-    'حسن': 'Hassan', 'حسين': 'Hussein', 'عمر': 'Omar', 'عمرو': 'Amr',
-    'يوسف': 'Youssef', 'خالد': 'Khaled', 'إبراهيم': 'Ibrahim', 'صلاح': 'Salah'
+    'حاتم': 'Hatem', 'علي': 'Ali', 'عبدالله': 'Abdullah', 'عبد الله': 'Abdullah',
+    'عبدالرحمن': 'Abdelrahman', 'عبد الرحمن': 'Abdelrahman', 'عبد': 'Abdel',
+    'حسن': 'Hassan', 'حسين': 'Hussein', 'إبراهيم': 'Ibrahim', 'اسماعيل': 'Ismail', 'إسماعيل': 'Ismail',
+    'ياسر': 'Yasser', 'يوسف': 'Youssef', 'خالد': 'Khaled', 'هاني': 'Hany',
+    'سعيد': 'Saeed', 'طارق': 'Tarek', 'عمرو': 'Amr', 'عمر': 'Omar',
+    'فاطمة': 'Fatma', 'فاطمه': 'Fatma', 'سارة': 'Sara', 'ساره': 'Sara',
+    'مريم': 'Mariam', 'نور': 'Nour', 'ايمان': 'Eman', 'إيمان': 'Eman',
+    'زينب': 'Zainab', 'مي': 'Mai', 'منى': 'Mona', 'نهى': 'Noha',
+    'رضا': 'Reda', 'ربيع': 'Rabie', 'صلاح': 'Salah', 'كيرلس': 'Kirollos',
+    'مرزوق': 'Marzouk', 'نجيب': 'Naguib', 'مينا': 'Mina', 'ماريو': 'Mario',
+    'بيتر': 'Peter', 'جرجس': 'Gerges', 'ابانوب': 'Abanoub', 'أبانوب': 'Abanoub',
+    'مكاريوس': 'Makarios', 'ياسين': 'Yassin', 'سيف': 'Seif', 'مروان': 'Marwan',
+    'مازن': 'Mazen', 'كريم': 'Karim', 'زياد': 'Ziad', 'طارق': 'Tarek',
+    'شريف': 'Sherif', 'اشرف': 'Ashraf', 'أشرف': 'Ashraf', 'وائل': 'Wael',
+    'علاء': 'Alaa', 'حسام': 'Hossam', 'وليد': 'Walid', 'بهاء': 'Bahaa',
+    'باسم': 'Basem', 'تامر': 'Tamer', 'امير': 'Amir', 'أمير': 'Amir',
+    'نبيل': 'Nabil', 'مجدي': 'Magdy', 'عصام': 'Essam', 'سمير': 'Samir',
+    'عادل': 'Adel', 'كمال': 'Kamal', 'ممدوح': 'Mamdouh', 'مختار': 'Mokhtar',
+    'سامي': 'Samy', 'رمضان': 'Ramadan', 'شعبان': 'Shaaban', 'سيد': 'Sayed',
+    'عطية': 'Attia', 'شوقي': 'Shawky', 'محسن': 'Mohsen', 'صبري': 'Sabry',
+    'جمال': 'Gamal', 'جلال': 'Galal', 'منصور': 'Mansour', 'محفوظ': 'Mahfouz',
+    'عزت': 'Ezzat', 'فاروق': 'Farouk', 'فؤاد': 'Fouad', 'حمدي': 'Hamdy',
+    'يحيى': 'Yehia', 'يحيي': 'Yehia', 'أيمن': 'Ayman', 'ايهاب': 'Ehab',
+    'إيهاب': 'Ehab', 'عاطف': 'Atef', 'مجاهد': 'Mogahed', 'شادي': 'Shady',
+    'فادي': 'Fady', 'هيثم': 'Haitham', 'رامي': 'Ramy', 'وائل': 'Wael',
+    'نادر': 'Nader', 'عماد': 'Emad', 'عمار': 'Ammar', 'صالح': 'Saleh',
+    'مايكل': 'Michael', 'ابرام': 'Abram', 'أبرام': 'Abram', 'فيلوباتر': 'Philopater',
+    'بشوي': 'Bishoy', 'بيشوي': 'Bishoy', 'ديفيد': 'David', 'جورج': 'George',
+    'امجد': 'Amgad', 'أمجد': 'Amgad', 'ايهاب': 'Ehab', 'إيهاب': 'Ehab',
+    'ماجد': 'Maged', 'رفيق': 'Rafik', 'نور': 'Nour', 'ندى': 'Noha',
+    'نورهان': 'Nourhan', 'ياسمين': 'Yasmine', 'يارا': 'Yara', 'رنا': 'Rana',
+    'ريم': 'Reem', 'سلمى': 'Salma', 'دينا': 'Dina', 'دنيا': 'Dina',
+    'هدى': 'Hoda', 'سمر': 'Samar', 'سهام': 'Sahar', 'عبير': 'Abeer'
   };
   const map: Record<string, string> = {
-    'ا': 'a', 'أ': 'a', 'إ': 'e', 'آ': 'aa', 'ء': 'a', 'ؤ': 'o', 'ئ': 'e',
+    'ا': 'a', 'أ': 'a', 'إ': 'e', 'آ': 'a', 'ء': 'a', 'ؤ': 'o', 'ئ': 'e',
     'ب': 'b', 'ت': 't', 'ث': 'th', 'ج': 'g', 'ح': 'h', 'خ': 'kh',
     'د': 'd', 'ذ': 'z', 'ر': 'r', 'ز': 'z', 'س': 's', 'ش': 'sh',
     'ص': 's', 'ض': 'd', 'ط': 't', 'ظ': 'z', 'ع': 'a', 'غ': 'gh',
@@ -82,7 +111,37 @@ const transliterateArabicToEnglish = (input?: string | null) => {
   const words = value.replace(/\s+/g, ' ').trim().split(' ');
   return words.map((word) => {
     if (dictionary[word]) return dictionary[word];
-    const raw = word.split('').map((ch) => map[ch] ?? ch).join('').trim();
+    
+    // Smart Fallback Handling
+    let raw = '';
+    for (let i = 0; i < word.length; i++) {
+      let char = word[i];
+      
+      // Handle Al (ال) at the beginning of words
+      if (i === 0 && word.startsWith('ال')) {
+         raw += 'El';
+         i++; // skip 'ل'
+         continue;
+      }
+      
+      // Handle double 'ي' at the end
+      if (i === word.length - 1 && char === 'ي' && word[i-1] === 'ي') {
+         raw += 'y';
+         continue;
+      }
+      
+      // Handle 'ة' at the end
+      if (i === word.length - 1 && char === 'ة') {
+         raw += 'a';
+         continue;
+      }
+
+      raw += map[char] ?? char;
+    }
+    
+    // Clean up common bad mappings (like 'w' -> 'o' in the middle of words)
+    raw = raw.replace(/aw/g, 'o').replace(/iy/g, 'y').replace(/ey/g, 'y');
+    
     return raw ? raw.charAt(0).toUpperCase() + raw.slice(1).toLowerCase() : '';
   }).filter(Boolean).join(' ');
 };
@@ -345,6 +404,10 @@ const Register: React.FC = () => {
                  attendance_status: false,
                  qr_code: memberId,
              });
+             if (i === 0 && (window as any)._tempSelectedBarcode) {
+                 newAttendees[0].barcode = (window as any)._tempSelectedBarcode;
+                 delete (window as any)._tempSelectedBarcode;
+             }
          }
          
          // Set preferred neighbors to each other
@@ -398,6 +461,11 @@ const Register: React.FC = () => {
               attendance_status: false,
               qr_code: newAttendeeId, // Use ID as QR content
           };
+          
+          if ((window as any)._tempSelectedBarcode) {
+              newAttendee.barcode = (window as any)._tempSelectedBarcode;
+              delete (window as any)._tempSelectedBarcode;
+          }
     
           await api.post('/attendees', newAttendee);
       }
@@ -965,13 +1033,18 @@ const Register: React.FC = () => {
                         </label>
                         <div className="mt-1">
                           <select
-                            id="seat_number"
-                            {...register('seat_number', { setValueAs: (v) => (v === '' ? undefined : Number(v)) })}
+                            id="seat_barcode_select"
+                            onChange={(e) => {
+                               const selectedSeat = availableSeatsList.find(s => s.seat_code === e.target.value);
+                               setValue('seat_number', selectedSeat ? selectedSeat.seat_number : undefined);
+                               // Store the actual barcode temporarily so we don't lose it to duplicates
+                               (window as any)._tempSelectedBarcode = e.target.value;
+                            }}
                             className="shadow-sm focus:ring-indigo-500 focus:border-indigo-500 block w-full sm:text-sm border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-md p-2 border"
                           >
                             <option value="">تسكين تلقائي / اختر مقعد</option>
                             {availableSeatsList.map((seat) => (
-                              <option key={seat.id} value={seat.seat_number}>{seat.seat_code}</option>
+                              <option key={seat.id} value={seat.seat_code}>{seat.seat_code}</option>
                             ))}
                           </select>
                         </div>
