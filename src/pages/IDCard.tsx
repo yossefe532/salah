@@ -23,15 +23,23 @@ const IDCard: React.FC = () => {
     try {
       const data = await api.get(`/attendees/${attendeeId}`);
       setAttendee(data);
-      if (data.seat_number && data.seat_class) {
-        try {
-           const mapData = await api.get(`/seating/map?eventId=${normalizeGovernorate(data.governorate).toUpperCase()}-2026-MAIN`);
-           const seat = mapData.seats?.find((s: any) => s.attendee_id === attendeeId || (s.seat_number === data.seat_number && s.seat_class === data.seat_class && s.status === 'booked'));
-           if (seat) {
-              const table = mapData.tables?.find((t: any) => t.id === seat.table_id);
-              setSeatInfo({ seat, table });
-           }
-        } catch(e) { console.error(e); }
+      try {
+        const mapData = await api.get(`/seating/map?eventId=${normalizeGovernorate(data.governorate).toUpperCase()}-2026-MAIN`);
+        const seat = mapData.seats?.find((s: any) => s.attendee_id === attendeeId)
+          || mapData.seats?.find((s: any) => data.barcode && s.seat_code === data.barcode)
+          || mapData.seats?.find((s: any) => data.seat_number && data.seat_class && s.seat_number === data.seat_number && s.seat_class === data.seat_class && s.status === 'booked');
+        if (seat) {
+          const table = mapData.tables?.find((t: any) => t.id === seat.table_id);
+          setSeatInfo({ seat, table });
+          if (seat.seat_code !== data.barcode || Number(seat.seat_number) !== Number(data.seat_number || 0)) {
+            const synced = { ...data, barcode: seat.seat_code, seat_number: Number(seat.seat_number), seat_class: seat.seat_class };
+            setAttendee(synced as any);
+          }
+        } else {
+          setSeatInfo(null);
+        }
+      } catch (e) {
+        console.error(e);
       }
     } catch (error) {
       console.error('Error fetching attendee:', error);
@@ -181,7 +189,9 @@ const IDCard: React.FC = () => {
     const frontSrc = frontTemplateByClass[attendee.seat_class || 'C'] || frontTemplateByClass.C;
     const fullName = getDisplayName(attendee);
     const jobTitle = String(attendee.job_title || '').trim();
-    const tableOrWave = parseTableOrWaveFromSeatCode(attendee.barcode, attendee.seat_class);
+    const resolvedBarcode = seatInfo?.seat?.seat_code || attendee.barcode;
+    const resolvedSeatNumber = seatInfo?.seat?.seat_number ?? attendee.seat_number;
+    const tableOrWave = parseTableOrWaveFromSeatCode(resolvedBarcode, attendee.seat_class);
     
     return (
       <div className="ticket-sheet relative overflow-hidden bg-[#0a0a0a]">
@@ -254,7 +264,7 @@ const IDCard: React.FC = () => {
 
         <div className="absolute z-10 flex justify-end" style={{ top: '93%', right: '10%', width: '30%' }}>
           <div className="font-bold text-[#e0d3c2]" dir="ltr" style={{ fontSize: '13px', lineHeight: '1', textAlign: 'right', whiteSpace: 'nowrap' }}>
-            {attendee.seat_number ?? '-'}
+            {resolvedSeatNumber ?? '-'}
           </div>
         </div>
       </div>
