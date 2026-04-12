@@ -1206,8 +1206,8 @@ const SeatingManagement: React.FC = () => {
           tableBoxes.forEach(box => {
              const draft = layoutDraft[box.id] as any;
              if (draft?.is_deleted) return;
-             const bx = draft && !draft.is_new ? draft.position_x : box.x / 8;
-             const by = draft && !draft.is_new ? draft.position_y : box.y / 4;
+             const bx = draft && draft.position_x !== undefined ? Number(draft.position_x) : box.x / 8;
+             const by = draft && draft.position_y !== undefined ? Number(draft.position_y) : box.y / 4;
              const bw = box.w / 8;
              const bh = box.h / 4;
              if (bx < maxX && bx + bw > minX && by < maxY && by + bh > minY) {
@@ -1219,9 +1219,11 @@ const SeatingManagement: React.FC = () => {
              if (seat.table_id) return; 
              const draft = layoutDraft[seat.id] as any;
              if (draft?.is_deleted) return;
-             const sx = draft && !draft.is_new ? draft.position_x : Number(seat.position_x || 0);
-             const sy = draft && !draft.is_new ? draft.position_y : Number(seat.position_y || 0);
-             if (sx >= minX && sx <= maxX && sy >= minY && sy <= maxY) {
+             const sx = draft && draft.position_x !== undefined ? Number(draft.position_x) : Number(seat.position_x || 0);
+             const sy = draft && draft.position_y !== undefined ? Number(draft.position_y) : Number(seat.position_y || 0);
+             const sw = 3; 
+             const sh = 6; 
+             if (sx < maxX && sx + sw > minX && sy < maxY && sy + sh > minY) {
                 newSelection.push(seat.id);
              }
           });
@@ -1229,8 +1231,8 @@ const SeatingManagement: React.FC = () => {
           mapElements?.forEach(el => {
              const draft = layoutDraft[el.id] as any;
              if (draft?.is_deleted) return;
-             const ex = draft && !draft.is_new ? draft.position_x : Number(el.position_x || 0);
-             const ey = draft && !draft.is_new ? draft.position_y : Number(el.position_y || 0);
+             const ex = draft && draft.position_x !== undefined ? Number(draft.position_x) : Number(el.position_x || 0);
+             const ey = draft && draft.position_y !== undefined ? Number(draft.position_y) : Number(el.position_y || 0);
              const ew = Number(el.width || 8);
              const eh = Number(el.height || 4);
              if (ex < maxX && ex + ew > minX && ey < maxY && ey + eh > minY) {
