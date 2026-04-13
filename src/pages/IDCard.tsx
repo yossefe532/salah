@@ -281,7 +281,8 @@ const IDCard: React.FC = () => {
               style={{
                 objectFit: Number(getOverride('photo_fit', 0)) === 1 ? 'contain' : 'cover',
                 objectPosition: "center",
-                transform: `scale(${Number(getOverride('photo_scale', 1))}) translate(${Number(getOverride('photo_trans_x', 0))}%, ${Number(getOverride('photo_trans_y', 0))}%)`
+                transformOrigin: "center center",
+                transform: `translate(${Number(getOverride('photo_trans_x', 0))}%, ${Number(getOverride('photo_trans_y', 0))}%) scale(${Number(getOverride('photo_scale', 1))})`
               }}
             />
           ) : (
