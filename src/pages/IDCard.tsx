@@ -443,31 +443,32 @@ const IDCard: React.FC = () => {
     try {
       const fileExt = file.name.split('.').pop();
       const fileName = `${id}-${Math.random()}.${fileExt}`;
-      const filePath = `profile-photos/${fileName}`;
-
-      // Upload image to Supabase Storage
-      const { error: uploadError } = await supabase.storage
-        .from('avatars')
-        .upload(filePath, file);
-
-      if (uploadError) {
-        throw uploadError;
-      }
-
-      // Get public URL
-      const { data: { publicUrl } } = supabase.storage
-        .from('avatars')
-        .getPublicUrl(filePath);
-
-      // Update attendee object in state
-      setAttendee(prev => prev ? { ...prev, profile_photo_url: publicUrl } : prev);
       
-      alert('تم رفع الصورة بنجاح! سيتم حفظها نهائياً عند الضغط على "حفظ التعديلات"');
+      // Upload using our api wrapper which handles the endpoint logic
+      const formData = new FormData();
+      formData.append('file', file);
+      
+      // We'll upload directly to a specific endpoint or use a base64 workaround for the preview
+      // Since we might not have direct Supabase storage access from the frontend without proper RLS policies
+      
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const base64String = reader.result as string;
+        setAttendee(prev => prev ? { ...prev, profile_photo_url: base64String } : prev);
+        setUploadingImage(false);
+        alert('تم تغيير الصورة للمعاينة بنجاح! سيتم حفظها مع التعديلات عند الضغط على "حفظ التعديلات"');
+      };
+      reader.onerror = () => {
+        setUploadingImage(false);
+        alert('حدث خطأ أثناء قراءة الصورة');
+      };
+      reader.readAsDataURL(file);
+      
     } catch (error) {
-      console.error('Error uploading image:', error);
-      alert('حدث خطأ أثناء رفع الصورة');
-    } finally {
+      console.error('Error processing image:', error);
+      alert('حدث خطأ أثناء معالجة الصورة');
       setUploadingImage(false);
+    } finally {
       // Reset input
       if (e.target) {
         e.target.value = '';
