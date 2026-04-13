@@ -85,7 +85,6 @@ export interface Attendee {
   certificate_printed?: boolean;
   certificate_printed_at?: string | null;
   job_title?: string;
-  english_name?: string;
   sales_verified_at?: string;
   ticket_overrides?: Record<string, any>;
 }

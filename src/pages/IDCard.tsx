@@ -227,7 +227,7 @@ const IDCard: React.FC = () => {
     try {
       await api.patch(`/attendees/${id}`, { 
         ticket_overrides: overrides,
-        english_name: attendee?.english_name,
+        full_name_en: attendee?.full_name_en,
         job_title: attendee?.job_title
       });
       alert('تم حفظ الإعدادات والبيانات بنجاح');
@@ -240,7 +240,7 @@ const IDCard: React.FC = () => {
     }
   };
 
-  const handleTextEdit = (field: 'english_name' | 'job_title', value: string) => {
+  const handleTextEdit = (field: 'full_name_en' | 'job_title', value: string) => {
     setAttendee(prev => (prev ? { ...prev, [field]: value } : prev));
   };
 
@@ -310,8 +310,8 @@ const IDCard: React.FC = () => {
               <label className="text-xs text-gray-600 block mb-1">تعديل الاسم (إنجليزي)</label>
               <input 
                 type="text" 
-                value={attendee.english_name || ''} 
-                onChange={(e) => handleTextEdit('english_name', e.target.value)}
+                value={attendee.full_name_en || ''} 
+                onChange={(e) => handleTextEdit('full_name_en', e.target.value)}
                 className="w-full text-sm p-1 border rounded text-right"
                 dir="ltr"
               />
