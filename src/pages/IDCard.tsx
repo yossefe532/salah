@@ -362,13 +362,13 @@ const IDCard: React.FC = () => {
           )}
         </div>
 
-        <div className="absolute z-10 flex justify-end print-seat-align" style={{ top: '89.5%', right: '10%', width: '30%' }}>
+        <div className="absolute z-10 flex justify-end print-seat-align" style={{ top: '89.5%', right: '15%', width: '30%' }}>
           <div className="font-bold text-[#e0d3c2]" dir="ltr" style={{ fontSize: '13px', lineHeight: '1', textAlign: 'right', whiteSpace: 'nowrap' }}>
             {tableOrWave}
           </div>
         </div>
 
-        <div className="absolute z-10 flex justify-end print-seat-align" style={{ top: '93%', right: '10%', width: '30%' }}>
+        <div className="absolute z-10 flex justify-end print-seat-align" style={{ top: '93%', right: '15%', width: '30%' }}>
           <div className="font-bold text-[#e0d3c2]" dir="ltr" style={{ fontSize: '13px', lineHeight: '1', textAlign: 'right', whiteSpace: 'nowrap' }}>
             {resolvedSeatNumber ?? '-'}
           </div>
@@ -695,7 +695,7 @@ const IDCard: React.FC = () => {
           .preview-wrap { transform: scale(0.7); }
         }
         @media print {
-          @page { margin: 0; }
+          @page { margin: 0; size: 8.5cm 14cm; }
           body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
           .ticket-sheet { width: 8.5cm !important; height: 14cm !important; page-break-after: always; }
           .certificate-sheet { width: 29.7cm !important; height: 21cm !important; page-break-after: always; }
@@ -705,9 +705,10 @@ const IDCard: React.FC = () => {
             box-shadow: none !important;
             margin: 0 !important;
             position: relative !important;
+            overflow: hidden !important;
           }
           .print-seat-align {
-            right: 14% !important; /* Fix for seat alignment shifting right during print */
+            right: 15% !important;
           }
         }
       `}</style>
