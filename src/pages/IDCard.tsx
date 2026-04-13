@@ -258,194 +258,8 @@ const IDCard: React.FC = () => {
     const resolvedBarcode = seatInfo?.seat?.seat_code || attendee.barcode;
     const resolvedSeatNumber = seatInfo?.seat?.seat_number ?? attendee.seat_number ?? parseSeatNumberFromSeatCode(resolvedBarcode);
     const tableOrWave = parseTableOrWaveFromSeatCode(resolvedBarcode, resolvedSeatClass);
-    
-    const handleOverrideChange = (key: string, value: string) => {
-    setOverrides(prev => ({ ...prev, [key]: parseFloat(value) }));
-  };
 
-  const renderEditorPanel = () => {
-    if (!editorMode || !attendee) return null;
-    
     return (
-      <div className="fixed top-0 right-0 w-80 h-screen bg-white shadow-2xl border-l border-gray-200 p-4 overflow-y-auto z-50 flex flex-col">
-        <div className="flex justify-between items-center mb-6 border-b pb-4">
-          <h2 className="text-lg font-bold text-gray-800">تعديل التيكت / الشهادة</h2>
-          <button onClick={() => setEditorMode(false)} className="p-1 hover:bg-gray-100 rounded">
-            <X className="h-5 w-5 text-gray-500" />
-          </button>
-        </div>
-        
-        <div className="space-y-6 flex-1">
-          {/* Profile Photo Settings */}
-          <div className="space-y-3">
-            <h3 className="font-semibold text-sm text-emerald-600 border-b pb-1">الصورة الشخصية</h3>
-            <div>
-              <label className="text-xs text-gray-600 flex justify-between"><span>تكبير الصورة (Zoom)</span> <span>{getOverride('photo_scale', 1)}x</span></label>
-              <input type="range" min="0.5" max="3" step="0.05" value={getOverride('photo_scale', 1)} onChange={(e) => handleOverrideChange('photo_scale', e.target.value)} className="w-full" />
-            </div>
-            <div>
-              <label className="text-xs text-gray-600 flex justify-between"><span>تحريك الصورة يمين/يسار (Pan X)</span> <span>{getOverride('photo_trans_x', 0)}%</span></label>
-              <input type="range" min="-100" max="100" step="1" value={getOverride('photo_trans_x', 0)} onChange={(e) => handleOverrideChange('photo_trans_x', e.target.value)} className="w-full" />
-            </div>
-            <div>
-              <label className="text-xs text-gray-600 flex justify-between"><span>تحريك الصورة أعلى/أسفل (Pan Y)</span> <span>{getOverride('photo_trans_y', 0)}%</span></label>
-              <input type="range" min="-100" max="100" step="1" value={getOverride('photo_trans_y', 0)} onChange={(e) => handleOverrideChange('photo_trans_y', e.target.value)} className="w-full" />
-            </div>
-            <div className="grid grid-cols-2 gap-2 pt-2 border-t border-dashed">
-              <div>
-                <label className="text-xs text-gray-600 flex justify-between"><span>تحريك الإطار (X)</span> <span>{getOverride('photo_x', 50.5)}%</span></label>
-                <input type="range" min="30" max="70" step="0.5" value={getOverride('photo_x', 50.5)} onChange={(e) => handleOverrideChange('photo_x', e.target.value)} className="w-full" />
-              </div>
-              <div>
-                <label className="text-xs text-gray-600 flex justify-between"><span>تحريك الإطار (Y)</span> <span>{getOverride('photo_y', 17.5)}%</span></label>
-                <input type="range" min="5" max="40" step="0.5" value={getOverride('photo_y', 17.5)} onChange={(e) => handleOverrideChange('photo_y', e.target.value)} className="w-full" />
-              </div>
-            </div>
-          </div>
-
-          {/* Ticket Name Settings */}
-          <div className="space-y-3">
-            <h3 className="font-semibold text-sm text-emerald-600 border-b pb-1">اسم المشترك (التيكت)</h3>
-            <div className="mb-2">
-              <label className="text-xs text-gray-600 block mb-1">تعديل الاسم (إنجليزي)</label>
-              <input 
-                type="text" 
-                value={attendee.full_name_en || ''} 
-                onChange={(e) => handleTextEdit('full_name_en', e.target.value)}
-                className="w-full text-sm p-1 border rounded text-right"
-                dir="ltr"
-              />
-            </div>
-            <div className="flex items-center justify-between">
-              <label className="text-xs text-gray-600">تعدد الأسطر (Wrap)</label>
-              <input type="checkbox" checked={Number(getOverride('name_wrap', 0)) === 1} onChange={(e) => handleOverrideChange('name_wrap', e.target.checked ? '1' : '0')} />
-            </div>
-            <div>
-              <label className="text-xs text-gray-600 flex justify-between"><span>Font Size</span> <span>{getOverride('name_size', parseFloat(getTicketNameFontSize(getDisplayName(attendee))))}px</span></label>
-              <input type="range" min="8" max="24" step="0.5" value={getOverride('name_size', parseFloat(getTicketNameFontSize(getDisplayName(attendee))))} onChange={(e) => handleOverrideChange('name_size', e.target.value)} className="w-full" />
-            </div>
-            <div className="grid grid-cols-2 gap-2">
-              <div>
-                <label className="text-xs text-gray-600 flex justify-between"><span>Width</span> <span>{getOverride('name_w', 64)}%</span></label>
-                <input type="range" min="20" max="100" step="1" value={getOverride('name_w', 64)} onChange={(e) => handleOverrideChange('name_w', e.target.value)} className="w-full" />
-              </div>
-              <div>
-                <label className="text-xs text-gray-600 flex justify-between"><span>Line Height</span> <span>{getOverride('name_lh', 1)}</span></label>
-                <input type="range" min="0.5" max="2.5" step="0.1" value={getOverride('name_lh', 1)} onChange={(e) => handleOverrideChange('name_lh', e.target.value)} className="w-full" />
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-2">
-              <div>
-                <label className="text-xs text-gray-600 flex justify-between"><span>Move X</span> <span>{getOverride('name_x', 50.5)}%</span></label>
-                <input type="range" min="30" max="70" step="0.5" value={getOverride('name_x', 50.5)} onChange={(e) => handleOverrideChange('name_x', e.target.value)} className="w-full" />
-              </div>
-              <div>
-                <label className="text-xs text-gray-600 flex justify-between"><span>Move Y</span> <span>{getOverride('name_y', 45)}%</span></label>
-                <input type="range" min="30" max="60" step="0.5" value={getOverride('name_y', 45)} onChange={(e) => handleOverrideChange('name_y', e.target.value)} className="w-full" />
-              </div>
-            </div>
-          </div>
-
-          {/* Ticket Job Title Settings */}
-          <div className="space-y-3">
-            <h3 className="font-semibold text-sm text-emerald-600 border-b pb-1">المسمى الوظيفي (التيكت)</h3>
-            <div className="mb-2">
-              <label className="text-xs text-gray-600 block mb-1">تعديل المسمى الوظيفي</label>
-              <input 
-                type="text" 
-                value={attendee.job_title || ''} 
-                onChange={(e) => handleTextEdit('job_title', e.target.value)}
-                className="w-full text-sm p-1 border rounded text-right"
-                dir="ltr"
-              />
-            </div>
-            <div className="flex items-center justify-between">
-              <label className="text-xs text-gray-600">تعدد الأسطر (Wrap)</label>
-              <input type="checkbox" checked={Number(getOverride('title_wrap', 0)) === 1} onChange={(e) => handleOverrideChange('title_wrap', e.target.checked ? '1' : '0')} />
-            </div>
-            <div>
-              <label className="text-xs text-gray-600 flex justify-between"><span>Font Size</span> <span>{getOverride('title_size', parseFloat(getJobTitleFontSize(attendee?.job_title || '')))}px</span></label>
-              <input type="range" min="8" max="24" step="0.5" value={getOverride('title_size', parseFloat(getJobTitleFontSize(attendee?.job_title || '')))} onChange={(e) => handleOverrideChange('title_size', e.target.value)} className="w-full" />
-            </div>
-            <div className="grid grid-cols-2 gap-2">
-              <div>
-                <label className="text-xs text-gray-600 flex justify-between"><span>Width</span> <span>{getOverride('title_w', 42)}%</span></label>
-                <input type="range" min="20" max="100" step="1" value={getOverride('title_w', 42)} onChange={(e) => handleOverrideChange('title_w', e.target.value)} className="w-full" />
-              </div>
-              <div>
-                <label className="text-xs text-gray-600 flex justify-between"><span>Line Height</span> <span>{getOverride('title_lh', 1.2)}</span></label>
-                <input type="range" min="0.5" max="2.5" step="0.1" value={getOverride('title_lh', 1.2)} onChange={(e) => handleOverrideChange('title_lh', e.target.value)} className="w-full" />
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-2">
-              <div>
-                <label className="text-xs text-gray-600 flex justify-between"><span>Move X</span> <span>{getOverride('title_x', 46)}%</span></label>
-                <input type="range" min="30" max="70" step="0.5" value={getOverride('title_x', 46)} onChange={(e) => handleOverrideChange('title_x', e.target.value)} className="w-full" />
-              </div>
-              <div>
-                <label className="text-xs text-gray-600 flex justify-between"><span>Move Y</span> <span>{getOverride('title_y', 49.8)}%</span></label>
-                <input type="range" min="30" max="60" step="0.5" value={getOverride('title_y', 49.8)} onChange={(e) => handleOverrideChange('title_y', e.target.value)} className="w-full" />
-              </div>
-            </div>
-          </div>
-
-          {/* Ticket QR Code Settings */}
-          <div className="space-y-3">
-            <h3 className="font-semibold text-sm text-emerald-600 border-b pb-1">الـ QR Code</h3>
-            <div>
-              <label className="text-xs text-gray-600 flex justify-between"><span>Size</span> <span>{getOverride('qr_size', 62)}px</span></label>
-              <input type="range" min="40" max="100" step="1" value={getOverride('qr_size', 62)} onChange={(e) => handleOverrideChange('qr_size', e.target.value)} className="w-full" />
-            </div>
-            <div>
-              <label className="text-xs text-gray-600 flex justify-between"><span>Move Y</span> <span>{getOverride('qr_y', 70.5)}%</span></label>
-              <input type="range" min="60" max="85" step="0.5" value={getOverride('qr_y', 70.5)} onChange={(e) => handleOverrideChange('qr_y', e.target.value)} className="w-full" />
-            </div>
-          </div>
-
-          {/* Certificate Name Settings */}
-          <div className="space-y-3">
-            <h3 className="font-semibold text-sm text-emerald-600 border-b pb-1">اسم المشترك (الشهادة)</h3>
-            <div>
-              <label className="text-xs text-gray-600 flex justify-between"><span>Font Size</span> <span>{getOverride('cert_name_size', parseFloat(getCertificateNameFontSize(getDisplayName(attendee))))}px</span></label>
-              <input type="range" min="20" max="60" step="1" value={getOverride('cert_name_size', parseFloat(getCertificateNameFontSize(getDisplayName(attendee))))} onChange={(e) => handleOverrideChange('cert_name_size', e.target.value)} className="w-full" />
-            </div>
-            <div className="grid grid-cols-2 gap-2">
-              <div>
-                <label className="text-xs text-gray-600 flex justify-between"><span>Move X</span> <span>{getOverride('cert_name_x', 50)}%</span></label>
-                <input type="range" min="30" max="70" step="0.5" value={getOverride('cert_name_x', 50)} onChange={(e) => handleOverrideChange('cert_name_x', e.target.value)} className="w-full" />
-              </div>
-              <div>
-                <label className="text-xs text-gray-600 flex justify-between"><span>Move Y</span> <span>{getOverride('cert_name_y', 43.8)}%</span></label>
-                <input type="range" min="30" max="60" step="0.5" value={getOverride('cert_name_y', 43.8)} onChange={(e) => handleOverrideChange('cert_name_y', e.target.value)} className="w-full" />
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div className="pt-4 border-t mt-4 flex gap-2">
-          <button 
-            onClick={handleSaveOverrides}
-            disabled={savingOverrides}
-            className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white py-2 rounded-md font-semibold text-sm flex items-center justify-center"
-          >
-            {savingOverrides ? 'جاري الحفظ...' : <><Save className="h-4 w-4 ml-2" /> حفظ التعديلات</>}
-          </button>
-          <button 
-            onClick={() => {
-              if(confirm('هل أنت متأكد من مسح جميع التعديلات المخصصة؟')) {
-                setOverrides({});
-              }
-            }}
-            className="px-3 bg-red-50 hover:bg-red-100 text-red-600 rounded-md text-sm font-medium"
-          >
-            مسح
-          </button>
-        </div>
-      </div>
-    );
-  };
-
-  return (
       <div className="ticket-sheet relative overflow-hidden bg-[#0a0a0a]">
         <div className="absolute inset-0 flex items-center justify-center text-gray-800 text-sm border border-gray-800">صورة القالب مفقودة ({frontSrc})</div>
         <img src={frontSrc} alt="ticket-front-template" onError={handleImageError} className="absolute inset-0 h-full w-full object-cover z-0 transition-opacity duration-200" />
@@ -633,13 +447,13 @@ const IDCard: React.FC = () => {
               <label className="text-xs text-gray-600 flex justify-between"><span>تحريك الصورة أعلى/أسفل (Pan Y)</span> <span>{getOverride('photo_trans_y', 0)}%</span></label>
               <input type="range" min="-100" max="100" step="1" value={getOverride('photo_trans_y', 0)} onChange={(e) => handleOverrideChange('photo_trans_y', e.target.value)} className="w-full" />
             </div>
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-2 gap-2 pt-2 border-t border-dashed">
               <div>
-                <label className="text-xs text-gray-600 flex justify-between"><span>Move X</span> <span>{getOverride('photo_x', 50.5)}%</span></label>
+                <label className="text-xs text-gray-600 flex justify-between"><span>تحريك الإطار (X)</span> <span>{getOverride('photo_x', 50.5)}%</span></label>
                 <input type="range" min="30" max="70" step="0.5" value={getOverride('photo_x', 50.5)} onChange={(e) => handleOverrideChange('photo_x', e.target.value)} className="w-full" />
               </div>
               <div>
-                <label className="text-xs text-gray-600 flex justify-between"><span>Move Y</span> <span>{getOverride('photo_y', 17.5)}%</span></label>
+                <label className="text-xs text-gray-600 flex justify-between"><span>تحريك الإطار (Y)</span> <span>{getOverride('photo_y', 17.5)}%</span></label>
                 <input type="range" min="5" max="40" step="0.5" value={getOverride('photo_y', 17.5)} onChange={(e) => handleOverrideChange('photo_y', e.target.value)} className="w-full" />
               </div>
             </div>
@@ -648,9 +462,33 @@ const IDCard: React.FC = () => {
           {/* Ticket Name Settings */}
           <div className="space-y-3">
             <h3 className="font-semibold text-sm text-emerald-600 border-b pb-1">اسم المشترك (التيكت)</h3>
+            <div className="mb-2">
+              <label className="text-xs text-gray-600 block mb-1">تعديل الاسم (إنجليزي)</label>
+              <input 
+                type="text" 
+                value={attendee.full_name_en || ''} 
+                onChange={(e) => handleTextEdit('full_name_en', e.target.value)}
+                className="w-full text-sm p-1 border rounded text-right"
+                dir="ltr"
+              />
+            </div>
+            <div className="flex items-center justify-between">
+              <label className="text-xs text-gray-600">تعدد الأسطر (Wrap)</label>
+              <input type="checkbox" checked={Number(getOverride('name_wrap', 0)) === 1} onChange={(e) => handleOverrideChange('name_wrap', e.target.checked ? '1' : '0')} />
+            </div>
             <div>
               <label className="text-xs text-gray-600 flex justify-between"><span>Font Size</span> <span>{getOverride('name_size', parseFloat(getTicketNameFontSize(getDisplayName(attendee))))}px</span></label>
               <input type="range" min="8" max="24" step="0.5" value={getOverride('name_size', parseFloat(getTicketNameFontSize(getDisplayName(attendee))))} onChange={(e) => handleOverrideChange('name_size', e.target.value)} className="w-full" />
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="text-xs text-gray-600 flex justify-between"><span>Width</span> <span>{getOverride('name_w', 64)}%</span></label>
+                <input type="range" min="20" max="100" step="1" value={getOverride('name_w', 64)} onChange={(e) => handleOverrideChange('name_w', e.target.value)} className="w-full" />
+              </div>
+              <div>
+                <label className="text-xs text-gray-600 flex justify-between"><span>Line Height</span> <span>{getOverride('name_lh', 1)}</span></label>
+                <input type="range" min="0.5" max="2.5" step="0.1" value={getOverride('name_lh', 1)} onChange={(e) => handleOverrideChange('name_lh', e.target.value)} className="w-full" />
+              </div>
             </div>
             <div className="grid grid-cols-2 gap-2">
               <div>
@@ -667,9 +505,33 @@ const IDCard: React.FC = () => {
           {/* Ticket Job Title Settings */}
           <div className="space-y-3">
             <h3 className="font-semibold text-sm text-emerald-600 border-b pb-1">المسمى الوظيفي (التيكت)</h3>
+            <div className="mb-2">
+              <label className="text-xs text-gray-600 block mb-1">تعديل المسمى الوظيفي</label>
+              <input 
+                type="text" 
+                value={attendee.job_title || ''} 
+                onChange={(e) => handleTextEdit('job_title', e.target.value)}
+                className="w-full text-sm p-1 border rounded text-right"
+                dir="ltr"
+              />
+            </div>
+            <div className="flex items-center justify-between">
+              <label className="text-xs text-gray-600">تعدد الأسطر (Wrap)</label>
+              <input type="checkbox" checked={Number(getOverride('title_wrap', 0)) === 1} onChange={(e) => handleOverrideChange('title_wrap', e.target.checked ? '1' : '0')} />
+            </div>
             <div>
               <label className="text-xs text-gray-600 flex justify-between"><span>Font Size</span> <span>{getOverride('title_size', parseFloat(getJobTitleFontSize(attendee?.job_title || '')))}px</span></label>
               <input type="range" min="8" max="24" step="0.5" value={getOverride('title_size', parseFloat(getJobTitleFontSize(attendee?.job_title || '')))} onChange={(e) => handleOverrideChange('title_size', e.target.value)} className="w-full" />
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="text-xs text-gray-600 flex justify-between"><span>Width</span> <span>{getOverride('title_w', 42)}%</span></label>
+                <input type="range" min="20" max="100" step="1" value={getOverride('title_w', 42)} onChange={(e) => handleOverrideChange('title_w', e.target.value)} className="w-full" />
+              </div>
+              <div>
+                <label className="text-xs text-gray-600 flex justify-between"><span>Line Height</span> <span>{getOverride('title_lh', 1.2)}</span></label>
+                <input type="range" min="0.5" max="2.5" step="0.1" value={getOverride('title_lh', 1.2)} onChange={(e) => handleOverrideChange('title_lh', e.target.value)} className="w-full" />
+              </div>
             </div>
             <div className="grid grid-cols-2 gap-2">
               <div>
