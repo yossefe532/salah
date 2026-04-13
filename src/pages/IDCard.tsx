@@ -225,8 +225,12 @@ const IDCard: React.FC = () => {
     if (!id) return;
     setSavingOverrides(true);
     try {
-      await api.patch(`/attendees/${id}`, { ticket_overrides: overrides });
-      alert('تم حفظ إعدادات الطباعة بنجاح');
+      await api.patch(`/attendees/${id}`, { 
+        ticket_overrides: overrides,
+        english_name: attendee?.english_name,
+        job_title: attendee?.job_title
+      });
+      alert('تم حفظ الإعدادات والبيانات بنجاح');
       setEditorMode(false);
     } catch (error) {
       console.error(error);
@@ -234,6 +238,10 @@ const IDCard: React.FC = () => {
     } finally {
       setSavingOverrides(false);
     }
+  };
+
+  const handleTextEdit = (field: 'english_name' | 'job_title', value: string) => {
+    setAttendee(prev => prev ? { ...prev, [field]: value } : prev);
   };
 
   const getOverride = (key: string, defaultVal: number | string) => {
@@ -272,24 +280,24 @@ const IDCard: React.FC = () => {
           <div className="space-y-3">
             <h3 className="font-semibold text-sm text-emerald-600 border-b pb-1">الصورة الشخصية</h3>
             <div>
-              <label className="text-xs text-gray-600 flex justify-between"><span>Zoom / Scale</span> <span>{getOverride('photo_scale', 1)}x</span></label>
+              <label className="text-xs text-gray-600 flex justify-between"><span>تكبير الصورة (Zoom)</span> <span>{getOverride('photo_scale', 1)}x</span></label>
               <input type="range" min="0.5" max="3" step="0.05" value={getOverride('photo_scale', 1)} onChange={(e) => handleOverrideChange('photo_scale', e.target.value)} className="w-full" />
             </div>
             <div>
-              <label className="text-xs text-gray-600 flex justify-between"><span>Focus X (Left/Right)</span> <span>{getOverride('photo_pos_x', 50)}%</span></label>
+              <label className="text-xs text-gray-600 flex justify-between"><span>تحريك الصورة يمين/يسار (Pan X)</span> <span>{getOverride('photo_pos_x', 50)}%</span></label>
               <input type="range" min="0" max="100" step="1" value={getOverride('photo_pos_x', 50)} onChange={(e) => handleOverrideChange('photo_pos_x', e.target.value)} className="w-full" />
             </div>
             <div>
-              <label className="text-xs text-gray-600 flex justify-between"><span>Focus Y (Top/Bottom)</span> <span>{getOverride('photo_pos_y', 0)}%</span></label>
+              <label className="text-xs text-gray-600 flex justify-between"><span>تحريك الصورة أعلى/أسفل (Pan Y)</span> <span>{getOverride('photo_pos_y', 0)}%</span></label>
               <input type="range" min="0" max="100" step="1" value={getOverride('photo_pos_y', 0)} onChange={(e) => handleOverrideChange('photo_pos_y', e.target.value)} className="w-full" />
             </div>
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-2 gap-2 pt-2 border-t border-dashed">
               <div>
-                <label className="text-xs text-gray-600 flex justify-between"><span>Move X</span> <span>{getOverride('photo_x', 50.5)}%</span></label>
+                <label className="text-xs text-gray-600 flex justify-between"><span>تحريك الإطار (X)</span> <span>{getOverride('photo_x', 50.5)}%</span></label>
                 <input type="range" min="30" max="70" step="0.5" value={getOverride('photo_x', 50.5)} onChange={(e) => handleOverrideChange('photo_x', e.target.value)} className="w-full" />
               </div>
               <div>
-                <label className="text-xs text-gray-600 flex justify-between"><span>Move Y</span> <span>{getOverride('photo_y', 17.5)}%</span></label>
+                <label className="text-xs text-gray-600 flex justify-between"><span>تحريك الإطار (Y)</span> <span>{getOverride('photo_y', 17.5)}%</span></label>
                 <input type="range" min="5" max="40" step="0.5" value={getOverride('photo_y', 17.5)} onChange={(e) => handleOverrideChange('photo_y', e.target.value)} className="w-full" />
               </div>
             </div>
@@ -298,6 +306,16 @@ const IDCard: React.FC = () => {
           {/* Ticket Name Settings */}
           <div className="space-y-3">
             <h3 className="font-semibold text-sm text-emerald-600 border-b pb-1">اسم المشترك (التيكت)</h3>
+            <div className="mb-2">
+              <label className="text-xs text-gray-600 block mb-1">تعديل الاسم (إنجليزي)</label>
+              <input 
+                type="text" 
+                value={attendee.english_name || ''} 
+                onChange={(e) => handleTextEdit('english_name', e.target.value)}
+                className="w-full text-sm p-1 border rounded text-right"
+                dir="ltr"
+              />
+            </div>
             <div className="flex items-center justify-between">
               <label className="text-xs text-gray-600">تعدد الأسطر (Wrap)</label>
               <input type="checkbox" checked={Number(getOverride('name_wrap', 0)) === 1} onChange={(e) => handleOverrideChange('name_wrap', e.target.checked ? '1' : '0')} />
@@ -331,6 +349,16 @@ const IDCard: React.FC = () => {
           {/* Ticket Job Title Settings */}
           <div className="space-y-3">
             <h3 className="font-semibold text-sm text-emerald-600 border-b pb-1">المسمى الوظيفي (التيكت)</h3>
+            <div className="mb-2">
+              <label className="text-xs text-gray-600 block mb-1">تعديل المسمى الوظيفي</label>
+              <input 
+                type="text" 
+                value={attendee.job_title || ''} 
+                onChange={(e) => handleTextEdit('job_title', e.target.value)}
+                className="w-full text-sm p-1 border rounded text-right"
+                dir="ltr"
+              />
+            </div>
             <div className="flex items-center justify-between">
               <label className="text-xs text-gray-600">تعدد الأسطر (Wrap)</label>
               <input type="checkbox" checked={Number(getOverride('title_wrap', 0)) === 1} onChange={(e) => handleOverrideChange('title_wrap', e.target.checked ? '1' : '0')} />
