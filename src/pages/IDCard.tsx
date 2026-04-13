@@ -698,7 +698,7 @@ const IDCard: React.FC = () => {
 
         <div className="pt-4 border-t mt-4 flex gap-2">
           <button 
-            onClick={handleSaveOverrides}
+            onClick={() => handleSaveOverrides(false)}
             disabled={savingOverrides}
             className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white py-2 rounded-md font-semibold text-sm flex items-center justify-center"
           >
