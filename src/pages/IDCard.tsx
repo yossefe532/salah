@@ -87,10 +87,20 @@ const IDCard: React.FC = () => {
     }
   }, [id]);
 
+  const triggerPrintTicket = async () => {
+    await handleSaveOverrides(true);
+    handlePrintTicket();
+  };
+
+  const triggerPrintCertificate = async () => {
+    await handleSaveOverrides(true);
+    handlePrintCertificate();
+  };
+
   const handlePrintTicket = useReactToPrint({
     contentRef: ticketPrintRef,
     documentTitle: attendee ? `ticket-${attendee.full_name}` : 'ticket',
-    pageStyle: `@page { size: 8.5cm 14cm; margin: 0; } @media print { body { -webkit-print-color-adjust: exact; margin: 0; } }`,
+    pageStyle: `@page { size: 8.5cm 14.0cm; margin: 0 !important; }`,
     onAfterPrint: () => {
       markPrinted('ticket');
     }
@@ -99,7 +109,7 @@ const IDCard: React.FC = () => {
   const handlePrintCertificate = useReactToPrint({
     contentRef: certificatePrintRef,
     documentTitle: attendee ? `certificate-${attendee.full_name}` : 'certificate',
-    pageStyle: `@page { size: 29.7cm 21cm; margin: 0; } @media print { body { -webkit-print-color-adjust: exact; margin: 0; } }`,
+    pageStyle: `@page { size: 21.0cm 29.7cm; margin: 0 !important; }`,
     onAfterPrint: () => {
       markPrinted('certificate');
     }
@@ -225,7 +235,7 @@ const IDCard: React.FC = () => {
     e.currentTarget.style.opacity = '0';
   };
 
-  const handleSaveOverrides = async () => {
+  const handleSaveOverrides = async (silent = false) => {
     if (!id) return;
     setSavingOverrides(true);
     try {
@@ -235,11 +245,15 @@ const IDCard: React.FC = () => {
         job_title: attendee?.job_title,
         profile_photo_url: attendee?.profile_photo_url
       });
-      alert('تم حفظ الإعدادات والبيانات بنجاح');
-      setEditorMode(false);
+      if (silent !== true) {
+        alert('تم حفظ الإعدادات والبيانات بنجاح');
+        setEditorMode(false);
+      }
     } catch (error) {
       console.error(error);
-      alert('حدث خطأ أثناء الحفظ');
+      if (silent !== true) {
+        alert('حدث خطأ أثناء الحفظ');
+      }
     } finally {
       setSavingOverrides(false);
     }
@@ -372,7 +386,7 @@ const IDCard: React.FC = () => {
 
         <div className="absolute z-10 flex justify-center" style={{ top: `${Number(getOverride('seat_y_2', 93))}%`, left: `${Number(getOverride('seat_x', 80))}%`, width: '40%', transform: 'translateX(-50%)' }}>
           <div className="font-bold text-[#e0d3c2] text-center" dir="ltr" style={{ fontSize: `${getOverride('seat_size', 13)}px`, lineHeight: '1', whiteSpace: 'nowrap' }}>
-            {resolvedSeatNumber !== null && resolvedSeatNumber !== undefined ? `Seat num: ${resolvedSeatNumber}` : '-'}
+            {resolvedSeatNumber !== null && resolvedSeatNumber !== undefined ? resolvedSeatNumber : '-'}
           </div>
         </div>
       </div>
@@ -713,17 +727,37 @@ const IDCard: React.FC = () => {
       {renderEditorPanel()}
       <div className={`flex-1 transition-all ${editorMode ? 'mr-80' : ''}`}>
         <style>{`
-        .ticket-sheet { width: 8.5cm; height: 14cm; background: #10141c; }
-        .certificate-sheet { width: 29.7cm; height: 21cm; background: #111; }
-        .preview-wrap { transform-origin: top center; }
+        .ticket-sheet {
+          width: 8.5cm;
+          height: 14cm;
+          background-color: #10141c;
+        }
+        .certificate-sheet {
+          width: 21cm;
+          height: 29.7cm;
+          background-color: #111;
+        }
+        .preview-wrap {
+          transform-origin: top center;
+        }
         @media (max-width: 768px) {
-          .preview-wrap { transform: scale(0.7); }
+          .preview-wrap {
+            transform: scale(0.7);
+          }
         }
         @media print {
-          @page { margin: 0; size: 8.5cm 14cm; }
-          body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-          .ticket-sheet { width: 8.5cm !important; height: 14cm !important; page-break-after: always; }
-          .certificate-sheet { width: 29.7cm !important; height: 21cm !important; page-break-after: always; }
+          @page {
+            margin: 0 !important;
+          }
+          body {
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+            margin: 0 !important;
+            padding: 0 !important;
+          }
+          .no-print {
+            display: none !important;
+          }
           .ticket-sheet, .certificate-sheet {
             border: none !important;
             border-radius: 0 !important;
@@ -772,7 +806,7 @@ const IDCard: React.FC = () => {
             تعديل مخصص
           </button>
         )}
-        <button onClick={() => handlePrintTicket()} className="inline-flex items-center px-4 py-2 rounded-md text-white bg-indigo-600 hover:bg-indigo-700">
+        <button onClick={triggerPrintTicket} className="inline-flex items-center px-4 py-2 rounded-md text-white bg-indigo-600 hover:bg-indigo-700">
           <Printer className="h-4 w-4 ml-2" />
           طباعة التيكت
         </button>
@@ -780,15 +814,15 @@ const IDCard: React.FC = () => {
           <Download className="h-4 w-4 ml-2" />
           حفظ QR فقط
         </button>
-        <button onClick={() => handlePrintTicket()} className="inline-flex items-center px-4 py-2 rounded-md text-indigo-700 bg-indigo-100 hover:bg-indigo-200">
+        <button onClick={triggerPrintTicket} className="inline-flex items-center px-4 py-2 rounded-md text-indigo-700 bg-indigo-100 hover:bg-indigo-200">
           <Printer className="h-4 w-4 ml-2" />
           حفظ PDF للتيكت
         </button>
-        <button onClick={() => handlePrintCertificate()} className="inline-flex items-center px-4 py-2 rounded-md text-white bg-emerald-600 hover:bg-emerald-700">
+        <button onClick={triggerPrintCertificate} className="inline-flex items-center px-4 py-2 rounded-md text-white bg-emerald-600 hover:bg-emerald-700">
           <Printer className="h-4 w-4 ml-2" />
           طباعة الشهادة
         </button>
-        <button onClick={() => handlePrintCertificate()} className="inline-flex items-center px-4 py-2 rounded-md text-emerald-700 bg-emerald-100 hover:bg-emerald-200">
+        <button onClick={triggerPrintCertificate} className="inline-flex items-center px-4 py-2 rounded-md text-emerald-700 bg-emerald-100 hover:bg-emerald-200">
           <Printer className="h-4 w-4 ml-2" />
           حفظ PDF للشهادة
         </button>
@@ -802,22 +836,59 @@ const IDCard: React.FC = () => {
         </div>
       </div>
 
-      <div className="flex justify-center">
-        <div ref={previewModeRef} className="preview-wrap">
-          {previewMode === 'certificate' ? renderCertificate() : previewMode === 'back' ? renderTicketBack() : renderTicketFront()}
+      <div className="flex justify-center flex-col items-center">
+          {/* Visible Previews */}
+          <div className="preview-wrap">
+            <div className="flex items-center gap-2 mb-2 text-white bg-slate-800 px-3 py-1 rounded-t-lg">
+              <Printer className="w-4 h-4" /> معاينة التيكت (وش)
+            </div>
+            {renderTicketFront()}
+          </div>
+
+          <div className="preview-wrap mt-8">
+            <div className="flex items-center gap-2 mb-2 text-white bg-slate-800 px-3 py-1 rounded-t-lg">
+              <Printer className="w-4 h-4" /> معاينة التيكت (ظهر)
+            </div>
+            {renderTicketBack()}
+          </div>
+
+          <div className="preview-wrap mt-8">
+            <div className="flex items-center gap-2 mb-2 text-white bg-slate-800 px-3 py-1 rounded-t-lg">
+              <Printer className="w-4 h-4" /> معاينة الشهادة
+            </div>
+            {renderCertificate()}
+          </div>
         </div>
       </div>
 
       <div className="absolute -left-[99999px] top-0">
         <div ref={ticketPrintRef}>
-          {renderTicketFront()}
-          <div style={{ pageBreakBefore: 'always' }} />
-          {renderTicketBack()}
+          <style type="text/css" media="print">
+            {`
+              @page { size: 8.5cm 14.0cm; margin: 0; }
+              body { margin: 0 !important; padding: 0 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+              .ticket-sheet { width: 8.5cm !important; height: 14.0cm !important; border: none !important; border-radius: 0 !important; }
+            `}
+          </style>
+          <div style={{ pageBreakAfter: 'always', overflow: 'hidden' }}>
+            {renderTicketFront()}
+          </div>
+          <div style={{ overflow: 'hidden' }}>
+            {renderTicketBack()}
+          </div>
         </div>
         <div ref={certificatePrintRef}>
-          {renderCertificate()}
+          <style type="text/css" media="print">
+            {`
+              @page { size: 21.0cm 29.7cm; margin: 0; }
+              body { margin: 0 !important; padding: 0 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+              .certificate-sheet { width: 21.0cm !important; height: 29.7cm !important; border: none !important; border-radius: 0 !important; }
+            `}
+          </style>
+          <div style={{ overflow: 'hidden' }}>
+            {renderCertificate()}
+          </div>
         </div>
-      </div>
       </div>
     </div>
   );

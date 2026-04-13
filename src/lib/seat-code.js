@@ -2,11 +2,11 @@ export const parseTableOrWaveFromSeatCode = (barcode, seatClass) => {
   const value = String(barcode || '');
   if (seatClass === 'C') {
     const wMatch = value.match(/-[WR]?([A-Za-z0-9_]+)-S/i);
-    if (wMatch) return `Wave num: ${wMatch[1]}`;
+    if (wMatch) return wMatch[1];
     return '-';
   }
   const tMatch = value.match(/-T([A-Za-z0-9_]+)-S/i);
-  if (tMatch) return `Table num: ${tMatch[1]}`;
+  if (tMatch) return tMatch[1];
   return '-';
 };
 
