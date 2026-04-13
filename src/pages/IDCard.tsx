@@ -264,7 +264,7 @@ const IDCard: React.FC = () => {
         <div className="absolute inset-0 flex items-center justify-center text-gray-800 text-sm border border-gray-800">صورة القالب مفقودة ({frontSrc})</div>
         <img src={frontSrc} alt="ticket-front-template" onError={handleImageError} className="absolute inset-0 h-full w-full object-cover z-0 transition-opacity duration-200" />
         
-        <div className="absolute z-10 rounded-[18px] overflow-hidden" style={{ 
+        <div className="absolute z-10 rounded-[18px] overflow-hidden bg-[#10141c]" style={{ 
           top: `${Number(getOverride('photo_y', 17.5))}%`, 
           left: `${Number(getOverride('photo_x', 50.5))}%`, 
           transform: 'translateX(-50%)', 
@@ -279,7 +279,7 @@ const IDCard: React.FC = () => {
               crossOrigin="anonymous" 
               className="h-full w-full" 
               style={{
-                objectFit: 'cover',
+                objectFit: Number(getOverride('photo_fit', 0)) === 1 ? 'contain' : 'cover',
                 objectPosition: "center",
                 transform: `scale(${Number(getOverride('photo_scale', 1))}) translate(${Number(getOverride('photo_trans_x', 0))}%, ${Number(getOverride('photo_trans_y', 0))}%)`
               }}
@@ -435,6 +435,10 @@ const IDCard: React.FC = () => {
           {/* Profile Photo Settings */}
           <div className="space-y-3">
             <h3 className="font-semibold text-sm text-emerald-600 border-b pb-1">الصورة الشخصية</h3>
+            <div className="flex items-center justify-between bg-emerald-50 p-2 rounded border border-emerald-100 mb-2">
+              <label className="text-xs text-emerald-800 font-medium">إظهار الصورة كاملة (بدون قص)</label>
+              <input type="checkbox" checked={Number(getOverride('photo_fit', 0)) === 1} onChange={(e) => handleOverrideChange('photo_fit', e.target.checked ? '1' : '0')} className="w-4 h-4 accent-emerald-600" />
+            </div>
             <div>
               <label className="text-xs text-gray-600 flex justify-between"><span>تكبير الصورة (Zoom)</span> <span>{getOverride('photo_scale', 1)}x</span></label>
               <input type="range" min="0.5" max="3" step="0.05" value={getOverride('photo_scale', 1)} onChange={(e) => handleOverrideChange('photo_scale', e.target.value)} className="w-full" />
