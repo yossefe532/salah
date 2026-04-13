@@ -311,8 +311,10 @@ const IDCard: React.FC = () => {
               lineHeight: `${getOverride('name_lh', 1)}`,
               letterSpacing: '0.02em',
               whiteSpace: Number(getOverride('name_wrap', 0)) ? 'normal' : 'nowrap',
+              wordBreak: Number(getOverride('name_wrap', 0)) ? 'break-word' : 'normal',
               overflow: 'visible',
-              width: '100%'
+              width: '100%',
+              maxWidth: '100%'
             }}
           >
             {fullName}
@@ -320,7 +322,7 @@ const IDCard: React.FC = () => {
         </div>
 
         {/* Job Title Section */}
-        <div className="absolute z-10" style={{ 
+        <div className="absolute z-10 flex justify-start" style={{ 
           top: `${Number(getOverride('title_y', 49.8))}%`, 
           left: `${Number(getOverride('title_x', 46))}%`, 
           width: `${Number(getOverride('title_w', 42))}%` 
@@ -334,8 +336,11 @@ const IDCard: React.FC = () => {
               fontSize: `${getOverride('title_size', parseFloat(getJobTitleFontSize(jobTitle)))}px`,
               lineHeight: `${getOverride('title_lh', 1.2)}`,
               whiteSpace: Number(getOverride('title_wrap', 0)) ? 'normal' : 'nowrap',
+              wordBreak: Number(getOverride('title_wrap', 0)) ? 'break-word' : 'normal',
               overflow: 'visible',
-              textAlign: 'left'
+              textAlign: 'left',
+              width: '100%',
+              maxWidth: '100%'
             }}
           >
             {jobTitle}
