@@ -20,16 +20,13 @@ const ATTENDEE_METADATA_FIELDS = [
   'barcode',
   'governorate',
   'status',
-  'full_name_en',
   'occupation_type',
   'organization_name',
-  'job_title',
   'ticket_price_override',
   'base_ticket_price',
   'certificate_included',
   'preferred_neighbor_name',
   'preferred_neighbor_ids',
-  'profile_photo_url',
   'sales_channel',
   'sales_source_name',
   'commission_amount',
@@ -2541,6 +2538,40 @@ export const api = {
     const currentUser = getSessionUser();
     const parts = endpoint.split('/');
     const id = parts[2];
+    
+    // Custom patch route for updating attendee directly
+    if (endpoint.match(/^\/attendees\/[^/]+$/)) {
+      const { data: oldRecordRaw } = await supabase.from('attendees').select('*').eq('id', id).single();
+      const payload: any = { ...body };
+      
+      // Preserve metadata and only update what's passed
+      if (oldRecordRaw) {
+        payload.warnings = oldRecordRaw.warnings || [];
+        
+        // Handle metadata fields like ticket_overrides
+        for (const field of ATTENDEE_METADATA_FIELDS) {
+           if (body[field] !== undefined) {
+             const warnings = Array.isArray(payload.warnings) ? [...payload.warnings] : [];
+             const idx = warnings.findIndex(w => w && typeof w === 'object' && w.type === 'metadata');
+             if (idx >= 0) {
+               warnings[idx] = { ...warnings[idx], [field]: body[field] };
+             } else {
+               warnings.push({ type: 'metadata', [field]: body[field] });
+             }
+             payload.warnings = warnings;
+             delete payload[field]; // Remove from top-level since it's now in warnings
+           }
+        }
+      }
+      
+      // Directly update normal DB columns explicitly passed in body (job_title, full_name_en, profile_photo_url)
+      // This ensures they stay in the actual DB columns, not just warnings
+      
+      const { data, error } = await updateAttendeeSafely(String(id), payload);
+      if (error) throw new Error(error.message);
+      return normalizeAttendeePricing(data);
+    }
+    
     if (endpoint.includes('restore')) {
       const scoped = applyCompanyScopeToAttendeesQuery(
         supabase.from('attendees').update({ is_deleted: false }).eq('id', id),
