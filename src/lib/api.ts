@@ -35,7 +35,8 @@ const ATTENDEE_METADATA_FIELDS = [
   'commission_amount',
   'commission_notes',
   'company_id',
-  'notes'
+  'notes',
+  'ticket_overrides'
 ] as const;
 
 const getMissingAttendeeColumn = (error: any) => {

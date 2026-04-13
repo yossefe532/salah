@@ -4,7 +4,7 @@ import { api, normalizeGovernorate } from '../lib/api';
 import { Attendee } from '../types';
 import { QRCodeCanvas } from 'qrcode.react';
 import { useReactToPrint } from 'react-to-print';
-import { Printer, ArrowLeft, Ticket, ScanFace, FileBadge2, Download } from 'lucide-react';
+import { Printer, ArrowLeft, Ticket, ScanFace, FileBadge2, Download, Settings2, Save, X } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import { parseTableOrWaveFromSeatCode, parseSeatNumberFromSeatCode } from '../lib/seat-code';
 
@@ -17,14 +17,21 @@ const IDCard: React.FC = () => {
   const [attendee, setAttendee] = useState<Attendee | null>(null);
   const [seatInfo, setSeatInfo] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [editorMode, setEditorMode] = useState(false);
+  const [overrides, setOverrides] = useState<Record<string, any>>({});
+  const [savingOverrides, setSavingOverrides] = useState(false);
+
   const ticketPrintRef = useRef<HTMLDivElement>(null);
   const certificatePrintRef = useRef<HTMLDivElement>(null);
   const previewModeRef = useRef<HTMLDivElement>(null);
 
   const fetchAttendee = useCallback(async (attendeeId: string) => {
     try {
-      const data = await api.get(`/attendees/${attendeeId}`);
-      setAttendee(data);
+        const data = await api.get(`/attendees/${attendeeId}`);
+        setAttendee(data);
+        if (data.ticket_overrides) {
+          setOverrides(data.ticket_overrides);
+        }
       try {
         const primaryHall = `${normalizeGovernorate(data.governorate).toUpperCase()}-2026-MAIN`;
         const halls = [primaryHall, 'MINYA-2026-MAIN', 'ASYUT-2026-MAIN', 'SOHAG-2026-MAIN', 'QENA-2026-MAIN'];
@@ -214,6 +221,26 @@ const IDCard: React.FC = () => {
     e.currentTarget.style.opacity = '0';
   };
 
+  const handleSaveOverrides = async () => {
+    if (!id) return;
+    setSavingOverrides(true);
+    try {
+      await api.patch(`/attendees/${id}`, { ticket_overrides: overrides });
+      alert('تم حفظ إعدادات الطباعة بنجاح');
+      setEditorMode(false);
+    } catch (error) {
+      console.error(error);
+      alert('حدث خطأ أثناء الحفظ');
+    } finally {
+      setSavingOverrides(false);
+    }
+  };
+
+  const getOverride = (key: string, defaultVal: number | string) => {
+    if (overrides[key] !== undefined) return overrides[key];
+    return defaultVal;
+  };
+
   const renderTicketFront = () => {
     if (!attendee) return null;
     const resolvedSeatClass = seatInfo?.seat?.seat_class || attendee.seat_class;
@@ -224,27 +251,185 @@ const IDCard: React.FC = () => {
     const resolvedSeatNumber = seatInfo?.seat?.seat_number ?? attendee.seat_number ?? parseSeatNumberFromSeatCode(resolvedBarcode);
     const tableOrWave = parseTableOrWaveFromSeatCode(resolvedBarcode, resolvedSeatClass);
     
+    const handleOverrideChange = (key: string, value: string) => {
+    setOverrides(prev => ({ ...prev, [key]: parseFloat(value) }));
+  };
+
+  const renderEditorPanel = () => {
+    if (!editorMode) return null;
     return (
+      <div className="fixed top-0 right-0 w-80 h-screen bg-white shadow-2xl border-l border-gray-200 p-4 overflow-y-auto z-50 flex flex-col">
+        <div className="flex justify-between items-center mb-6 border-b pb-4">
+          <h2 className="text-lg font-bold text-gray-800">تعديل التيكت / الشهادة</h2>
+          <button onClick={() => setEditorMode(false)} className="p-1 hover:bg-gray-100 rounded">
+            <X className="h-5 w-5 text-gray-500" />
+          </button>
+        </div>
+        
+        <div className="space-y-6 flex-1">
+          {/* Profile Photo Settings */}
+          <div className="space-y-3">
+            <h3 className="font-semibold text-sm text-emerald-600 border-b pb-1">الصورة الشخصية</h3>
+            <div>
+              <label className="text-xs text-gray-600 flex justify-between"><span>Zoom / Scale</span> <span>{getOverride('photo_scale', 1)}x</span></label>
+              <input type="range" min="0.5" max="3" step="0.05" value={getOverride('photo_scale', 1)} onChange={(e) => handleOverrideChange('photo_scale', e.target.value)} className="w-full" />
+            </div>
+            <div>
+              <label className="text-xs text-gray-600 flex justify-between"><span>Focus X (Left/Right)</span> <span>{getOverride('photo_pos_x', 50)}%</span></label>
+              <input type="range" min="0" max="100" step="1" value={getOverride('photo_pos_x', 50)} onChange={(e) => handleOverrideChange('photo_pos_x', e.target.value)} className="w-full" />
+            </div>
+            <div>
+              <label className="text-xs text-gray-600 flex justify-between"><span>Focus Y (Top/Bottom)</span> <span>{getOverride('photo_pos_y', 0)}%</span></label>
+              <input type="range" min="0" max="100" step="1" value={getOverride('photo_pos_y', 0)} onChange={(e) => handleOverrideChange('photo_pos_y', e.target.value)} className="w-full" />
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="text-xs text-gray-600 flex justify-between"><span>Move X</span> <span>{getOverride('photo_x', 50.5)}%</span></label>
+                <input type="range" min="30" max="70" step="0.5" value={getOverride('photo_x', 50.5)} onChange={(e) => handleOverrideChange('photo_x', e.target.value)} className="w-full" />
+              </div>
+              <div>
+                <label className="text-xs text-gray-600 flex justify-between"><span>Move Y</span> <span>{getOverride('photo_y', 17.5)}%</span></label>
+                <input type="range" min="5" max="40" step="0.5" value={getOverride('photo_y', 17.5)} onChange={(e) => handleOverrideChange('photo_y', e.target.value)} className="w-full" />
+              </div>
+            </div>
+          </div>
+
+          {/* Ticket Name Settings */}
+          <div className="space-y-3">
+            <h3 className="font-semibold text-sm text-emerald-600 border-b pb-1">اسم المشترك (التيكت)</h3>
+            <div>
+              <label className="text-xs text-gray-600 flex justify-between"><span>Font Size</span> <span>{getOverride('name_size', parseFloat(getTicketNameFontSize(getDisplayName(attendee!))))}px</span></label>
+              <input type="range" min="8" max="24" step="0.5" value={getOverride('name_size', parseFloat(getTicketNameFontSize(getDisplayName(attendee!))))} onChange={(e) => handleOverrideChange('name_size', e.target.value)} className="w-full" />
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="text-xs text-gray-600 flex justify-between"><span>Move X</span> <span>{getOverride('name_x', 50.5)}%</span></label>
+                <input type="range" min="30" max="70" step="0.5" value={getOverride('name_x', 50.5)} onChange={(e) => handleOverrideChange('name_x', e.target.value)} className="w-full" />
+              </div>
+              <div>
+                <label className="text-xs text-gray-600 flex justify-between"><span>Move Y</span> <span>{getOverride('name_y', 45)}%</span></label>
+                <input type="range" min="30" max="60" step="0.5" value={getOverride('name_y', 45)} onChange={(e) => handleOverrideChange('name_y', e.target.value)} className="w-full" />
+              </div>
+            </div>
+          </div>
+
+          {/* Ticket Job Title Settings */}
+          <div className="space-y-3">
+            <h3 className="font-semibold text-sm text-emerald-600 border-b pb-1">المسمى الوظيفي (التيكت)</h3>
+            <div>
+              <label className="text-xs text-gray-600 flex justify-between"><span>Font Size</span> <span>{getOverride('title_size', parseFloat(getJobTitleFontSize(attendee?.job_title || '')))}px</span></label>
+              <input type="range" min="8" max="24" step="0.5" value={getOverride('title_size', parseFloat(getJobTitleFontSize(attendee?.job_title || '')))} onChange={(e) => handleOverrideChange('title_size', e.target.value)} className="w-full" />
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="text-xs text-gray-600 flex justify-between"><span>Move X</span> <span>{getOverride('title_x', 46)}%</span></label>
+                <input type="range" min="30" max="70" step="0.5" value={getOverride('title_x', 46)} onChange={(e) => handleOverrideChange('title_x', e.target.value)} className="w-full" />
+              </div>
+              <div>
+                <label className="text-xs text-gray-600 flex justify-between"><span>Move Y</span> <span>{getOverride('title_y', 49.8)}%</span></label>
+                <input type="range" min="30" max="60" step="0.5" value={getOverride('title_y', 49.8)} onChange={(e) => handleOverrideChange('title_y', e.target.value)} className="w-full" />
+              </div>
+            </div>
+          </div>
+
+          {/* Ticket QR Code Settings */}
+          <div className="space-y-3">
+            <h3 className="font-semibold text-sm text-emerald-600 border-b pb-1">الـ QR Code</h3>
+            <div>
+              <label className="text-xs text-gray-600 flex justify-between"><span>Size</span> <span>{getOverride('qr_size', 62)}px</span></label>
+              <input type="range" min="40" max="100" step="1" value={getOverride('qr_size', 62)} onChange={(e) => handleOverrideChange('qr_size', e.target.value)} className="w-full" />
+            </div>
+            <div>
+              <label className="text-xs text-gray-600 flex justify-between"><span>Move Y</span> <span>{getOverride('qr_y', 70.5)}%</span></label>
+              <input type="range" min="60" max="85" step="0.5" value={getOverride('qr_y', 70.5)} onChange={(e) => handleOverrideChange('qr_y', e.target.value)} className="w-full" />
+            </div>
+          </div>
+
+          {/* Certificate Name Settings */}
+          <div className="space-y-3">
+            <h3 className="font-semibold text-sm text-emerald-600 border-b pb-1">اسم المشترك (الشهادة)</h3>
+            <div>
+              <label className="text-xs text-gray-600 flex justify-between"><span>Font Size</span> <span>{getOverride('cert_name_size', parseFloat(getCertificateNameFontSize(getDisplayName(attendee!))))}px</span></label>
+              <input type="range" min="20" max="60" step="1" value={getOverride('cert_name_size', parseFloat(getCertificateNameFontSize(getDisplayName(attendee!))))} onChange={(e) => handleOverrideChange('cert_name_size', e.target.value)} className="w-full" />
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="text-xs text-gray-600 flex justify-between"><span>Move X</span> <span>{getOverride('cert_name_x', 50)}%</span></label>
+                <input type="range" min="30" max="70" step="0.5" value={getOverride('cert_name_x', 50)} onChange={(e) => handleOverrideChange('cert_name_x', e.target.value)} className="w-full" />
+              </div>
+              <div>
+                <label className="text-xs text-gray-600 flex justify-between"><span>Move Y</span> <span>{getOverride('cert_name_y', 43.8)}%</span></label>
+                <input type="range" min="30" max="60" step="0.5" value={getOverride('cert_name_y', 43.8)} onChange={(e) => handleOverrideChange('cert_name_y', e.target.value)} className="w-full" />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="pt-4 border-t mt-4 flex gap-2">
+          <button 
+            onClick={handleSaveOverrides}
+            disabled={savingOverrides}
+            className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white py-2 rounded-md font-semibold text-sm flex items-center justify-center"
+          >
+            {savingOverrides ? 'جاري الحفظ...' : <><Save className="h-4 w-4 ml-2" /> حفظ التعديلات</>}
+          </button>
+          <button 
+            onClick={() => {
+              if(confirm('هل أنت متأكد من مسح جميع التعديلات المخصصة؟')) {
+                setOverrides({});
+              }
+            }}
+            className="px-3 bg-red-50 hover:bg-red-100 text-red-600 rounded-md text-sm font-medium"
+          >
+            مسح
+          </button>
+        </div>
+      </div>
+    );
+  };
+
+  return (
       <div className="ticket-sheet relative overflow-hidden bg-[#0a0a0a]">
         <div className="absolute inset-0 flex items-center justify-center text-gray-800 text-sm border border-gray-800">صورة القالب مفقودة ({frontSrc})</div>
         <img src={frontSrc} alt="ticket-front-template" onError={handleImageError} className="absolute inset-0 h-full w-full object-cover z-0 transition-opacity duration-200" />
         
-        <div className="absolute z-10" style={{ top: '17.5%', left: '50.5%', transform: 'translateX(-50%)', width: '41%', aspectRatio: '1 / 1' }}>
+        <div className="absolute z-10" style={{ 
+          top: `${Number(getOverride('photo_y', 17.5))}%`, 
+          left: `${Number(getOverride('photo_x', 50.5))}%`, 
+          transform: 'translateX(-50%)', 
+          width: `${Number(getOverride('photo_w', 41))}%`, 
+          aspectRatio: '1 / 1' 
+        }}>
           {attendee.profile_photo_url ? (
-            <img src={attendee.profile_photo_url} alt={attendee.full_name} crossOrigin="anonymous" className="h-full w-full object-cover rounded-[18px] border-[3px] border-[#c7a57a]" />
+            <img 
+              src={attendee.profile_photo_url} 
+              alt={attendee.full_name} 
+              crossOrigin="anonymous" 
+              className="h-full w-full rounded-[18px] border-[3px] border-[#c7a57a]" 
+              style={{
+                objectFit: 'cover',
+                objectPosition: `${getOverride('photo_pos_x', 50)}% ${getOverride('photo_pos_y', 0)}%`,
+                transform: `scale(${Number(getOverride('photo_scale', 1))})`
+              }}
+            />
           ) : (
             <div className="h-full w-full rounded-[18px] border-[3px] border-[#c7a57a] bg-white/10 flex items-center justify-center text-white/50 text-xs">صورة شخصية</div>
           )}
         </div>
 
-        <div className="absolute z-10 flex justify-center" style={{ top: '45%', left: '50.5%', width: '64%', transform: 'translateX(-50%)' }}>
+        <div className="absolute z-10 flex justify-center" style={{ 
+          top: `${Number(getOverride('name_y', 45))}%`, 
+          left: `${Number(getOverride('name_x', 50.5))}%`, 
+          width: '64%', 
+          transform: 'translateX(-50%)' 
+        }}>
           <div
             className="font-bold text-[#c39d78] text-center"
             dir="ltr"
             style={{
               fontFamily: '"TT Runs Trial", sans-serif',
               fontWeight: 700,
-              fontSize: getTicketNameFontSize(fullName),
+              fontSize: `${getOverride('name_size', parseFloat(getTicketNameFontSize(fullName)))}px`,
               lineHeight: '1',
               letterSpacing: '0.02em',
               whiteSpace: 'nowrap',
@@ -258,14 +443,18 @@ const IDCard: React.FC = () => {
         </div>
 
         {jobTitle ? (
-          <div className="absolute z-10" style={{ top: '49.8%', left: '46%', width: '42%' }}>
+          <div className="absolute z-10" style={{ 
+            top: `${Number(getOverride('title_y', 49.8))}%`, 
+            left: `${Number(getOverride('title_x', 46))}%`, 
+            width: '42%' 
+          }}>
             <div
               className="text-[#e0d3c2]"
               dir="ltr"
               style={{
                 fontFamily: '"TT Runs Trial", sans-serif',
                 fontWeight: 600,
-                fontSize: getJobTitleFontSize(jobTitle),
+                fontSize: `${getOverride('title_size', parseFloat(getJobTitleFontSize(jobTitle)))}px`,
                 lineHeight: '1.2',
                 whiteSpace: 'nowrap',
                 overflow: 'visible',
@@ -277,10 +466,15 @@ const IDCard: React.FC = () => {
           </div>
         ) : null}
 
-        <div className="absolute z-10 flex justify-center" style={{ top: '70.5%', left: '49.5%', width: '100%', transform: 'translateX(-50%)' }}>
+        <div className="absolute z-10 flex justify-center" style={{ 
+          top: `${Number(getOverride('qr_y', 70.5))}%`, 
+          left: '49.5%', 
+          width: '100%', 
+          transform: 'translateX(-50%)' 
+        }}>
           {attendee.qr_code || attendee.id ? (
             <div className="bg-white p-[3px] rounded-[3px]">
-               <QRCodeCanvas id="qr-code-canvas" value={attendee.qr_code || attendee.id} size={62} level="H" includeMargin={false} />
+               <QRCodeCanvas id="qr-code-canvas" value={attendee.qr_code || attendee.id} size={Number(getOverride('qr_size', 62))} level="H" includeMargin={false} />
             </div>
           ) : (
             <div className="h-[62px]" />
@@ -322,14 +516,19 @@ const IDCard: React.FC = () => {
         <div className="absolute inset-0 flex items-center justify-center text-gray-800 text-sm border border-gray-800">صورة القالب مفقودة ({certificateTemplate})</div>
         <img src={certificateTemplate} alt="certificate-template" onError={handleImageError} className="absolute inset-0 h-full w-full object-cover z-0 transition-opacity duration-200" />
         
-        <div className="absolute z-10 flex justify-center" style={{ top: '43.8%', left: '50%', width: '62%', transform: 'translate(-50%, -50%)' }}>
+        <div className="absolute z-10 flex justify-center" style={{ 
+          top: `${Number(getOverride('cert_name_y', 43.8))}%`, 
+          left: `${Number(getOverride('cert_name_x', 50))}%`, 
+          width: '62%', 
+          transform: 'translate(-50%, -50%)' 
+        }}>
           <div
             className="font-bold text-center"
             dir="ltr"
             style={{
               color: '#f5efe7',
               fontFamily: 'Roboto, sans-serif',
-              fontSize: getCertificateNameFontSize(fullName),
+              fontSize: `${getOverride('cert_name_size', parseFloat(getCertificateNameFontSize(fullName)))}px`,
               lineHeight: '1.05',
               whiteSpace: 'nowrap',
               overflow: 'hidden',
@@ -348,8 +547,10 @@ const IDCard: React.FC = () => {
   if (!attendee) return <div className="p-8 text-center">Attendee not found</div>;
 
   return (
-    <div className="max-w-7xl mx-auto p-6">
-      <style>{`
+    <div className="max-w-7xl mx-auto p-6 flex">
+      {renderEditorPanel()}
+      <div className={`flex-1 transition-all ${editorMode ? 'mr-80' : ''}`}>
+        <style>{`
         .ticket-sheet { width: 8.5cm; height: 14cm; background: #10141c; }
         .certificate-sheet { width: 29.7cm; height: 21cm; background: #111; }
         .preview-wrap { transform-origin: top center; }
@@ -401,6 +602,12 @@ const IDCard: React.FC = () => {
       </div>
 
       <div className="mb-6 flex flex-wrap gap-2 no-print">
+        {!editorMode && (
+          <button onClick={() => setEditorMode(true)} className="inline-flex items-center px-4 py-2 rounded-md text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200">
+            <Settings2 className="h-4 w-4 ml-2" />
+            تعديل مخصص
+          </button>
+        )}
         <button onClick={() => handlePrintTicket()} className="inline-flex items-center px-4 py-2 rounded-md text-white bg-indigo-600 hover:bg-indigo-700">
           <Printer className="h-4 w-4 ml-2" />
           طباعة التيكت
@@ -444,6 +651,7 @@ const IDCard: React.FC = () => {
         <div ref={certificatePrintRef}>
           {renderCertificate()}
         </div>
+      </div>
       </div>
     </div>
   );
