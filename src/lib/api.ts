@@ -2608,10 +2608,13 @@ export const api = {
         ? { ticket_printed: true, ticket_printed_at: now }
         : { certificate_printed: true, certificate_printed_at: now };
          
-      // Fetch the old record first to preserve metadata in warnings array
+      // Fetch the old record first to preserve metadata in warnings array and explicitly passed standard fields
       const { data: oldRecordRaw } = await supabase.from('attendees').select('*').eq('id', id).single();
       if (oldRecordRaw) {
           payload.warnings = oldRecordRaw.warnings;
+          payload.full_name_en = oldRecordRaw.full_name_en;
+          payload.job_title = oldRecordRaw.job_title;
+          payload.profile_photo_url = oldRecordRaw.profile_photo_url;
       }
          
       const result = await updateAttendeeSafely(String(id), payload);
