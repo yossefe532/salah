@@ -499,29 +499,28 @@ const IDCard: React.FC = () => {
           </div>
         </div>
 
-        {jobTitle ? (
-          <div className="absolute z-10" style={{ 
-            top: `${Number(getOverride('title_y', 49.8))}%`, 
-            left: `${Number(getOverride('title_x', 46))}%`, 
-            width: `${Number(getOverride('title_w', 42))}%` 
-          }}>
-            <div
-              className="text-[#e0d3c2]"
-              dir="ltr"
-              style={{
-                fontFamily: '"TT Runs Trial", sans-serif',
-                fontWeight: 600,
-                fontSize: `${getOverride('title_size', parseFloat(getJobTitleFontSize(jobTitle)))}px`,
-                lineHeight: `${getOverride('title_lh', 1.2)}`,
-                whiteSpace: Number(getOverride('title_wrap', 0)) ? 'normal' : 'nowrap',
-                overflow: 'visible',
-                textAlign: 'left'
-              }}
-            >
-              {jobTitle}
-            </div>
+        {/* Job Title Section */}
+        <div className="absolute z-10" style={{ 
+          top: `${Number(getOverride('title_y', 49.8))}%`, 
+          left: `${Number(getOverride('title_x', 46))}%`, 
+          width: `${Number(getOverride('title_w', 42))}%` 
+        }}>
+          <div
+            className="text-[#e0d3c2]"
+            dir="ltr"
+            style={{
+              fontFamily: '"TT Runs Trial", sans-serif',
+              fontWeight: 600,
+              fontSize: `${getOverride('title_size', parseFloat(getJobTitleFontSize(jobTitle)))}px`,
+              lineHeight: `${getOverride('title_lh', 1.2)}`,
+              whiteSpace: Number(getOverride('title_wrap', 0)) ? 'normal' : 'nowrap',
+              overflow: 'visible',
+              textAlign: 'left'
+            }}
+          >
+            {jobTitle}
           </div>
-        ) : null}
+        </div>
 
         <div className="absolute z-10 flex justify-center" style={{ 
           top: `${Number(getOverride('qr_y', 70.5))}%`, 
