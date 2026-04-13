@@ -90,6 +90,7 @@ const IDCard: React.FC = () => {
   const handlePrintTicket = useReactToPrint({
     contentRef: ticketPrintRef,
     documentTitle: attendee ? `ticket-${attendee.full_name}` : 'ticket',
+    pageStyle: `@page { size: 8.5cm 14cm; margin: 0; } @media print { body { -webkit-print-color-adjust: exact; margin: 0; } }`,
     onAfterPrint: () => {
       markPrinted('ticket');
     }
@@ -98,6 +99,7 @@ const IDCard: React.FC = () => {
   const handlePrintCertificate = useReactToPrint({
     contentRef: certificatePrintRef,
     documentTitle: attendee ? `certificate-${attendee.full_name}` : 'certificate',
+    pageStyle: `@page { size: 29.7cm 21cm; margin: 0; } @media print { body { -webkit-print-color-adjust: exact; margin: 0; } }`,
     onAfterPrint: () => {
       markPrinted('certificate');
     }
@@ -362,15 +364,15 @@ const IDCard: React.FC = () => {
           )}
         </div>
 
-        <div className="absolute z-10 print-seat-align" style={{ top: '89.5%', right: '15%', width: '30%' }}>
-          <div className="font-bold text-[#e0d3c2] text-left" dir="ltr" style={{ fontSize: '13px', lineHeight: '1', whiteSpace: 'nowrap' }}>
+        <div className="absolute z-10 flex justify-center" style={{ top: `${Number(getOverride('seat_y_1', 89.5))}%`, left: `${Number(getOverride('seat_x', 80))}%`, width: '40%', transform: 'translateX(-50%)' }}>
+          <div className="font-bold text-[#e0d3c2] text-center" dir="ltr" style={{ fontSize: `${getOverride('seat_size', 13)}px`, lineHeight: '1', whiteSpace: 'nowrap' }}>
             {tableOrWave}
           </div>
         </div>
 
-        <div className="absolute z-10 print-seat-align" style={{ top: '93%', right: '15%', width: '30%' }}>
-          <div className="font-bold text-[#e0d3c2] text-left" dir="ltr" style={{ fontSize: '13px', lineHeight: '1', whiteSpace: 'nowrap' }}>
-            {resolvedSeatNumber ?? '-'}
+        <div className="absolute z-10 flex justify-center" style={{ top: `${Number(getOverride('seat_y_2', 93))}%`, left: `${Number(getOverride('seat_x', 80))}%`, width: '40%', transform: 'translateX(-50%)' }}>
+          <div className="font-bold text-[#e0d3c2] text-center" dir="ltr" style={{ fontSize: `${getOverride('seat_size', 13)}px`, lineHeight: '1', whiteSpace: 'nowrap' }}>
+            {resolvedSeatNumber !== null && resolvedSeatNumber !== undefined ? `Seat num: ${resolvedSeatNumber}` : '-'}
           </div>
         </div>
       </div>
@@ -637,6 +639,29 @@ const IDCard: React.FC = () => {
             </div>
           </div>
 
+          {/* Ticket Seat Settings */}
+          <div className="space-y-3">
+            <h3 className="font-semibold text-sm text-emerald-600 border-b pb-1">أرقام المقاعد</h3>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="text-xs text-gray-600 flex justify-between"><span>Move X (يمين/يسار)</span> <span>{getOverride('seat_x', 80)}%</span></label>
+                <input type="range" min="50" max="100" step="0.5" value={getOverride('seat_x', 80)} onChange={(e) => handleOverrideChange('seat_x', e.target.value)} className="w-full" />
+              </div>
+              <div>
+                <label className="text-xs text-gray-600 flex justify-between"><span>Font Size</span> <span>{getOverride('seat_size', 13)}px</span></label>
+                <input type="range" min="8" max="24" step="0.5" value={getOverride('seat_size', 13)} onChange={(e) => handleOverrideChange('seat_size', e.target.value)} className="w-full" />
+              </div>
+              <div>
+                <label className="text-xs text-gray-600 flex justify-between"><span>Move Y (السطر 1)</span> <span>{getOverride('seat_y_1', 89.5)}%</span></label>
+                <input type="range" min="50" max="100" step="0.5" value={getOverride('seat_y_1', 89.5)} onChange={(e) => handleOverrideChange('seat_y_1', e.target.value)} className="w-full" />
+              </div>
+              <div>
+                <label className="text-xs text-gray-600 flex justify-between"><span>Move Y (السطر 2)</span> <span>{getOverride('seat_y_2', 93)}%</span></label>
+                <input type="range" min="50" max="100" step="0.5" value={getOverride('seat_y_2', 93)} onChange={(e) => handleOverrideChange('seat_y_2', e.target.value)} className="w-full" />
+              </div>
+            </div>
+          </div>
+
           {/* Certificate Name Settings */}
           <div className="space-y-3">
             <h3 className="font-semibold text-sm text-emerald-600 border-b pb-1">اسم المشترك (الشهادة)</h3>
@@ -706,9 +731,6 @@ const IDCard: React.FC = () => {
             margin: 0 !important;
             position: relative !important;
             overflow: hidden !important;
-          }
-          .print-seat-align {
-            right: 17% !important;
           }
         }
       `}</style>

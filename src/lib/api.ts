@@ -2544,33 +2544,16 @@ export const api = {
       const { data: oldRecordRaw } = await supabase.from('attendees').select('*').eq('id', id).single();
       const payload: any = { ...body };
       
-      // Preserve metadata and only update what's passed
-      if (oldRecordRaw) {
-        payload.warnings = oldRecordRaw.warnings || [];
-        
-        // Handle metadata fields like ticket_overrides
-        for (const field of ATTENDEE_METADATA_FIELDS) {
-           if (body[field] !== undefined) {
-             const warnings = Array.isArray(payload.warnings) ? [...payload.warnings] : [];
-             const idx = warnings.findIndex(w => w && typeof w === 'object' && w.type === 'metadata');
-             if (idx >= 0) {
-               warnings[idx] = { ...warnings[idx], [field]: body[field] };
-             } else {
-               warnings.push({ type: 'metadata', [field]: body[field] });
-             }
-             payload.warnings = warnings;
-             delete payload[field]; // Remove from top-level since it's now in warnings
-           }
-        }
-      }
+      // Use standard metadata merging logic
+      const currentWarnings = oldRecordRaw?.warnings || [];
+      const updatedPayload = attachAttendeeMetaToPayload(payload, currentWarnings);
       
-      // EXPLICIT FIX: Ensure direct columns are forcefully applied via Supabase client, bypassing any strict metadata merging bugs
       const directUpdatePayload: any = {};
       
       if (payload.full_name_en !== undefined) directUpdatePayload.full_name_en = payload.full_name_en;
       if (payload.job_title !== undefined) directUpdatePayload.job_title = payload.job_title;
       if (payload.profile_photo_url !== undefined) directUpdatePayload.profile_photo_url = payload.profile_photo_url;
-      if (payload.warnings !== undefined) directUpdatePayload.warnings = payload.warnings;
+      if (updatedPayload.warnings !== undefined) directUpdatePayload.warnings = updatedPayload.warnings;
       
       const { data, error } = await supabase
         .from('attendees')
