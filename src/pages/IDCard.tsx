@@ -298,9 +298,23 @@ const IDCard: React.FC = () => {
           {/* Ticket Name Settings */}
           <div className="space-y-3">
             <h3 className="font-semibold text-sm text-emerald-600 border-b pb-1">اسم المشترك (التيكت)</h3>
+            <div className="flex items-center justify-between">
+              <label className="text-xs text-gray-600">تعدد الأسطر (Wrap)</label>
+              <input type="checkbox" checked={Number(getOverride('name_wrap', 0)) === 1} onChange={(e) => handleOverrideChange('name_wrap', e.target.checked ? '1' : '0')} />
+            </div>
             <div>
               <label className="text-xs text-gray-600 flex justify-between"><span>Font Size</span> <span>{getOverride('name_size', parseFloat(getTicketNameFontSize(getDisplayName(attendee))))}px</span></label>
               <input type="range" min="8" max="24" step="0.5" value={getOverride('name_size', parseFloat(getTicketNameFontSize(getDisplayName(attendee))))} onChange={(e) => handleOverrideChange('name_size', e.target.value)} className="w-full" />
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="text-xs text-gray-600 flex justify-between"><span>Width</span> <span>{getOverride('name_w', 64)}%</span></label>
+                <input type="range" min="20" max="100" step="1" value={getOverride('name_w', 64)} onChange={(e) => handleOverrideChange('name_w', e.target.value)} className="w-full" />
+              </div>
+              <div>
+                <label className="text-xs text-gray-600 flex justify-between"><span>Line Height</span> <span>{getOverride('name_lh', 1)}</span></label>
+                <input type="range" min="0.5" max="2.5" step="0.1" value={getOverride('name_lh', 1)} onChange={(e) => handleOverrideChange('name_lh', e.target.value)} className="w-full" />
+              </div>
             </div>
             <div className="grid grid-cols-2 gap-2">
               <div>
@@ -317,9 +331,23 @@ const IDCard: React.FC = () => {
           {/* Ticket Job Title Settings */}
           <div className="space-y-3">
             <h3 className="font-semibold text-sm text-emerald-600 border-b pb-1">المسمى الوظيفي (التيكت)</h3>
+            <div className="flex items-center justify-between">
+              <label className="text-xs text-gray-600">تعدد الأسطر (Wrap)</label>
+              <input type="checkbox" checked={Number(getOverride('title_wrap', 0)) === 1} onChange={(e) => handleOverrideChange('title_wrap', e.target.checked ? '1' : '0')} />
+            </div>
             <div>
               <label className="text-xs text-gray-600 flex justify-between"><span>Font Size</span> <span>{getOverride('title_size', parseFloat(getJobTitleFontSize(attendee?.job_title || '')))}px</span></label>
               <input type="range" min="8" max="24" step="0.5" value={getOverride('title_size', parseFloat(getJobTitleFontSize(attendee?.job_title || '')))} onChange={(e) => handleOverrideChange('title_size', e.target.value)} className="w-full" />
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="text-xs text-gray-600 flex justify-between"><span>Width</span> <span>{getOverride('title_w', 42)}%</span></label>
+                <input type="range" min="20" max="100" step="1" value={getOverride('title_w', 42)} onChange={(e) => handleOverrideChange('title_w', e.target.value)} className="w-full" />
+              </div>
+              <div>
+                <label className="text-xs text-gray-600 flex justify-between"><span>Line Height</span> <span>{getOverride('title_lh', 1.2)}</span></label>
+                <input type="range" min="0.5" max="2.5" step="0.1" value={getOverride('title_lh', 1.2)} onChange={(e) => handleOverrideChange('title_lh', e.target.value)} className="w-full" />
+              </div>
             </div>
             <div className="grid grid-cols-2 gap-2">
               <div>
@@ -394,7 +422,7 @@ const IDCard: React.FC = () => {
         <div className="absolute inset-0 flex items-center justify-center text-gray-800 text-sm border border-gray-800">صورة القالب مفقودة ({frontSrc})</div>
         <img src={frontSrc} alt="ticket-front-template" onError={handleImageError} className="absolute inset-0 h-full w-full object-cover z-0 transition-opacity duration-200" />
         
-        <div className="absolute z-10" style={{ 
+        <div className="absolute z-10 rounded-[18px] border-[3px] border-[#c7a57a] overflow-hidden bg-white/10" style={{ 
           top: `${Number(getOverride('photo_y', 17.5))}%`, 
           left: `${Number(getOverride('photo_x', 50.5))}%`, 
           transform: 'translateX(-50%)', 
@@ -406,7 +434,7 @@ const IDCard: React.FC = () => {
               src={attendee.profile_photo_url} 
               alt={attendee.full_name} 
               crossOrigin="anonymous" 
-              className="h-full w-full rounded-[18px] border-[3px] border-[#c7a57a]" 
+              className="h-full w-full" 
               style={{
                 objectFit: 'cover',
                 objectPosition: `${getOverride('photo_pos_x', 50)}% ${getOverride('photo_pos_y', 0)}%`,
@@ -414,14 +442,14 @@ const IDCard: React.FC = () => {
               }}
             />
           ) : (
-            <div className="h-full w-full rounded-[18px] border-[3px] border-[#c7a57a] bg-white/10 flex items-center justify-center text-white/50 text-xs">صورة شخصية</div>
+            <div className="h-full w-full flex items-center justify-center text-white/50 text-xs">صورة شخصية</div>
           )}
         </div>
 
         <div className="absolute z-10 flex justify-center" style={{ 
           top: `${Number(getOverride('name_y', 45))}%`, 
           left: `${Number(getOverride('name_x', 50.5))}%`, 
-          width: '64%', 
+          width: `${Number(getOverride('name_w', 64))}%`, 
           transform: 'translateX(-50%)' 
         }}>
           <div
@@ -431,11 +459,10 @@ const IDCard: React.FC = () => {
               fontFamily: '"TT Runs Trial", sans-serif',
               fontWeight: 700,
               fontSize: `${getOverride('name_size', parseFloat(getTicketNameFontSize(fullName)))}px`,
-              lineHeight: '1',
+              lineHeight: `${getOverride('name_lh', 1)}`,
               letterSpacing: '0.02em',
-              whiteSpace: 'nowrap',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
+              whiteSpace: Number(getOverride('name_wrap', 0)) ? 'normal' : 'nowrap',
+              overflow: 'visible',
               width: '100%'
             }}
           >
@@ -447,7 +474,7 @@ const IDCard: React.FC = () => {
           <div className="absolute z-10" style={{ 
             top: `${Number(getOverride('title_y', 49.8))}%`, 
             left: `${Number(getOverride('title_x', 46))}%`, 
-            width: '42%' 
+            width: `${Number(getOverride('title_w', 42))}%` 
           }}>
             <div
               className="text-[#e0d3c2]"
@@ -456,8 +483,8 @@ const IDCard: React.FC = () => {
                 fontFamily: '"TT Runs Trial", sans-serif',
                 fontWeight: 600,
                 fontSize: `${getOverride('title_size', parseFloat(getJobTitleFontSize(jobTitle)))}px`,
-                lineHeight: '1.2',
-                whiteSpace: 'nowrap',
+                lineHeight: `${getOverride('title_lh', 1.2)}`,
+                whiteSpace: Number(getOverride('title_wrap', 0)) ? 'normal' : 'nowrap',
                 overflow: 'visible',
                 textAlign: 'left'
               }}
