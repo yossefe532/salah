@@ -1688,12 +1688,13 @@ export const api = {
         .eq('event_id', eventId)
         .eq('id', seatId);
 
-      await updateAttendeeSafely(String(attendeeId), {
+      const updateRes = await updateAttendeeSafely(String(attendeeId), {
         status: 'registered',
         seat_number: Number(seat.seat_number),
         seat_class: seat.seat_class,
         barcode: seat.seat_code
       });
+      if (updateRes.error) throw new Error(updateRes.error.message);
 
       return { success: true };
     }
@@ -1729,10 +1730,11 @@ export const api = {
             .eq('event_id', eventId)
             .eq('attendee_id', targetAttendeeId);
             
-          await updateAttendeeSafely(String(targetAttendeeId), {
+          const updateRes = await updateAttendeeSafely(String(targetAttendeeId), {
             seat_number: null,
             barcode: null
           });
+          if (updateRes.error) throw new Error(updateRes.error.message);
       }
         
       return { success: true };
@@ -1790,12 +1792,13 @@ export const api = {
           .eq('event_id', eventId)
           .eq('id', seat.id);
 
-        await updateAttendeeSafely(String(attendee.id), {
+        const updateRes = await updateAttendeeSafely(String(attendee.id), {
           status: 'registered',
           seat_number: Number(seat.seat_number),
           seat_class: seat.seat_class,
           barcode: seat.seat_code
         });
+        if (updateRes.error) throw new Error(updateRes.error.message);
         assigned += 1;
       }
 
