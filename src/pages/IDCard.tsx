@@ -4,9 +4,10 @@ import { api, normalizeGovernorate } from '../lib/api';
 import { Attendee } from '../types';
 import { QRCodeCanvas } from 'qrcode.react';
 import { useReactToPrint } from 'react-to-print';
-import { Printer, ArrowLeft, Ticket, ScanFace, FileBadge2, Download, Settings2, Save, X } from 'lucide-react';
+import { Printer, ArrowLeft, Ticket, ScanFace, FileBadge2, Download, Settings2, Save, X, Upload } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import { parseTableOrWaveFromSeatCode, parseSeatNumberFromSeatCode } from '../lib/seat-code';
+import { supabase } from '../lib/supabase';
 
 const IDCard: React.FC = () => {
   const params = useParams();
@@ -20,6 +21,7 @@ const IDCard: React.FC = () => {
   const [editorMode, setEditorMode] = useState(false);
   const [overrides, setOverrides] = useState<Record<string, any>>({});
   const [savingOverrides, setSavingOverrides] = useState(false);
+  const [uploadingImage, setUploadingImage] = useState(false);
 
   const ticketPrintRef = useRef<HTMLDivElement>(null);
   const certificatePrintRef = useRef<HTMLDivElement>(null);
@@ -228,7 +230,8 @@ const IDCard: React.FC = () => {
       await api.patch(`/attendees/${id}`, { 
         ticket_overrides: overrides,
         full_name_en: attendee?.full_name_en,
-        job_title: attendee?.job_title
+        job_title: attendee?.job_title,
+        profile_photo_url: attendee?.profile_photo_url
       });
       alert('تم حفظ الإعدادات والبيانات بنجاح');
       setEditorMode(false);
@@ -420,6 +423,58 @@ const IDCard: React.FC = () => {
     setOverrides(prev => ({ ...prev, [key]: parseFloat(value) }));
   };
 
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !id || !attendee) return;
+
+    // Validate file type
+    if (!file.type.startsWith('image/')) {
+      alert('يجب اختيار ملف صورة صالح');
+      return;
+    }
+
+    // Validate file size (max 5MB)
+    if (file.size > 5 * 1024 * 1024) {
+      alert('حجم الصورة يجب ألا يتجاوز 5 ميجابايت');
+      return;
+    }
+
+    setUploadingImage(true);
+    try {
+      const fileExt = file.name.split('.').pop();
+      const fileName = `${id}-${Math.random()}.${fileExt}`;
+      const filePath = `profile-photos/${fileName}`;
+
+      // Upload image to Supabase Storage
+      const { error: uploadError } = await supabase.storage
+        .from('avatars')
+        .upload(filePath, file);
+
+      if (uploadError) {
+        throw uploadError;
+      }
+
+      // Get public URL
+      const { data: { publicUrl } } = supabase.storage
+        .from('avatars')
+        .getPublicUrl(filePath);
+
+      // Update attendee object in state
+      setAttendee(prev => prev ? { ...prev, profile_photo_url: publicUrl } : prev);
+      
+      alert('تم رفع الصورة بنجاح! سيتم حفظها نهائياً عند الضغط على "حفظ التعديلات"');
+    } catch (error) {
+      console.error('Error uploading image:', error);
+      alert('حدث خطأ أثناء رفع الصورة');
+    } finally {
+      setUploadingImage(false);
+      // Reset input
+      if (e.target) {
+        e.target.value = '';
+      }
+    }
+  };
+
   const renderEditorPanel = () => {
     if (!editorMode || !attendee) return null;
 
@@ -435,7 +490,20 @@ const IDCard: React.FC = () => {
         <div className="space-y-6 flex-1">
           {/* Profile Photo Settings */}
           <div className="space-y-3">
-            <h3 className="font-semibold text-sm text-emerald-600 border-b pb-1">الصورة الشخصية</h3>
+            <div className="flex justify-between items-center border-b pb-1">
+              <h3 className="font-semibold text-sm text-emerald-600">الصورة الشخصية</h3>
+              <label className={`cursor-pointer inline-flex items-center text-xs px-2 py-1 rounded bg-indigo-50 text-indigo-600 hover:bg-indigo-100 ${uploadingImage ? 'opacity-50 cursor-not-allowed' : ''}`}>
+                <Upload className="h-3 w-3 ml-1" />
+                {uploadingImage ? 'جاري الرفع...' : 'تغيير الصورة'}
+                <input 
+                  type="file" 
+                  accept="image/*" 
+                  className="hidden" 
+                  onChange={handleImageUpload}
+                  disabled={uploadingImage}
+                />
+              </label>
+            </div>
             <div className="flex items-center justify-between bg-emerald-50 p-2 rounded border border-emerald-100 mb-2">
               <label className="text-xs text-emerald-800 font-bold">إلغاء القص التلقائي (إظهار كامل الصورة)</label>
               <input type="checkbox" checked={Number(getOverride('photo_fit', 0)) === 1} onChange={(e) => handleOverrideChange('photo_fit', e.target.checked ? '1' : '0')} className="w-5 h-5 accent-emerald-600" />
