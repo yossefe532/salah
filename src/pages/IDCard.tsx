@@ -466,12 +466,14 @@ const IDCard: React.FC = () => {
               className="h-full w-full" 
               style={{
                 objectFit: 'cover',
-                objectPosition: 'center',
+                objectPosition: "center",
                 transform: `scale(${Number(getOverride('photo_scale', 1))}) translate(${Number(getOverride('photo_trans_x', 0))}%, ${Number(getOverride('photo_trans_y', 0))}%)`
               }}
             />
           ) : (
-            <div className="h-full w-full bg-white/10 flex items-center justify-center text-white/50 text-xs">صورة شخصية</div>
+            <div className="h-full w-full bg-white/10 flex items-center justify-center text-white/50 text-xs">
+              صورة شخصية
+            </div>
           )}
         </div>
 
@@ -620,16 +622,16 @@ const IDCard: React.FC = () => {
           <div className="space-y-3">
             <h3 className="font-semibold text-sm text-emerald-600 border-b pb-1">الصورة الشخصية</h3>
             <div>
-              <label className="text-xs text-gray-600 flex justify-between"><span>Zoom / Scale</span> <span>{getOverride('photo_scale', 1)}x</span></label>
+              <label className="text-xs text-gray-600 flex justify-between"><span>تكبير الصورة (Zoom)</span> <span>{getOverride('photo_scale', 1)}x</span></label>
               <input type="range" min="0.5" max="3" step="0.05" value={getOverride('photo_scale', 1)} onChange={(e) => handleOverrideChange('photo_scale', e.target.value)} className="w-full" />
             </div>
             <div>
-              <label className="text-xs text-gray-600 flex justify-between"><span>Focus X (Left/Right)</span> <span>{getOverride('photo_pos_x', 50)}%</span></label>
-              <input type="range" min="0" max="100" step="1" value={getOverride('photo_pos_x', 50)} onChange={(e) => handleOverrideChange('photo_pos_x', e.target.value)} className="w-full" />
+              <label className="text-xs text-gray-600 flex justify-between"><span>تحريك الصورة يمين/يسار (Pan X)</span> <span>{getOverride('photo_trans_x', 0)}%</span></label>
+              <input type="range" min="-100" max="100" step="1" value={getOverride('photo_trans_x', 0)} onChange={(e) => handleOverrideChange('photo_trans_x', e.target.value)} className="w-full" />
             </div>
             <div>
-              <label className="text-xs text-gray-600 flex justify-between"><span>Focus Y (Top/Bottom)</span> <span>{getOverride('photo_pos_y', 0)}%</span></label>
-              <input type="range" min="0" max="100" step="1" value={getOverride('photo_pos_y', 0)} onChange={(e) => handleOverrideChange('photo_pos_y', e.target.value)} className="w-full" />
+              <label className="text-xs text-gray-600 flex justify-between"><span>تحريك الصورة أعلى/أسفل (Pan Y)</span> <span>{getOverride('photo_trans_y', 0)}%</span></label>
+              <input type="range" min="-100" max="100" step="1" value={getOverride('photo_trans_y', 0)} onChange={(e) => handleOverrideChange('photo_trans_y', e.target.value)} className="w-full" />
             </div>
             <div className="grid grid-cols-2 gap-2">
               <div>
