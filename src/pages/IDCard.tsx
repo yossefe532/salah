@@ -450,12 +450,13 @@ const IDCard: React.FC = () => {
         <div className="absolute inset-0 flex items-center justify-center text-gray-800 text-sm border border-gray-800">صورة القالب مفقودة ({frontSrc})</div>
         <img src={frontSrc} alt="ticket-front-template" onError={handleImageError} className="absolute inset-0 h-full w-full object-cover z-0 transition-opacity duration-200" />
         
-        <div className="absolute z-10 rounded-[18px] border-[3px] border-[#c7a57a] overflow-hidden bg-white/10" style={{ 
+        <div className="absolute z-10 rounded-[18px] overflow-hidden" style={{ 
           top: `${Number(getOverride('photo_y', 17.5))}%`, 
           left: `${Number(getOverride('photo_x', 50.5))}%`, 
           transform: 'translateX(-50%)', 
           width: `${Number(getOverride('photo_w', 41))}%`, 
-          aspectRatio: '1 / 1' 
+          aspectRatio: '1 / 1',
+          boxShadow: '0 0 0 4px #10141c, 0 0 0 7px #c7a57a'
         }}>
           {attendee.profile_photo_url ? (
             <img 
@@ -470,7 +471,7 @@ const IDCard: React.FC = () => {
               }}
             />
           ) : (
-            <div className="h-full w-full flex items-center justify-center text-white/50 text-xs">صورة شخصية</div>
+            <div className="h-full w-full bg-white/10 flex items-center justify-center text-white/50 text-xs">صورة شخصية</div>
           )}
         </div>
 
