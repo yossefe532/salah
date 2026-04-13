@@ -241,7 +241,7 @@ const IDCard: React.FC = () => {
   };
 
   const handleTextEdit = (field: 'english_name' | 'job_title', value: string) => {
-    setAttendee(prev => prev ? { ...prev, [field]: value } : prev);
+    setAttendee(prev => (prev ? { ...prev, [field]: value } : prev));
   };
 
   const getOverride = (key: string, defaultVal: number | string) => {
@@ -284,12 +284,12 @@ const IDCard: React.FC = () => {
               <input type="range" min="0.5" max="3" step="0.05" value={getOverride('photo_scale', 1)} onChange={(e) => handleOverrideChange('photo_scale', e.target.value)} className="w-full" />
             </div>
             <div>
-              <label className="text-xs text-gray-600 flex justify-between"><span>تحريك الصورة يمين/يسار (Pan X)</span> <span>{getOverride('photo_pos_x', 50)}%</span></label>
-              <input type="range" min="0" max="100" step="1" value={getOverride('photo_pos_x', 50)} onChange={(e) => handleOverrideChange('photo_pos_x', e.target.value)} className="w-full" />
+              <label className="text-xs text-gray-600 flex justify-between"><span>تحريك الصورة يمين/يسار (Pan X)</span> <span>{getOverride('photo_trans_x', 0)}%</span></label>
+              <input type="range" min="-100" max="100" step="1" value={getOverride('photo_trans_x', 0)} onChange={(e) => handleOverrideChange('photo_trans_x', e.target.value)} className="w-full" />
             </div>
             <div>
-              <label className="text-xs text-gray-600 flex justify-between"><span>تحريك الصورة أعلى/أسفل (Pan Y)</span> <span>{getOverride('photo_pos_y', 0)}%</span></label>
-              <input type="range" min="0" max="100" step="1" value={getOverride('photo_pos_y', 0)} onChange={(e) => handleOverrideChange('photo_pos_y', e.target.value)} className="w-full" />
+              <label className="text-xs text-gray-600 flex justify-between"><span>تحريك الصورة أعلى/أسفل (Pan Y)</span> <span>{getOverride('photo_trans_y', 0)}%</span></label>
+              <input type="range" min="-100" max="100" step="1" value={getOverride('photo_trans_y', 0)} onChange={(e) => handleOverrideChange('photo_trans_y', e.target.value)} className="w-full" />
             </div>
             <div className="grid grid-cols-2 gap-2 pt-2 border-t border-dashed">
               <div>
@@ -466,8 +466,8 @@ const IDCard: React.FC = () => {
               className="h-full w-full" 
               style={{
                 objectFit: 'cover',
-                objectPosition: `${getOverride('photo_pos_x', 50)}% ${getOverride('photo_pos_y', 0)}%`,
-                transform: `scale(${Number(getOverride('photo_scale', 1))})`
+                objectPosition: 'center',
+                transform: `scale(${Number(getOverride('photo_scale', 1))}) translate(${Number(getOverride('photo_trans_x', 0))}%, ${Number(getOverride('photo_trans_y', 0))}%)`
               }}
             />
           ) : (
