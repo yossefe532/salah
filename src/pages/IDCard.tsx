@@ -277,17 +277,11 @@ const IDCard: React.FC = () => {
               src={attendee.profile_photo_url} 
               alt={attendee.full_name} 
               crossOrigin="anonymous" 
+              className="h-full w-full"
               style={{
-                position: 'absolute',
-                top: '50%',
-                left: '50%',
-                width: 'auto',
-                height: 'auto',
-                minWidth: '100%',
-                minHeight: '100%',
-                maxWidth: 'none',
-                maxHeight: 'none',
-                transform: `translate(-50%, -50%) scale(${Number(getOverride('photo_scale', 1))}) translate(${Number(getOverride('photo_trans_x', 0))}%, ${Number(getOverride('photo_trans_y', 0))}%)`
+                objectFit: Number(getOverride('photo_fit', 0)) === 1 ? 'contain' : 'cover',
+                objectPosition: "center",
+                transform: `scale(${Number(getOverride('photo_scale', 1))}) translate(${Number(getOverride('photo_trans_x', 0))}%, ${Number(getOverride('photo_trans_y', 0))}%)`
               }}
             />
           ) : (
@@ -441,9 +435,13 @@ const IDCard: React.FC = () => {
           {/* Profile Photo Settings */}
           <div className="space-y-3">
             <h3 className="font-semibold text-sm text-emerald-600 border-b pb-1">الصورة الشخصية</h3>
+            <div className="flex items-center justify-between bg-emerald-50 p-2 rounded border border-emerald-100 mb-2">
+              <label className="text-xs text-emerald-800 font-bold">إلغاء القص التلقائي (إظهار كامل الصورة)</label>
+              <input type="checkbox" checked={Number(getOverride('photo_fit', 0)) === 1} onChange={(e) => handleOverrideChange('photo_fit', e.target.checked ? '1' : '0')} className="w-5 h-5 accent-emerald-600" />
+            </div>
             <div>
               <label className="text-xs text-gray-600 flex justify-between"><span>تكبير الصورة (Zoom)</span> <span>{getOverride('photo_scale', 1)}x</span></label>
-              <input type="range" min="0.5" max="3" step="0.05" value={getOverride('photo_scale', 1)} onChange={(e) => handleOverrideChange('photo_scale', e.target.value)} className="w-full" />
+              <input type="range" min="0.1" max="5" step="0.05" value={getOverride('photo_scale', 1)} onChange={(e) => handleOverrideChange('photo_scale', e.target.value)} className="w-full" />
             </div>
             <div>
               <label className="text-xs text-gray-600 flex justify-between"><span>تحريك الصورة يمين/يسار (Pan X)</span> <span>{getOverride('photo_trans_x', 0)}%</span></label>
