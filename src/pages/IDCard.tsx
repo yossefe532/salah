@@ -362,14 +362,14 @@ const IDCard: React.FC = () => {
           )}
         </div>
 
-        <div className="absolute z-10 flex justify-end print-seat-align" style={{ top: '89.5%', right: '15%', width: '30%' }}>
-          <div className="font-bold text-[#e0d3c2]" dir="ltr" style={{ fontSize: '13px', lineHeight: '1', textAlign: 'right', whiteSpace: 'nowrap' }}>
+        <div className="absolute z-10 print-seat-align" style={{ top: '89.5%', right: '15%', width: '30%' }}>
+          <div className="font-bold text-[#e0d3c2] text-left" dir="ltr" style={{ fontSize: '13px', lineHeight: '1', whiteSpace: 'nowrap' }}>
             {tableOrWave}
           </div>
         </div>
 
-        <div className="absolute z-10 flex justify-end print-seat-align" style={{ top: '93%', right: '15%', width: '30%' }}>
-          <div className="font-bold text-[#e0d3c2]" dir="ltr" style={{ fontSize: '13px', lineHeight: '1', textAlign: 'right', whiteSpace: 'nowrap' }}>
+        <div className="absolute z-10 print-seat-align" style={{ top: '93%', right: '15%', width: '30%' }}>
+          <div className="font-bold text-[#e0d3c2] text-left" dir="ltr" style={{ fontSize: '13px', lineHeight: '1', whiteSpace: 'nowrap' }}>
             {resolvedSeatNumber ?? '-'}
           </div>
         </div>
@@ -708,7 +708,7 @@ const IDCard: React.FC = () => {
             overflow: hidden !important;
           }
           .print-seat-align {
-            right: 15% !important;
+            right: 17% !important;
           }
         }
       `}</style>

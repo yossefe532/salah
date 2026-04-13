@@ -2564,10 +2564,21 @@ export const api = {
         }
       }
       
-      // Directly update normal DB columns explicitly passed in body (job_title, full_name_en, profile_photo_url)
-      // This ensures they stay in the actual DB columns, not just warnings
+      // EXPLICIT FIX: Ensure direct columns are forcefully applied via Supabase client, bypassing any strict metadata merging bugs
+      const directUpdatePayload: any = {};
       
-      const { data, error } = await updateAttendeeSafely(String(id), payload);
+      if (payload.full_name_en !== undefined) directUpdatePayload.full_name_en = payload.full_name_en;
+      if (payload.job_title !== undefined) directUpdatePayload.job_title = payload.job_title;
+      if (payload.profile_photo_url !== undefined) directUpdatePayload.profile_photo_url = payload.profile_photo_url;
+      if (payload.warnings !== undefined) directUpdatePayload.warnings = payload.warnings;
+      
+      const { data, error } = await supabase
+        .from('attendees')
+        .update(directUpdatePayload)
+        .eq('id', id)
+        .select()
+        .single();
+        
       if (error) throw new Error(error.message);
       return normalizeAttendeePricing(data);
     }
