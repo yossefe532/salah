@@ -256,7 +256,7 @@ const IDCard: React.FC = () => {
   };
 
   const renderEditorPanel = () => {
-    if (!editorMode) return null;
+    if (!editorMode || !attendee) return null;
     return (
       <div className="fixed top-0 right-0 w-80 h-screen bg-white shadow-2xl border-l border-gray-200 p-4 overflow-y-auto z-50 flex flex-col">
         <div className="flex justify-between items-center mb-6 border-b pb-4">
@@ -298,8 +298,8 @@ const IDCard: React.FC = () => {
           <div className="space-y-3">
             <h3 className="font-semibold text-sm text-emerald-600 border-b pb-1">اسم المشترك (التيكت)</h3>
             <div>
-              <label className="text-xs text-gray-600 flex justify-between"><span>Font Size</span> <span>{getOverride('name_size', parseFloat(getTicketNameFontSize(getDisplayName(attendee!))))}px</span></label>
-              <input type="range" min="8" max="24" step="0.5" value={getOverride('name_size', parseFloat(getTicketNameFontSize(getDisplayName(attendee!))))} onChange={(e) => handleOverrideChange('name_size', e.target.value)} className="w-full" />
+              <label className="text-xs text-gray-600 flex justify-between"><span>Font Size</span> <span>{getOverride('name_size', parseFloat(getTicketNameFontSize(getDisplayName(attendee))))}px</span></label>
+              <input type="range" min="8" max="24" step="0.5" value={getOverride('name_size', parseFloat(getTicketNameFontSize(getDisplayName(attendee))))} onChange={(e) => handleOverrideChange('name_size', e.target.value)} className="w-full" />
             </div>
             <div className="grid grid-cols-2 gap-2">
               <div>
@@ -349,8 +349,8 @@ const IDCard: React.FC = () => {
           <div className="space-y-3">
             <h3 className="font-semibold text-sm text-emerald-600 border-b pb-1">اسم المشترك (الشهادة)</h3>
             <div>
-              <label className="text-xs text-gray-600 flex justify-between"><span>Font Size</span> <span>{getOverride('cert_name_size', parseFloat(getCertificateNameFontSize(getDisplayName(attendee!))))}px</span></label>
-              <input type="range" min="20" max="60" step="1" value={getOverride('cert_name_size', parseFloat(getCertificateNameFontSize(getDisplayName(attendee!))))} onChange={(e) => handleOverrideChange('cert_name_size', e.target.value)} className="w-full" />
+              <label className="text-xs text-gray-600 flex justify-between"><span>Font Size</span> <span>{getOverride('cert_name_size', parseFloat(getCertificateNameFontSize(getDisplayName(attendee))))}px</span></label>
+              <input type="range" min="20" max="60" step="1" value={getOverride('cert_name_size', parseFloat(getCertificateNameFontSize(getDisplayName(attendee))))} onChange={(e) => handleOverrideChange('cert_name_size', e.target.value)} className="w-full" />
             </div>
             <div className="grid grid-cols-2 gap-2">
               <div>
