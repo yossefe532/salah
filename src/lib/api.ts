@@ -1708,6 +1708,14 @@ export const api = {
         .eq('event_id', eventId)
         .eq('id', seatId);
 
+      // Safety guard for unique barcode constraint:
+      // if any stale attendee record still holds this seat barcode, clear it first.
+      await supabase
+        .from('attendees')
+        .update({ barcode: null, seat_number: null })
+        .eq('barcode', seat.seat_code)
+        .neq('id', attendeeId);
+
       const updateRes = await updateAttendeeSafely(String(attendeeId), {
         status: 'registered',
         seat_number: Number(seat.seat_number),
