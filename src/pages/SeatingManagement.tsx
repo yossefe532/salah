@@ -469,6 +469,14 @@ const SeatingManagement: React.FC = () => {
   const [attendees, setAttendees] = useState<AttendeeLite[]>([]);
   const liveSyncInFlightRef = useRef(false);
   const marqueeBaseSelectionRef = useRef<string[]>([]);
+  const dragFrameRef = useRef<number | null>(null);
+  const pendingDragPointRef = useRef<{ x: number; y: number } | null>(null);
+  const dragStateRef = useRef<any>(null);
+  const layoutDraftRef = useRef<Record<string, any>>({});
+  const lastAppliedDragKeyRef = useRef<string>('');
+
+  useEffect(() => { dragStateRef.current = dragState; }, [dragState]);
+  useEffect(() => { layoutDraftRef.current = layoutDraft; }, [layoutDraft]);
 
   const mapSeats = useMemo(() => {
     const baseSeats = payload.seats.filter(s => {
@@ -1316,7 +1324,13 @@ const SeatingManagement: React.FC = () => {
     const scaledX = rect ? (clientX - rect.left) / currentZoom : clientX;
     const scaledY = rect ? (clientY - rect.top) / currentZoom : clientY;
     
-    setDragState({
+    lastAppliedDragKeyRef.current = '';
+    pendingDragPointRef.current = null;
+    if (dragFrameRef.current !== null) {
+      window.cancelAnimationFrame(dragFrameRef.current);
+      dragFrameRef.current = null;
+    }
+    const nextDragState = {
       id: element.id,
       type,
       startX: scaledX,
@@ -1324,7 +1338,9 @@ const SeatingManagement: React.FC = () => {
       originX: groupOrigins[element.id]?.x || 0,
       originY: groupOrigins[element.id]?.y || 0,
       groupOrigins
-    });
+    };
+    dragStateRef.current = nextDragState;
+    setDragState(nextDragState);
     setSelectedElement({ id: element.id, type });
   }, [mainMode, editModeState.action, layoutDraft, mapSeats, tableBoxes, mapElements, zoomLevel, selectedGroup]);
 
@@ -1348,6 +1364,36 @@ const SeatingManagement: React.FC = () => {
         }
      }
   };
+
+  const buildDraftFromDrag = useCallback((baseDraft: Record<string, any>, ds: any, clientX: number, clientY: number) => {
+    const container = document.getElementById('seating-canvas-inner');
+    const rect = container?.getBoundingClientRect();
+    const currentScaledX = rect ? (clientX - rect.left) / zoomLevel : clientX;
+    const currentScaledY = rect ? (clientY - rect.top) / zoomLevel : clientY;
+    const dx = (currentScaledX - ds.startX) / 8;
+    const dy = (currentScaledY - ds.startY) / 4;
+    const roundedDx = Math.round(dx * 10) / 10;
+    const roundedDy = Math.round(dy * 10) / 10;
+    const dragKey = `${roundedDx}|${roundedDy}`;
+
+    const nextDraft = { ...baseDraft };
+    if (ds.groupOrigins) {
+      Object.keys(ds.groupOrigins).forEach(id => {
+        const startPos = ds.groupOrigins[id];
+        nextDraft[id] = {
+          ...nextDraft[id],
+          type: startPos.type as any,
+          position_x: Math.max(0, Math.round((startPos.x + roundedDx) * 10) / 10),
+          position_y: Math.max(0, Math.round((startPos.y + roundedDy) * 10) / 10)
+        };
+      });
+    } else {
+      const nextX = Math.max(0, Math.round((ds.originX + roundedDx) * 10) / 10);
+      const nextY = Math.max(0, Math.round((ds.originY + roundedDy) * 10) / 10);
+      nextDraft[ds.id] = { type: ds.type, position_x: nextX, position_y: nextY };
+    }
+    return { nextDraft, dragKey };
+  }, [zoomLevel]);
 
   const onCanvasMove = (clientX: number, clientY: number) => {
     if (drawState?.active) {
@@ -1429,36 +1475,20 @@ const SeatingManagement: React.FC = () => {
     }
     
     if (!dragState || mainMode !== 'edit') return;
-    
-    const currentZoom = zoomLevel;
-    const container = document.getElementById('seating-canvas-inner');
-    const rect = container?.getBoundingClientRect();
-    
-    const currentScaledX = rect ? (clientX - rect.left) / currentZoom : clientX;
-    const currentScaledY = rect ? (clientY - rect.top) / currentZoom : clientY;
 
-    const dx = (currentScaledX - dragState.startX) / 8;
-    const dy = (currentScaledY - dragState.startY) / 4;
-    
-    const nextDraft = { ...layoutDraft };
-    
-    if (dragState.groupOrigins) {
-       Object.keys(dragState.groupOrigins).forEach(id => {
-          const startPos = dragState.groupOrigins![id];
-          nextDraft[id] = {
-             ...nextDraft[id],
-             type: startPos.type as any,
-             position_x: Math.max(0, Math.round((startPos.x + dx) * 10) / 10),
-             position_y: Math.max(0, Math.round((startPos.y + dy) * 10) / 10)
-          };
-       });
-    } else {
-       const nextX = Math.max(0, Math.round((dragState.originX + dx) * 10) / 10);
-       const nextY = Math.max(0, Math.round((dragState.originY + dy) * 10) / 10);
-       nextDraft[dragState.id] = { type: dragState.type, position_x: nextX, position_y: nextY };
-    }
-    
-    setLayoutDraft(nextDraft);
+    pendingDragPointRef.current = { x: clientX, y: clientY };
+    if (dragFrameRef.current !== null) return;
+
+    dragFrameRef.current = window.requestAnimationFrame(() => {
+      dragFrameRef.current = null;
+      const ds = dragStateRef.current;
+      const point = pendingDragPointRef.current;
+      if (!ds || !point) return;
+      const { nextDraft, dragKey } = buildDraftFromDrag(layoutDraftRef.current, ds, point.x, point.y);
+      if (dragKey === lastAppliedDragKeyRef.current) return;
+      lastAppliedDragKeyRef.current = dragKey;
+      setLayoutDraft(nextDraft);
+    });
   };
 
   const endDrag = () => {
@@ -1484,9 +1514,21 @@ const SeatingManagement: React.FC = () => {
     }
     
     if (!dragState) return;
-    commitDraftHistory(layoutDraft);
+    if (dragFrameRef.current !== null) {
+      window.cancelAnimationFrame(dragFrameRef.current);
+      dragFrameRef.current = null;
+    }
+    let finalDraft = layoutDraftRef.current;
+    if (pendingDragPointRef.current) {
+      const { nextDraft } = buildDraftFromDrag(layoutDraftRef.current, dragState, pendingDragPointRef.current.x, pendingDragPointRef.current.y);
+      finalDraft = nextDraft;
+      setLayoutDraft(nextDraft);
+    }
+    pendingDragPointRef.current = null;
+    lastAppliedDragKeyRef.current = '';
+    commitDraftHistory(finalDraft);
     if (dragState.type === 'seat') {
-      const patch = layoutDraft[dragState.id];
+      const patch = finalDraft[dragState.id];
       if (patch) {
         setEditSeatState((prev) => ({
           ...prev,
@@ -1496,6 +1538,7 @@ const SeatingManagement: React.FC = () => {
       }
     }
     setDragState(null);
+    dragStateRef.current = null;
   };
 
   
