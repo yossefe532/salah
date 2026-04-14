@@ -1833,7 +1833,6 @@ export const api = {
 
     if (endpoint === '/seating/recover-from-barcodes') {
       const eventId = body?.event_id || DEFAULT_EVENT_ID;
-      const hallGovernorate = getGovernorateFromEventId(eventId);
 
       const { data: seats, error: seatsErr } = await supabase
         .from('seats')
@@ -1850,7 +1849,7 @@ export const api = {
       const scopedAttendees = applyCompanyScopeToAttendeesQuery(
         supabase
           .from('attendees')
-          .select('id, full_name, governorate, seat_class, barcode, status, is_deleted')
+          .select('id, full_name, governorate, seat_class, seat_number, barcode, status, is_deleted')
           .eq('is_deleted', false),
         currentUser
       );
@@ -1858,7 +1857,7 @@ export const api = {
       if (attErr && isMissingColumnError(attErr, 'company_id')) {
         const fallback = await supabase
           .from('attendees')
-          .select('id, full_name, governorate, seat_class, barcode, status, is_deleted')
+          .select('id, full_name, governorate, seat_class, seat_number, barcode, status, is_deleted')
           .eq('is_deleted', false);
         attendees = fallback.data as any;
         attErr = fallback.error as any;
@@ -1869,23 +1868,33 @@ export const api = {
       for (const s of (seats || []) as any[]) {
         if (s.seat_code) seatByCode.set(String(s.seat_code), s);
       }
+      const seatsByClassAndNumber = new Map<string, any[]>();
+      for (const s of (seats || []) as any[]) {
+        const key = `${s.seat_class}#${Number(s.seat_number || 0)}`;
+        const arr = seatsByClassAndNumber.get(key) || [];
+        arr.push(s);
+        seatsByClassAndNumber.set(key, arr);
+      }
       const occupiedSeatIds = new Set<string>();
       let restored = 0;
       let skippedNoSeat = 0;
       let skippedConflict = 0;
+      let restoredFromSeatNumber = 0;
 
-      const inHallAttendees = ((attendees || []) as any[])
-        .filter((a) => normalizeGovernorate(a.governorate) === hallGovernorate)
-        .filter((a) => !!a.barcode);
+      const allAttendees = ((attendees || []) as any[]);
+      const barcodeCandidates = allAttendees.filter((a) => !!a.barcode);
+      const unresolvedIds = new Set<string>();
 
-      for (const attendee of inHallAttendees) {
+      for (const attendee of barcodeCandidates) {
         const seat = seatByCode.get(String(attendee.barcode || ''));
         if (!seat) {
           skippedNoSeat += 1;
+          unresolvedIds.add(String(attendee.id));
           continue;
         }
         if (occupiedSeatIds.has(seat.id)) {
           skippedConflict += 1;
+          unresolvedIds.add(String(attendee.id));
           continue;
         }
 
@@ -1907,7 +1916,40 @@ export const api = {
         restored += 1;
       }
 
-      return { success: true, restored, skipped_no_seat: skippedNoSeat, skipped_conflict: skippedConflict };
+      // Fallback: when barcode is missing/invalid, try seat_number + seat_class
+      // only when the target is unique in this hall to avoid wrong mapping.
+      const seatNumberCandidates = allAttendees.filter((a) =>
+        (unresolvedIds.has(String(a.id)) || !a.barcode) &&
+        a.seat_class &&
+        Number(a.seat_number || 0) > 0
+      );
+      for (const attendee of seatNumberCandidates) {
+        if (occupiedSeatIds.size >= (seats || []).length) break;
+        const key = `${attendee.seat_class}#${Number(attendee.seat_number || 0)}`;
+        const candidates = (seatsByClassAndNumber.get(key) || []).filter((s: any) => !occupiedSeatIds.has(s.id));
+        if (candidates.length !== 1) continue;
+        const seat = candidates[0];
+
+        await supabase
+          .from('seats')
+          .update({ status: 'booked', attendee_id: attendee.id, reserved_by: null, reserved_until: null })
+          .eq('event_id', eventId)
+          .eq('id', seat.id);
+
+        const updateRes = await updateAttendeeSafely(String(attendee.id), {
+          status: 'registered',
+          seat_number: Number(seat.seat_number),
+          seat_class: seat.seat_class,
+          barcode: seat.seat_code
+        });
+        if (updateRes.error) throw new Error(updateRes.error.message);
+
+        occupiedSeatIds.add(seat.id);
+        restored += 1;
+        restoredFromSeatNumber += 1;
+      }
+
+      return { success: true, restored, restored_from_seat_number: restoredFromSeatNumber, skipped_no_seat: skippedNoSeat, skipped_conflict: skippedConflict };
     }
 
     if (endpoint === '/seating/book-table') {

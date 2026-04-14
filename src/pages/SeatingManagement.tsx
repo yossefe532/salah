@@ -974,7 +974,7 @@ const SeatingManagement: React.FC = () => {
     try {
       const result = await api.post('/seating/recover-from-barcodes', { event_id: eventId });
       await Promise.all([loadMap(), loadAttendees()]);
-      alert(`تمت محاولة الاسترجاع بنجاح.\nتم استرجاع: ${result?.restored ?? 0}\nلم يتم العثور على مقعد مطابق: ${result?.skipped_no_seat ?? 0}\nتعارضات: ${result?.skipped_conflict ?? 0}`);
+      alert(`تمت محاولة الاسترجاع بنجاح.\nتم استرجاع: ${result?.restored ?? 0}\nمن خلال seat_number: ${result?.restored_from_seat_number ?? 0}\nلم يتم العثور على مقعد مطابق: ${result?.skipped_no_seat ?? 0}\nتعارضات: ${result?.skipped_conflict ?? 0}`);
     } catch (e: any) {
       setError(e.message || 'فشل استرجاع التسكين من الباركود');
     } finally {
