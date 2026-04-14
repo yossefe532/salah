@@ -968,6 +968,20 @@ const SeatingManagement: React.FC = () => {
     }
   };
 
+  const recoverHallFromBarcodes = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const result = await api.post('/seating/recover-from-barcodes', { event_id: eventId });
+      await Promise.all([loadMap(), loadAttendees()]);
+      alert(`تمت محاولة الاسترجاع بنجاح.\nتم استرجاع: ${result?.restored ?? 0}\nلم يتم العثور على مقعد مطابق: ${result?.skipped_no_seat ?? 0}\nتعارضات: ${result?.skipped_conflict ?? 0}`);
+    } catch (e: any) {
+      setError(e.message || 'فشل استرجاع التسكين من الباركود');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const assignSelected = async (passedAttendeeId?: any, passedSeatId?: string) => {
     const aid = typeof passedAttendeeId === 'string' ? passedAttendeeId : selectedAttendeeId;
     const sId = typeof passedSeatId === 'string' ? passedSeatId : selectedSeatId;
@@ -1673,13 +1687,22 @@ const SeatingManagement: React.FC = () => {
           </div>
         </div>
 
-        <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-2">
+        <div className="mt-4 grid grid-cols-2 md:grid-cols-5 gap-2">
           <button onClick={() => setMainMode('assign')} className={`px-4 py-2 rounded-md text-sm border ${mainMode === 'assign' ? 'bg-indigo-600 border-indigo-500' : 'border-slate-700 bg-slate-800'}`}>مود التسكين</button>
           <button onClick={() => {
              setMainMode('edit');
              setEditModeState(p => ({...p, action: 'move'}));
           }} className={`px-4 py-2 rounded-md text-sm border ${mainMode === 'edit' ? 'bg-indigo-600 border-indigo-500' : 'border-slate-700 bg-slate-800'}`}>مود التعديل</button>
           <button onClick={initHall} className="px-4 py-2 rounded-md text-sm border border-slate-700 bg-slate-800 text-rose-400">تهيئة القاعة (مسح وإعادة بناء)</button>
+          <button
+            onClick={async () => {
+              if (!window.confirm('سيتم استرجاع التسكين الحالي بالاعتماد على الباركودات المحفوظة لدى المشتركين. هل تريد المتابعة؟')) return;
+              await recoverHallFromBarcodes();
+            }}
+            className="px-4 py-2 rounded-md text-sm border border-emerald-700 bg-emerald-900/40 text-emerald-300"
+          >
+            استرجاع التسكين من الباركود
+          </button>
           <button onClick={async () => {
              if (!window.confirm('هل أنت متأكد من تسكين جميع العملاء المتبقين عشوائياً؟')) return;
              try {

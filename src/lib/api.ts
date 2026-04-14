@@ -1405,6 +1405,8 @@ export const api = {
     
     if (endpoint === '/seating/init') {
       const eventId = body?.event_id || DEFAULT_EVENT_ID;
+      const targetGovernorate = normalizeGovernorate(body?.governorate || getGovernorateFromEventId(eventId));
+      const useMinyaTemplate = body?.use_minya_template !== false;
       const rowsA = Number(body?.classA?.rows || 3);
       const rowsB = Number(body?.classB?.rows || 3);
       const tablesPerSideA = Number(body?.classA?.tables_per_side || 3);
@@ -1414,8 +1416,27 @@ export const api = {
       const classCRows = Number(body?.classC?.rows || 23);
       const classCSeatsPerSidePerRow = Number(body?.classC?.seats_per_side_per_row || 8);
 
-      const { tables, seats } = body?.governorate === 'Minya' ? generateMinyaCustomPlan(eventId) : generateHallPlan(eventId, body?.governorate || 'Minya');
-      const isMinyaCustom = body?.governorate === 'Minya';
+      let plan = useMinyaTemplate ? generateMinyaCustomPlan(eventId) : generateHallPlan(eventId, targetGovernorate);
+      // Allow using Minya template for any governorate while keeping unique IDs and proper governorate values.
+      if (useMinyaTemplate) {
+        const tableIdMap = new Map<string, string>();
+        const remappedTables = (plan.tables || []).map((t: any) => {
+          const newId = String(t.id || '').replace(/^Minya-/, `${targetGovernorate}-`);
+          tableIdMap.set(t.id, newId);
+          return { ...t, id: newId, event_id: eventId, governorate: targetGovernorate };
+        });
+        const remappedSeats = (plan.seats || []).map((s: any) => ({
+          ...s,
+          id: String(s.id || '').replace(/^Minya-/, `${targetGovernorate}-`),
+          table_id: s.table_id ? (tableIdMap.get(s.table_id) || String(s.table_id).replace(/^Minya-/, `${targetGovernorate}-`)) : null,
+          event_id: eventId,
+          governorate: targetGovernorate
+        }));
+        plan = { tables: remappedTables, seats: remappedSeats };
+      }
+
+      const { tables, seats } = plan;
+      const isMinyaCustom = useMinyaTemplate;
         const adjustedTables = isMinyaCustom ? tables : tables.map((t: any) => {
         if (t.seat_class === 'A') return { ...t, seats_count: seatsPerTableA };
         if (t.seat_class === 'B') return { ...t, seats_count: seatsPerTableB };
@@ -1808,6 +1829,85 @@ export const api = {
       }
         
       return { success: true };
+    }
+
+    if (endpoint === '/seating/recover-from-barcodes') {
+      const eventId = body?.event_id || DEFAULT_EVENT_ID;
+      const hallGovernorate = getGovernorateFromEventId(eventId);
+
+      const { data: seats, error: seatsErr } = await supabase
+        .from('seats')
+        .select('id, seat_code, seat_number, seat_class, attendee_id, status, governorate')
+        .eq('event_id', eventId);
+      if (seatsErr) throw new Error(seatsErr.message);
+
+      // Reset seat occupancy in this hall before rebuilding assignment links.
+      await supabase
+        .from('seats')
+        .update({ status: 'available', attendee_id: null, reserved_by: null, reserved_until: null })
+        .eq('event_id', eventId);
+
+      const scopedAttendees = applyCompanyScopeToAttendeesQuery(
+        supabase
+          .from('attendees')
+          .select('id, full_name, governorate, seat_class, barcode, status, is_deleted')
+          .eq('is_deleted', false),
+        currentUser
+      );
+      let { data: attendees, error: attErr } = await scopedAttendees;
+      if (attErr && isMissingColumnError(attErr, 'company_id')) {
+        const fallback = await supabase
+          .from('attendees')
+          .select('id, full_name, governorate, seat_class, barcode, status, is_deleted')
+          .eq('is_deleted', false);
+        attendees = fallback.data as any;
+        attErr = fallback.error as any;
+      }
+      if (attErr) throw new Error(attErr.message);
+
+      const seatByCode = new Map<string, any>();
+      for (const s of (seats || []) as any[]) {
+        if (s.seat_code) seatByCode.set(String(s.seat_code), s);
+      }
+      const occupiedSeatIds = new Set<string>();
+      let restored = 0;
+      let skippedNoSeat = 0;
+      let skippedConflict = 0;
+
+      const inHallAttendees = ((attendees || []) as any[])
+        .filter((a) => normalizeGovernorate(a.governorate) === hallGovernorate)
+        .filter((a) => !!a.barcode);
+
+      for (const attendee of inHallAttendees) {
+        const seat = seatByCode.get(String(attendee.barcode || ''));
+        if (!seat) {
+          skippedNoSeat += 1;
+          continue;
+        }
+        if (occupiedSeatIds.has(seat.id)) {
+          skippedConflict += 1;
+          continue;
+        }
+
+        await supabase
+          .from('seats')
+          .update({ status: 'booked', attendee_id: attendee.id, reserved_by: null, reserved_until: null })
+          .eq('event_id', eventId)
+          .eq('id', seat.id);
+
+        const updateRes = await updateAttendeeSafely(String(attendee.id), {
+          status: 'registered',
+          seat_number: Number(seat.seat_number),
+          seat_class: seat.seat_class,
+          barcode: seat.seat_code
+        });
+        if (updateRes.error) throw new Error(updateRes.error.message);
+
+        occupiedSeatIds.add(seat.id);
+        restored += 1;
+      }
+
+      return { success: true, restored, skipped_no_seat: skippedNoSeat, skipped_conflict: skippedConflict };
     }
 
     if (endpoint === '/seating/book-table') {
