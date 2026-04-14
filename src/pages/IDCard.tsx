@@ -100,7 +100,7 @@ const IDCard: React.FC = () => {
   const handlePrintTicket = useReactToPrint({
     contentRef: ticketPrintRef,
     documentTitle: attendee ? `ticket-${attendee.full_name}` : 'ticket',
-    pageStyle: `@page { size: 8.5cm 14.0cm; margin: 0 !important; }`,
+    pageStyle: `@page { size: 85mm 140mm; margin: 0; } body { margin: 0; padding: 0; -webkit-print-color-adjust: exact; print-color-adjust: exact; }`,
     onAfterPrint: () => {
       markPrinted('ticket');
     }
@@ -109,7 +109,7 @@ const IDCard: React.FC = () => {
   const handlePrintCertificate = useReactToPrint({
     contentRef: certificatePrintRef,
     documentTitle: attendee ? `certificate-${attendee.full_name}` : 'certificate',
-    pageStyle: `@page { size: 21.0cm 29.7cm; margin: 0 !important; }`,
+    pageStyle: `@page { size: 297mm 210mm; margin: 0; } body { margin: 0; padding: 0; -webkit-print-color-adjust: exact; print-color-adjust: exact; }`,
     onAfterPrint: () => {
       markPrinted('certificate');
     }
@@ -728,13 +728,13 @@ const IDCard: React.FC = () => {
       <div className={`flex-1 transition-all ${editorMode ? 'mr-80' : ''}`}>
         <style>{`
         .ticket-sheet {
-          width: 8.5cm;
-          height: 14cm;
+          width: 85mm;
+          height: 140mm;
           background-color: #10141c;
         }
         .certificate-sheet {
-          width: 21cm;
-          height: 29.7cm;
+          width: 297mm;
+          height: 210mm;
           background-color: #111;
         }
         .preview-wrap {
@@ -865,9 +865,9 @@ const IDCard: React.FC = () => {
         <div ref={ticketPrintRef}>
           <style type="text/css" media="print">
             {`
-              @page { size: 8.5cm 14.0cm; margin: 0; }
+              @page { size: 85mm 140mm; margin: 0; }
               body { margin: 0 !important; padding: 0 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-              .ticket-sheet { width: 8.5cm !important; height: 14.0cm !important; border: none !important; border-radius: 0 !important; }
+              .ticket-sheet { width: 85mm !important; height: 140mm !important; border: none !important; border-radius: 0 !important; }
             `}
           </style>
           <div style={{ pageBreakAfter: 'always', overflow: 'hidden' }}>
@@ -880,9 +880,9 @@ const IDCard: React.FC = () => {
         <div ref={certificatePrintRef}>
           <style type="text/css" media="print">
             {`
-              @page { size: 21.0cm 29.7cm; margin: 0; }
+              @page { size: 297mm 210mm; margin: 0; }
               body { margin: 0 !important; padding: 0 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-              .certificate-sheet { width: 21.0cm !important; height: 29.7cm !important; border: none !important; border-radius: 0 !important; }
+              .certificate-sheet { width: 297mm !important; height: 210mm !important; border: none !important; border-radius: 0 !important; }
             `}
           </style>
           <div style={{ overflow: 'hidden' }}>

@@ -891,13 +891,22 @@ export const api = {
       const eventId = params.get('eventId') || DEFAULT_EVENT_ID;
       const hallGovernorate = getGovernorateFromEventId(eventId);
       const seatClass = params.get('seatClass');
+      
+      // We'll search for governorate variants to be safe
+      const govVariants = [hallGovernorate];
+      if (hallGovernorate === 'Minya') govVariants.push('minya', 'المنيا');
+      if (hallGovernorate === 'Asyut') govVariants.push('asyut', 'أسيوط', 'اسيوط');
+      if (hallGovernorate === 'Sohag') govVariants.push('sohag', 'سوهاج');
+      if (hallGovernorate === 'Qena') govVariants.push('qena', 'قنا');
+
       let attendeesQuery = supabase
         .from('attendees')
         .select('*')
-        .eq('governorate', hallGovernorate)
-        .eq('status', 'registered')
+        .in('governorate', govVariants)
+        .in('status', ['registered', 'interested']) // Show both for seating just in case
         .eq('is_deleted', false)
         .order('created_at', { ascending: true });
+        
       if (seatClass) attendeesQuery = attendeesQuery.eq('seat_class', seatClass);
       const { data, error } = await attendeesQuery;
       if (error) throw new Error(error.message);

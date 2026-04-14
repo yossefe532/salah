@@ -129,11 +129,12 @@ const TableAssignModalComponent = ({ isOpen, tableId, mapSeats, attendees, gover
   const assignedAttendeeIds = new Set(mapSeats.map((s: Seat) => s.attendee_id).filter(Boolean));
 
   const filteredAttendees = attendees
-    .filter((a: any) => a.seat_class === tClass && normalizeGov(a.governorate) === normalizeGov(governorate))
+    .filter((a: any) => a.seat_class === tClass)
     .filter((a: any) => {
        // Only show unseated unless showAlreadySeated is true
        if (!showAlreadySeated) {
-          if (a.barcode) return false;
+          const hasBarcode = a.barcode && String(a.barcode).trim() !== '';
+          if (hasBarcode) return false;
           if (assignedAttendeeIds.has(a.id)) return false;
        }
        
@@ -296,10 +297,11 @@ const AssignmentModalComponent = ({ isOpen, seat, attendees, governorate, onClos
   };
 
   const filteredAttendees = attendees
-    .filter((a: any) => a.seat_class === seat.seat_class && normalizeGov(a.governorate) === normalizeGov(governorate))
+    .filter((a: any) => a.seat_class === seat.seat_class)
     .filter((a: any) => {
        if (!showAlreadySeated) {
-          if (a.barcode) return false;
+          const hasBarcode = a.barcode && String(a.barcode).trim() !== '';
+          if (hasBarcode) return false;
        }
        const term = searchTerm.toLowerCase();
        const name = (a.full_name || a.name || '').toLowerCase();
@@ -2020,7 +2022,7 @@ const SeatingManagement: React.FC = () => {
              <h2 className="text-sm font-bold mb-3 flex justify-between items-center">
                 <span>قائمة الانتظار</span>
                 <span className="bg-indigo-600 text-white px-2 py-0.5 rounded text-xs">
-                   {attendees.filter((a: any) => !a.barcode && !mapSeats.some(s => s.attendee_id === a.id) && normalizeGov(a.governorate) === normalizeGov(governorate)).length}
+                   {attendees.filter((a: any) => !(a.barcode && String(a.barcode).trim() !== '') && !mapSeats.some(s => s.attendee_id === a.id)).length}
                 </span>
              </h2>
              
@@ -2038,9 +2040,8 @@ const SeatingManagement: React.FC = () => {
                 {['A', 'B', 'C'].map(cls => {
                    const classAttendees = attendees.filter((a: any) => 
                       a.seat_class === cls && 
-                      !a.barcode && 
+                      !(a.barcode && String(a.barcode).trim() !== '') && 
                       !mapSeats.some(s => s.attendee_id === a.id) && 
-                      normalizeGov(a.governorate) === normalizeGov(governorate) &&
                       (waitingListSearch === '' || 
                        (a.full_name || '').toLowerCase().includes(waitingListSearch.toLowerCase()) || 
                        (a.phone || '').includes(waitingListSearch))
@@ -2081,7 +2082,7 @@ const SeatingManagement: React.FC = () => {
                       </div>
                    );
                 })}
-                {attendees.filter((a: any) => !a.barcode && !mapSeats.some(s => s.attendee_id === a.id) && normalizeGov(a.governorate) === normalizeGov(governorate)).length === 0 && (
+                {attendees.filter((a: any) => !(a.barcode && String(a.barcode).trim() !== '') && !mapSeats.some(s => s.attendee_id === a.id)).length === 0 && (
                    <div className="text-xs text-slate-500 text-center py-4">لا يوجد مشتركون في قائمة الانتظار</div>
                 )}
              </div>
@@ -2112,7 +2113,7 @@ const SeatingManagement: React.FC = () => {
       <div className="rounded-xl border border-slate-800 bg-slate-900 p-4">
         <h2 className="text-sm font-bold mb-3 flex justify-between items-center">
            <span>المسكنين في هذه القاعة</span>
-           <span className="text-xs text-slate-500">إجمالي المسكنين: {attendees.filter(a => (a.barcode || mapSeats.some(s => s.attendee_id === a.id)) && normalizeGov(a.governorate) === normalizeGov(governorate)).length}</span>
+           <span className="text-xs text-slate-500">إجمالي المسكنين: {attendees.filter(a => (a.barcode && String(a.barcode).trim() !== '') || mapSeats.some(s => s.attendee_id === a.id)).length}</span>
         </h2>
         <div className="max-h-56 overflow-auto custom-scrollbar">
           <table className="w-full text-sm">
@@ -2126,7 +2127,7 @@ const SeatingManagement: React.FC = () => {
             </thead>
             <tbody>
               {attendees
-                .filter((a) => (a.barcode || mapSeats.some(s => s.attendee_id === a.id)) && normalizeGov(a.governorate) === normalizeGov(governorate))
+                .filter((a) => (a.barcode && String(a.barcode).trim() !== '') || mapSeats.some(s => s.attendee_id === a.id))
                 .sort((a, b) => (a.seat_class || '').localeCompare(b.seat_class || ''))
                 .map((a) => {
                    const seat = mapSeats.find(s => s.attendee_id === a.id) || payload.seats.find(s => s.attendee_id === a.id);
@@ -2157,11 +2158,11 @@ const SeatingManagement: React.FC = () => {
                    );
                 })
               }
-              {attendees.filter((a) => (a.barcode || mapSeats.some(s => s.attendee_id === a.id)) && normalizeGov(a.governorate) === normalizeGov(governorate)).length === 0 && (
-                 <tr>
-                    <td colSpan={4} className="p-8 text-center text-slate-500">لا يوجد مسكنين حالياً في هذه القاعة</td>
-                 </tr>
-              )}
+              {attendees.filter((a) => (a.barcode && String(a.barcode).trim() !== '') || mapSeats.some(s => s.attendee_id === a.id)).length === 0 && (
+                  <tr>
+                     <td colSpan={4} className="p-8 text-center text-slate-500">لا يوجد مسكنين حالياً في هذه القاعة</td>
+                  </tr>
+               )}
             </tbody>
           </table>
         </div>
