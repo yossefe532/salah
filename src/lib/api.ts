@@ -339,6 +339,11 @@ const isMissingColumnError = (error: any, column: string) => {
     || msg.includes(`'${col}' column`)
     || msg.includes(`"${col}"`);
 };
+const isBarcodeUniqueViolation = (error: any) => {
+  const msg = String(error?.message || '').toLowerCase();
+  const code = String((error as any)?.code || '').toLowerCase();
+  return code === '23505' || msg.includes('attendees_barcode_key') || (msg.includes('duplicate key') && msg.includes('barcode'));
+};
 
 const applyCompanyScopeToAttendeesQuery = (query: any, currentUser: any) => {
   if (!currentUser) return query;
@@ -1709,19 +1714,39 @@ export const api = {
         .eq('id', seatId);
 
       // Safety guard for unique barcode constraint:
-      // if any stale attendee record still holds this seat barcode, clear it first.
-      await supabase
+      // clear any stale holder(s) for this barcode before assigning it.
+      const { data: staleHolders } = await supabase
         .from('attendees')
-        .update({ barcode: null, seat_number: null })
+        .select('id')
         .eq('barcode', seat.seat_code)
         .neq('id', attendeeId);
+      for (const holder of (staleHolders || []) as any[]) {
+        await updateAttendeeSafely(String(holder.id), { barcode: null, seat_number: null });
+      }
 
-      const updateRes = await updateAttendeeSafely(String(attendeeId), {
+      let updateRes = await updateAttendeeSafely(String(attendeeId), {
         status: 'registered',
         seat_number: Number(seat.seat_number),
         seat_class: seat.seat_class,
         barcode: seat.seat_code
       });
+      // Final retry for rare race conditions across multiple devices.
+      if (updateRes.error && isBarcodeUniqueViolation(updateRes.error)) {
+        const { data: staleAgain } = await supabase
+          .from('attendees')
+          .select('id')
+          .eq('barcode', seat.seat_code)
+          .neq('id', attendeeId);
+        for (const holder of (staleAgain || []) as any[]) {
+          await updateAttendeeSafely(String(holder.id), { barcode: null, seat_number: null });
+        }
+        updateRes = await updateAttendeeSafely(String(attendeeId), {
+          status: 'registered',
+          seat_number: Number(seat.seat_number),
+          seat_class: seat.seat_class,
+          barcode: seat.seat_code
+        });
+      }
       if (updateRes.error) throw new Error(updateRes.error.message);
 
       return { success: true };
