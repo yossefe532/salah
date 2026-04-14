@@ -16,6 +16,8 @@ type AttendeeLite = {
   full_name: string;
   governorate: string;
   seat_class: 'A' | 'B' | 'C';
+  payment_type?: 'deposit' | 'full' | string;
+  payment_amount?: number | null;
   phone?: string | null;
   phone_primary?: string | null;
   preferred_neighbor_name?: string | null;
@@ -386,6 +388,7 @@ const SeatingManagement: React.FC = () => {
   const [assignMode, setAssignMode] = useState<'tables' | 'chairs'>('tables');
   const [classFilter, setClassFilter] = useState<'A' | 'B' | 'C'>('A');
   const [waitingListSearch, setWaitingListSearch] = useState('');
+  const [waitingPaymentFilter, setWaitingPaymentFilter] = useState<'all' | 'paid' | 'unpaid_or_zero'>('all');
   const [editModeState, setEditModeState] = useState<EditModeState>({
     action: null,
     addType: 'table',
@@ -906,6 +909,11 @@ const SeatingManagement: React.FC = () => {
       position_y: patch.position_y !== undefined ? patch.position_y : seat.position_y
     };
   };
+
+  const isUnpaidOrZeroDeposit = useCallback((attendee: AttendeeLite) => {
+    const amount = Number(attendee.payment_amount || 0);
+    return amount <= 0 || (attendee.payment_type === 'deposit' && amount === 0);
+  }, []);
 
   useEffect(() => {
     if (!selectedSeat) return;
@@ -2301,7 +2309,12 @@ const SeatingManagement: React.FC = () => {
              <h2 className="text-sm font-bold mb-3 flex justify-between items-center">
                 <span>قائمة الانتظار</span>
                 <span className="bg-indigo-600 text-white px-2 py-0.5 rounded text-xs">
-                   {attendees.filter((a: any) => !mapSeats.some(s => s.attendee_id === a.id)).length}
+                   {attendees.filter((a: any) => {
+                     if (mapSeats.some(s => s.attendee_id === a.id)) return false;
+                     if (waitingPaymentFilter === 'paid') return !isUnpaidOrZeroDeposit(a);
+                     if (waitingPaymentFilter === 'unpaid_or_zero') return isUnpaidOrZeroDeposit(a);
+                     return true;
+                   }).length}
                 </span>
              </h2>
              
@@ -2314,12 +2327,37 @@ const SeatingManagement: React.FC = () => {
                    className="w-full px-3 py-1.5 bg-slate-800 border border-slate-700 rounded text-xs text-white focus:ring-1 focus:ring-indigo-500"
                 />
              </div>
+             <div className="mb-3 flex flex-wrap gap-1.5">
+                <button
+                  onClick={() => setWaitingPaymentFilter('all')}
+                  className={`px-2 py-1 text-[10px] rounded border transition ${waitingPaymentFilter === 'all' ? 'bg-indigo-600 border-indigo-500 text-white' : 'bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700'}`}
+                >
+                  الكل
+                </button>
+                <button
+                  onClick={() => setWaitingPaymentFilter('paid')}
+                  className={`px-2 py-1 text-[10px] rounded border transition ${waitingPaymentFilter === 'paid' ? 'bg-emerald-600 border-emerald-500 text-white' : 'bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700'}`}
+                >
+                  دافعين فقط
+                </button>
+                <button
+                  onClick={() => setWaitingPaymentFilter('unpaid_or_zero')}
+                  className={`px-2 py-1 text-[10px] rounded border transition ${waitingPaymentFilter === 'unpaid_or_zero' ? 'bg-amber-600 border-amber-500 text-white' : 'bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700'}`}
+                >
+                  غير دافعين / عربون صفري
+                </button>
+             </div>
 
              <div className="overflow-y-auto pr-1 flex flex-col gap-4 flex-1 custom-scrollbar">
                 {['A', 'B', 'C'].map(cls => {
                    const classAttendees = attendees.filter((a: any) => 
                       a.seat_class === cls && 
                       !mapSeats.some(s => s.attendee_id === a.id) && 
+                      (
+                        waitingPaymentFilter === 'all' ||
+                        (waitingPaymentFilter === 'paid' && !isUnpaidOrZeroDeposit(a)) ||
+                        (waitingPaymentFilter === 'unpaid_or_zero' && isUnpaidOrZeroDeposit(a))
+                      ) &&
                       (waitingListSearch === '' || 
                        (a.full_name || '').toLowerCase().includes(waitingListSearch.toLowerCase()) || 
                        (a.phone || a.phone_primary || '').includes(waitingListSearch))
@@ -2350,6 +2388,9 @@ const SeatingManagement: React.FC = () => {
                                   <div className="truncate text-right">
                                     <div className="font-bold text-white truncate text-xs">{a.full_name}</div>
                                     <div className="text-[10px] text-slate-500">{a.phone || a.phone_primary || '-'}</div>
+                                    <div className={`text-[10px] ${isUnpaidOrZeroDeposit(a) ? 'text-amber-300' : 'text-emerald-300'}`}>
+                                      {isUnpaidOrZeroDeposit(a) ? 'غير دافع / عربون صفري' : 'دافع'}
+                                    </div>
                                     {!!a.preferred_neighbor_name && (
                                       <div className="text-[10px] text-indigo-300 truncate">
                                         بجوار: {a.preferred_neighbor_name}
@@ -2365,7 +2406,12 @@ const SeatingManagement: React.FC = () => {
                       </div>
                    );
                 })}
-                {attendees.filter((a: any) => !mapSeats.some(s => s.attendee_id === a.id)).length === 0 && (
+                {attendees.filter((a: any) => {
+                  if (mapSeats.some(s => s.attendee_id === a.id)) return false;
+                  if (waitingPaymentFilter === 'paid') return !isUnpaidOrZeroDeposit(a);
+                  if (waitingPaymentFilter === 'unpaid_or_zero') return isUnpaidOrZeroDeposit(a);
+                  return true;
+                }).length === 0 && (
                    <div className="text-xs text-slate-500 text-center py-4">لا يوجد مشتركون في قائمة الانتظار</div>
                 )}
              </div>
