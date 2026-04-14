@@ -16,6 +16,8 @@ type AttendeeLite = {
   full_name: string;
   governorate: string;
   seat_class: 'A' | 'B' | 'C';
+  phone?: string | null;
+  phone_primary?: string | null;
   seat_number?: number | null;
   barcode?: string | null;
 };
