@@ -49,7 +49,7 @@ const SeatNode = React.memo(({ seat, selected, mode, onSeatClick, onSeatDoubleCl
     <button
       onClick={(e) => {
          e.stopPropagation();
-         onSeatClick(seat);
+         onSeatClick(seat, e);
       }}
       onDoubleClick={(e) => {
          e.stopPropagation();
@@ -57,7 +57,7 @@ const SeatNode = React.memo(({ seat, selected, mode, onSeatClick, onSeatDoubleCl
       }}
       onMouseDown={(e) => {
          e.stopPropagation();
-         onDragStart(seat, 'seat', e.clientX, e.clientY, e.currentTarget);
+         onDragStart(seat, 'seat', e.clientX, e.clientY, e.currentTarget, e);
       }}
       className={`absolute text-[8px] w-6 h-6 rounded-full border flex flex-col items-center justify-center text-white ${selected ? 'bg-blue-600 ring-2 ring-blue-300 scale-110 z-10' : (statusColor[seat.status] || 'bg-slate-500')} ${mode === 'edit' ? 'cursor-move' : ''} ${inGroup ? 'outline outline-2 outline-orange-500 outline-dashed outline-offset-2 z-20' : 'border-white/20'}`}
       style={{
@@ -88,7 +88,7 @@ const TableNode = React.memo(({ box, selected, mode, onDoubleClick, onDragStart,
       }}
       onMouseDown={(e) => {
          e.stopPropagation();
-         onDragStart(box, 'table', e.clientX, e.clientY, e.currentTarget);
+         onDragStart(box, 'table', e.clientX, e.clientY, e.currentTarget, e);
       }}
       className={`absolute border-2 ${selected ? 'border-red-500 bg-red-500/40' : 'border-indigo-400 bg-indigo-600/30'} rounded-lg flex flex-col items-center justify-center ${mode === 'edit' ? 'cursor-move' : 'cursor-pointer hover:bg-indigo-500/50'} ${inGroup ? 'outline outline-2 outline-orange-500 outline-dashed outline-offset-4 z-20' : ''} transition-colors`}
         style={{ left: box.x, top: box.y, width: box.w, height: box.h }}
@@ -542,6 +542,12 @@ const SeatingManagement: React.FC = () => {
     return boxes;
   }, [mapSeats]);
 
+  const getItemType = useCallback((id: string): 'table' | 'element' | 'seat' => {
+    if (tableBoxes.some(t => t.id === id) || payload.tables.some(t => t.id === id)) return 'table';
+    if ((mapElements || []).some(e => e.id === id) || (payload.layout_elements || []).some(e => e.id === id)) return 'element';
+    return 'seat';
+  }, [tableBoxes, payload.tables, mapElements, payload.layout_elements]);
+
   const handleDeleteElement = useCallback(async (id: string, type: 'table' | 'element' | 'wave' | 'seat') => {
     const targets = selectedGroup.includes(id) && selectedGroup.length > 1 ? selectedGroup : [id];
     
@@ -561,11 +567,18 @@ const SeatingManagement: React.FC = () => {
     }
     
     const nextDraft = { ...layoutDraft };
+    const persistedTargets: Array<{ id: string; type: 'table' | 'element' | 'seat' }> = [];
     targets.forEach(tId => {
        const isTable = tableBoxes.some(t => t.id === tId);
        const isElement = mapElements?.some(e => e.id === tId);
        let tType = isTable ? 'table' : isElement ? 'element' : 'seat';
-       nextDraft[tId] = { type: tType as any, position_x: 0, position_y: 0, is_deleted: true };
+       const patch = layoutDraft[tId] as any;
+       if (patch?.is_new) {
+         delete nextDraft[tId];
+       } else {
+         nextDraft[tId] = { ...(patch || {}), type: tType as any, position_x: 0, position_y: 0, is_deleted: true };
+         persistedTargets.push({ id: tId, type: tType as any });
+       }
     });
     
     setLayoutDraft(nextDraft as any);
@@ -573,7 +586,28 @@ const SeatingManagement: React.FC = () => {
     setSelectedGroup([]);
     setSelectedElement(null);
     setSelectedSeatId('');
-  }, [selectedGroup, payload.seats, tableBoxes, mapElements, layoutDraft, commitDraftHistory]);
+
+    // Persist delete immediately so item does not come back after refresh/navigation.
+    if (persistedTargets.length > 0) {
+      try {
+        setLoading(true);
+        const selectedTableIds = new Set(persistedTargets.filter(t => t.type === 'table').map(t => t.id));
+        const deduped = persistedTargets.filter((t, idx, arr) => {
+          if (t.type === 'seat') {
+            const seat = payload.seats.find(s => s.id === t.id);
+            if (seat?.table_id && selectedTableIds.has(seat.table_id)) return false;
+          }
+          return arr.findIndex(a => a.id === t.id && a.type === t.type) === idx;
+        });
+        await Promise.all(deduped.map(t => api.post('/seating/delete-element', { event_id: eventId, id: t.id, type: t.type })));
+        await loadMap();
+      } catch (e: any) {
+        setError(e.message || 'فشل الحذف النهائي على السيرفر');
+      } finally {
+        setLoading(false);
+      }
+    }
+  }, [selectedGroup, payload.seats, tableBoxes, mapElements, layoutDraft, commitDraftHistory, eventId]);
 
   useEffect(() => {
      const handleKeyDown = (e: KeyboardEvent) => {
@@ -1223,8 +1257,15 @@ const SeatingManagement: React.FC = () => {
      }
   };
 
-  const startDrag = useCallback((element: any, type: 'table' | 'element' | 'wave' | 'seat', clientX: number, clientY: number, currentTarget: any) => {
+  const startDrag = useCallback((element: any, type: 'table' | 'element' | 'wave' | 'seat', clientX: number, clientY: number, currentTarget: any, sourceEvent?: MouseEvent | React.MouseEvent) => {
     if (mainMode !== 'edit') return;
+    const isMultiToggle = !!sourceEvent && ((sourceEvent as any).ctrlKey || (sourceEvent as any).metaKey || (sourceEvent as any).shiftKey);
+    if (isMultiToggle) {
+      setSelectedGroup(prev => prev.includes(element.id) ? prev.filter(x => x !== element.id) : [...prev, element.id]);
+      setSelectedElement({ id: element.id, type });
+      return;
+    }
+    if (editModeState.action !== 'move') return;
     const currentZoom = zoomLevel;
     
     let groupIds = [element.id];
@@ -1290,7 +1331,7 @@ const SeatingManagement: React.FC = () => {
       groupOrigins
     });
     setSelectedElement({ id: element.id, type });
-  }, [mainMode, layoutDraft, mapSeats, tableBoxes, mapElements, zoomLevel, selectedGroup]);
+  }, [mainMode, editModeState.action, layoutDraft, mapSeats, tableBoxes, mapElements, zoomLevel, selectedGroup]);
 
 
   const handleCanvasMouseDown = (e: React.MouseEvent) => {
@@ -1454,7 +1495,14 @@ const SeatingManagement: React.FC = () => {
   };
 
   
-  const handleSeatClick = useCallback((seat: Seat) => {
+  const handleSeatClick = useCallback((seat: Seat, event?: React.MouseEvent) => {
+    if (mainMode === 'edit' && ((event && (event.ctrlKey || event.metaKey || event.shiftKey)) || selectedGroup.length > 0)) {
+       if (event && (event.ctrlKey || event.metaKey || event.shiftKey)) {
+         setSelectedGroup(prev => prev.includes(seat.id) ? prev.filter(x => x !== seat.id) : [...prev, seat.id]);
+         setSelectedElement({ id: seat.id, type: 'seat' });
+         return;
+       }
+    }
     if (mainMode === 'edit' && editModeState.action === 'delete') {
        if (seat.status === 'booked') {
           if (!window.confirm('هذا المقعد محجوز! هل أنت متأكد من مسحه؟ (سيتم إلغاء تسكين الشخص)')) return;
@@ -1476,7 +1524,7 @@ const SeatingManagement: React.FC = () => {
       position_y: Number(seat.position_y || 0),
       row_number: seat.row_number
     });
-  }, [mainMode, editModeState.action, assignMode]);
+  }, [mainMode, editModeState.action, assignMode, selectedGroup.length]);
   
   const handleSeatDoubleClick = useCallback((seat: Seat) => {
     if (mainMode === 'assign') {
@@ -1614,6 +1662,25 @@ const SeatingManagement: React.FC = () => {
         <div className="px-3 py-2 rounded-md bg-slate-900 border border-slate-700 text-sm">الإجمالي: {seatStats.total}</div>
         <div className="px-3 py-2 rounded-md bg-slate-900 border border-slate-700 text-sm">المتاح: {seatStats.available}</div>
       </div>
+
+      {mainMode === 'edit' && editModeState.action === 'delete' && (
+        <div className="rounded-lg border border-red-800/60 bg-red-950/20 p-3 flex flex-wrap items-center gap-2">
+          <button
+            disabled={selectedGroup.length === 0}
+            onClick={() => {
+              if (selectedGroup.length === 0) return;
+              const firstType = getItemType(selectedGroup[0]);
+              handleDeleteElement(selectedGroup[0], firstType);
+            }}
+            className="px-4 py-2 rounded-md text-sm font-bold bg-red-600 hover:bg-red-500 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            حذف المحدد ({selectedGroup.length})
+          </button>
+          <span className="text-xs text-red-200/90">
+            للتحديد المتعدد: استخدم السحب على اللوحة أو `Ctrl + Click` ثم اضغط حذف المحدد.
+          </span>
+        </div>
+      )}
 
       {mainMode === 'edit' && editModeState.action === 'add' && (
         <div className="rounded-xl border border-emerald-800 bg-emerald-950/20 p-4 flex flex-wrap gap-3 items-center">
@@ -1767,7 +1834,8 @@ const SeatingManagement: React.FC = () => {
                      <div key={box.id} style={{ opacity: isFade ? 0.2 : 1, pointerEvents: isFade ? 'none' : 'auto', transition: 'opacity 0.3s' }}>
                        <TableNode 
                           box={{ ...box, x, y }} 
-                          selected={selectedElement?.id === box.id} 
+                         selected={selectedElement?.id === box.id} 
+                         inGroup={selectedGroup.includes(box.id)}
                           mode={mainMode === 'edit' && editModeState.action === 'move' ? 'edit' : 'view'}
                           onDoubleClick={(id: string, currentName: string) => {
                              if (mainMode === 'assign') {
@@ -1783,9 +1851,14 @@ const SeatingManagement: React.FC = () => {
                                 });
                              }
                           }}
-                          onDragStart={(b: any, type: string, clientX: number, clientY: number, target: any) => {
+                         onDragStart={(b: any, type: string, clientX: number, clientY: number, target: any, sourceEvent: any) => {
+                            if (mainMode === 'edit' && (sourceEvent?.ctrlKey || sourceEvent?.metaKey || sourceEvent?.shiftKey)) {
+                               setSelectedGroup(prev => prev.includes(b.id) ? prev.filter(x => x !== b.id) : [...prev, b.id]);
+                               setSelectedElement({ id: b.id, type: 'table' });
+                               return;
+                            }
                              if (mainMode === 'edit' && editModeState.action === 'move') {
-                                startDrag({ id: b.id, position_x: box.x/8, position_y: box.y/4 }, 'table', clientX, clientY, target);
+                                startDrag({ id: b.id, position_x: box.x/8, position_y: box.y/4 }, 'table', clientX, clientY, target, sourceEvent);
                                 setSelectedElement({ id: b.id, type: 'table' });
                              } else if (mainMode === 'edit' && editModeState.action === 'delete') {
                                 if (window.confirm('هل أنت متأكد من مسح هذه الترابيزة بالكامل؟ (سيتم إلغاء تسكين جميع كراسيها)')) {
@@ -1824,7 +1897,12 @@ const SeatingManagement: React.FC = () => {
                                   width: length, height: 6, transform: `rotate(${angle}deg)`, transformOrigin: '0 0'
                               }} 
                               onMouseDown={(e) => {
-                                 if (mainMode === 'edit' && editModeState.action === 'move') { e.stopPropagation(); startDrag(el, 'element', e.clientX, e.clientY, e.currentTarget); }
+                                 if (mainMode === 'edit' && (e.ctrlKey || e.metaKey || e.shiftKey)) {
+                                   e.stopPropagation();
+                                   setSelectedGroup(prev => prev.includes(el.id) ? prev.filter(x => x !== el.id) : [...prev, el.id]);
+                                   setSelectedElement({ id: el.id, type: 'element' });
+                                 }
+                                 else if (mainMode === 'edit' && editModeState.action === 'move') { e.stopPropagation(); startDrag(el, 'element', e.clientX, e.clientY, e.currentTarget, e); }
                                  else if (mainMode === 'edit' && editModeState.action === 'delete') { e.stopPropagation(); handleDeleteElement(el.id, 'element'); }
                               }}
                               title={meta.label || 'ممر'}
@@ -1850,9 +1928,13 @@ const SeatingManagement: React.FC = () => {
                      <div 
                         key={el.id}
                         onMouseDown={(e) => {
-                           if (mainMode === 'edit' && editModeState.action === 'move') {
+                           if (mainMode === 'edit' && (e.ctrlKey || e.metaKey || e.shiftKey)) {
                               e.stopPropagation();
-                              startDrag(el, 'element', e.clientX, e.clientY, e.currentTarget);
+                              setSelectedGroup(prev => prev.includes(el.id) ? prev.filter(x => x !== el.id) : [...prev, el.id]);
+                              setSelectedElement({ id: el.id, type: 'element' });
+                           } else if (mainMode === 'edit' && editModeState.action === 'move') {
+                              e.stopPropagation();
+                              startDrag(el, 'element', e.clientX, e.clientY, e.currentTarget, e);
                            } else if (mainMode === 'edit' && editModeState.action === 'delete') {
                               e.stopPropagation();
                               handleDeleteElement(el.id, 'element');
