@@ -433,6 +433,7 @@ const SeatingManagement: React.FC = () => {
   const [versionName, setVersionName] = useState('');
   const [assignmentModal, setAssignmentModal] = useState<{isOpen: boolean, seat: Seat | null, isTableModal: boolean, tableId: string | null}>({isOpen: false, seat: null, isTableModal: false, tableId: null});
   const [zoomLevel, setZoomLevel] = useState(1);
+  const [isMapFullscreen, setIsMapFullscreen] = useState(false);
   const [editTableModal, setEditTableModal] = useState<{isOpen: boolean, tableId: string, currentName: string, currentClass: string, currentCount: number}>({isOpen: false, tableId: '', currentName: '', currentClass: 'A', currentCount: 12});
 
   const [drawState, setDrawState] = useState<{
@@ -480,6 +481,19 @@ const SeatingManagement: React.FC = () => {
 
   useEffect(() => { dragStateRef.current = dragState; }, [dragState]);
   useEffect(() => { layoutDraftRef.current = layoutDraft; }, [layoutDraft]);
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && isMapFullscreen) setIsMapFullscreen(false);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [isMapFullscreen]);
+
+  useEffect(() => {
+    const originalOverflow = document.body.style.overflow;
+    if (isMapFullscreen) document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = originalOverflow; };
+  }, [isMapFullscreen]);
 
   const mapSeats = useMemo(() => {
     const baseSeats = payload.seats.filter(s => {
@@ -1827,10 +1841,17 @@ const SeatingManagement: React.FC = () => {
       )}
 
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-4">
-        <div className="xl:col-span-9 rounded-xl border border-slate-800 bg-slate-900 p-4">
+        <div className={`${isMapFullscreen ? 'fixed inset-2 z-[500] rounded-xl border border-slate-700 bg-slate-950 p-3 shadow-2xl' : 'xl:col-span-9 rounded-xl border border-slate-800 bg-slate-900 p-4'}`}>
           <div className="mb-3 flex items-center justify-between">
             <div className="text-sm text-slate-300">لوحة القاعة التفاعلية</div>
             <div className="flex gap-2 items-center" dir="ltr">
+              <button
+                onClick={() => setIsMapFullscreen(prev => !prev)}
+                className={`px-3 py-1 border rounded-md text-xs font-bold ${isMapFullscreen ? 'bg-amber-600 border-amber-500 text-white' : 'bg-slate-800 border-slate-700 hover:bg-slate-700 text-slate-200'}`}
+                title={isMapFullscreen ? 'تصغير الخريطة' : 'تكبير الخريطة'}
+              >
+                {isMapFullscreen ? 'تصغير' : 'تكبير'}
+              </button>
               <button onClick={() => setZoomLevel(p => Math.max(0.2, p - 0.1))} className="px-3 py-1 bg-slate-800 border border-slate-700 hover:bg-slate-700 rounded-md text-xl leading-none">-</button>
               <span className="text-sm w-12 text-center font-bold text-indigo-300">{Math.round(zoomLevel * 100)}%</span>
               <button onClick={() => setZoomLevel(p => Math.min(3, p + 0.1))} className="px-3 py-1 bg-slate-800 border border-slate-700 hover:bg-slate-700 rounded-md text-xl leading-none">+</button>
@@ -1839,7 +1860,7 @@ const SeatingManagement: React.FC = () => {
           </div>
           <div className="rounded-lg border border-slate-800 bg-slate-950 p-2">
             <div className="h-12 rounded-md border border-indigo-800 bg-indigo-900/30 text-center font-bold flex items-center justify-center mb-3">STAGE / المسرح</div>
-            <div id="seating-canvas-container" className="relative rounded-md border border-slate-800 overflow-auto" style={{ height: 600 }}>
+            <div id="seating-canvas-container" className="relative rounded-md border border-slate-800 overflow-auto" style={{ height: isMapFullscreen ? 'calc(100vh - 170px)' : 600 }}>
               <div
                 id="seating-canvas-inner"
                 className="relative min-w-[1600px] min-h-[1200px]"
