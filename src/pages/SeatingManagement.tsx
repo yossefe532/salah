@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState, useCallback } from 'react';
+import React, { useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import { api } from '../lib/api';
 import { Seat, SeatTable } from '../types';
 
@@ -467,6 +467,7 @@ const SeatingManagement: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [payload, setPayload] = useState<SeatingMapPayload>({ event_id: 'MINYA-2026-MAIN', tables: [], seats: [], layout_elements: [] });
   const [attendees, setAttendees] = useState<AttendeeLite[]>([]);
+  const liveSyncInFlightRef = useRef(false);
 
   const mapSeats = useMemo(() => {
     const baseSeats = payload.seats.filter(s => {
@@ -713,6 +714,46 @@ const SeatingManagement: React.FC = () => {
     }
   };
 
+  const refreshLiveData = useCallback(async () => {
+    if (liveSyncInFlightRef.current) return;
+    liveSyncInFlightRef.current = true;
+    try {
+      const [mapData, attendeesData] = await Promise.all([
+        api.get(`/seating/map?eventId=${eventId}`),
+        api.get(`/seating/attendees?eventId=${eventId}`)
+      ]);
+      const incoming = (mapData || { event_id: eventId, tables: [], seats: [] }) as SeatingMapPayload;
+      setPayload((prev) => {
+        const prevSeats = prev.seats || [];
+        const nextSeats = Array.isArray(incoming.seats) ? incoming.seats : [];
+        let changed = prevSeats.length !== nextSeats.length;
+        if (!changed) {
+          for (let i = 0; i < prevSeats.length; i += 1) {
+            const a = prevSeats[i];
+            const b = nextSeats[i];
+            if (!b || a.id !== b.id || a.attendee_id !== b.attendee_id || a.status !== b.status || a.reserved_until !== b.reserved_until || a.reserved_by !== b.reserved_by) {
+              changed = true;
+              break;
+            }
+          }
+        }
+        if (!changed) return prev;
+        return {
+          ...prev,
+          event_id: incoming.event_id || prev.event_id,
+          seats: nextSeats,
+          tables: Array.isArray(incoming.tables) && incoming.tables.length ? incoming.tables : prev.tables,
+          layout_elements: Array.isArray(incoming.layout_elements) ? incoming.layout_elements : prev.layout_elements
+        };
+      });
+      setAttendees((Array.isArray(attendeesData) ? attendeesData : []) as AttendeeLite[]);
+    } catch {
+      // Keep UI stable during background live refresh.
+    } finally {
+      liveSyncInFlightRef.current = false;
+    }
+  }, [eventId]);
+
   const loadLayoutVersions = async () => {
     try {
       const data = await api.get(`/seating/layout-versions?eventId=${eventId}`);
@@ -736,6 +777,17 @@ const SeatingManagement: React.FC = () => {
     setHistory([{}]);
     setHistoryIndex(0);
   }, [eventId]);
+
+  useEffect(() => {
+    if (mainMode !== 'assign') return;
+    const intervalId = window.setInterval(() => {
+      if (document.hidden) return;
+      if (assignmentModal.isOpen || !!dragState || !!selectionBox || !!drawState) return;
+      if (loading) return;
+      refreshLiveData();
+    }, 3000);
+    return () => window.clearInterval(intervalId);
+  }, [mainMode, refreshLiveData, assignmentModal.isOpen, dragState, selectionBox, drawState, loading]);
 
   const seatStats = useMemo(() => {
     const list = mapSeats.filter((s) => s.seat_class === classFilter);
@@ -868,7 +920,6 @@ const SeatingManagement: React.FC = () => {
     }
 
     try {
-      setLoading(true);
       setError(null);
       await api.post('/seating/assign-attendee', { event_id: eventId, seat_id: sId, attendee_id: aid });
       
@@ -924,13 +975,12 @@ const SeatingManagement: React.FC = () => {
         }
       }
       
-      // Background reload
-      loadMap();
-      loadAttendees();
+      // Background reload (deferred) to avoid UI stutter on every click.
+      window.setTimeout(() => {
+        refreshLiveData();
+      }, 250);
     } catch (e: any) {
       setError(e.message || 'فشل تسكين المشارك');
-    } finally {
-      setLoading(false);
     }
   };
 
@@ -938,7 +988,6 @@ const SeatingManagement: React.FC = () => {
     const sId = typeof passedSeatId === 'string' ? passedSeatId : selectedSeatId;
     if (!sId) return;
     try {
-      setLoading(true);
       setError(null);
       
       const targetSeat = payload.seats.find(s => s.id === sId);
@@ -963,12 +1012,12 @@ const SeatingManagement: React.FC = () => {
         })
       }));
       
-      loadMap();
-      loadAttendees();
+      window.setTimeout(() => {
+        refreshLiveData();
+      }, 250);
     } catch (e: any) {
       setError(e.message || 'فشل إلغاء التسكين');
     } finally {
-      setLoading(false);
       setAssignmentModal({isOpen: false, seat: null, isTableModal: false, tableId: null});
     }
   };
