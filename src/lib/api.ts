@@ -1840,27 +1840,54 @@ export const api = {
         .eq('event_id', eventId);
       if (seatsErr) throw new Error(seatsErr.message);
 
-      // Reset seat occupancy in this hall before rebuilding assignment links.
-      await supabase
-        .from('seats')
-        .update({ status: 'available', attendee_id: null, reserved_by: null, reserved_until: null })
-        .eq('event_id', eventId);
+      const selectWithSeatNumber = 'id, full_name, governorate, seat_class, seat_number, barcode, status, is_deleted';
+      const selectWithoutSeatNumber = 'id, full_name, governorate, seat_class, barcode, status, is_deleted';
+      let supportsSeatNumber = true;
+      let attendees: any[] | null = null;
 
-      const scopedAttendees = applyCompanyScopeToAttendeesQuery(
+      let scopedAttendees = applyCompanyScopeToAttendeesQuery(
         supabase
           .from('attendees')
-          .select('id, full_name, governorate, seat_class, seat_number, barcode, status, is_deleted')
+          .select(selectWithSeatNumber)
           .eq('is_deleted', false),
         currentUser
       );
-      let { data: attendees, error: attErr } = await scopedAttendees;
+      let { data: attendeesData, error: attErr } = await scopedAttendees;
+
+      if (attErr && isMissingColumnError(attErr, 'seat_number')) {
+        supportsSeatNumber = false;
+        scopedAttendees = applyCompanyScopeToAttendeesQuery(
+          supabase
+            .from('attendees')
+            .select(selectWithoutSeatNumber)
+            .eq('is_deleted', false),
+          currentUser
+        );
+        const retry = await scopedAttendees;
+        attendeesData = retry.data as any;
+        attErr = retry.error as any;
+      }
+
       if (attErr && isMissingColumnError(attErr, 'company_id')) {
-        const fallback = await supabase
+        const fallbackPrimary = await supabase
           .from('attendees')
-          .select('id, full_name, governorate, seat_class, seat_number, barcode, status, is_deleted')
+          .select(supportsSeatNumber ? selectWithSeatNumber : selectWithoutSeatNumber)
           .eq('is_deleted', false);
-        attendees = fallback.data as any;
-        attErr = fallback.error as any;
+        let fallbackData: any = fallbackPrimary.data as any;
+        let fallbackErr: any = fallbackPrimary.error as any;
+        if (fallbackErr && supportsSeatNumber && isMissingColumnError(fallbackErr, 'seat_number')) {
+          supportsSeatNumber = false;
+          const fallbackRetry = await supabase
+            .from('attendees')
+            .select(selectWithoutSeatNumber)
+            .eq('is_deleted', false);
+          fallbackData = fallbackRetry.data as any;
+          fallbackErr = fallbackRetry.error as any;
+        }
+        attendees = fallbackData;
+        attErr = fallbackErr;
+      } else {
+        attendees = attendeesData as any;
       }
       if (attErr) throw new Error(attErr.message);
 
@@ -1882,6 +1909,7 @@ export const api = {
       let restoredFromSeatNumber = 0;
 
       const allAttendees = ((attendees || []) as any[]);
+      const assignmentBySeatId = new Map<string, any>();
       const barcodeCandidates = allAttendees.filter((a) => !!a.barcode);
       const unresolvedIds = new Set<string>();
 
@@ -1892,44 +1920,49 @@ export const api = {
           unresolvedIds.add(String(attendee.id));
           continue;
         }
-        if (occupiedSeatIds.has(seat.id)) {
+        if (occupiedSeatIds.has(seat.id) || assignmentBySeatId.has(String(seat.id))) {
           skippedConflict += 1;
           unresolvedIds.add(String(attendee.id));
           continue;
         }
-
-        await supabase
-          .from('seats')
-          .update({ status: 'booked', attendee_id: attendee.id, reserved_by: null, reserved_until: null })
-          .eq('event_id', eventId)
-          .eq('id', seat.id);
-
-        const updateRes = await updateAttendeeSafely(String(attendee.id), {
-          status: 'registered',
-          seat_number: Number(seat.seat_number),
-          seat_class: seat.seat_class,
-          barcode: seat.seat_code
-        });
-        if (updateRes.error) throw new Error(updateRes.error.message);
-
+        assignmentBySeatId.set(String(seat.id), { attendee, seat, fromSeatNumber: false });
         occupiedSeatIds.add(seat.id);
-        restored += 1;
       }
 
       // Fallback: when barcode is missing/invalid, try seat_number + seat_class
       // only when the target is unique in this hall to avoid wrong mapping.
-      const seatNumberCandidates = allAttendees.filter((a) =>
+      const seatNumberCandidates = supportsSeatNumber ? allAttendees.filter((a) =>
         (unresolvedIds.has(String(a.id)) || !a.barcode) &&
         a.seat_class &&
         Number(a.seat_number || 0) > 0
-      );
+      ) : [];
       for (const attendee of seatNumberCandidates) {
         if (occupiedSeatIds.size >= (seats || []).length) break;
         const key = `${attendee.seat_class}#${Number(attendee.seat_number || 0)}`;
         const candidates = (seatsByClassAndNumber.get(key) || []).filter((s: any) => !occupiedSeatIds.has(s.id));
         if (candidates.length !== 1) continue;
         const seat = candidates[0];
+        assignmentBySeatId.set(String(seat.id), { attendee, seat, fromSeatNumber: true });
+        occupiedSeatIds.add(seat.id);
+      }
 
+      if (assignmentBySeatId.size === 0) {
+        return { success: true, restored: 0, restored_from_seat_number: 0, skipped_no_seat: skippedNoSeat, skipped_conflict: skippedConflict, note: 'لا يوجد تطابقات صالحة للاسترجاع' };
+      }
+
+      // Apply only targeted updates (no global wipe), so running recovery repeatedly is safe.
+      for (const item of assignmentBySeatId.values() as any) {
+        const attendee = item.attendee;
+        const seat = item.seat;
+        if (seat.attendee_id && String(seat.attendee_id) !== String(attendee.id)) {
+          await updateAttendeeSafely(String(seat.attendee_id), { seat_number: null, barcode: null });
+        }
+        await supabase
+          .from('seats')
+          .update({ status: 'available', attendee_id: null, reserved_by: null, reserved_until: null })
+          .eq('event_id', eventId)
+          .eq('attendee_id', attendee.id)
+          .neq('id', seat.id);
         await supabase
           .from('seats')
           .update({ status: 'booked', attendee_id: attendee.id, reserved_by: null, reserved_until: null })
@@ -1944,9 +1977,8 @@ export const api = {
         });
         if (updateRes.error) throw new Error(updateRes.error.message);
 
-        occupiedSeatIds.add(seat.id);
         restored += 1;
-        restoredFromSeatNumber += 1;
+        if (item.fromSeatNumber) restoredFromSeatNumber += 1;
       }
 
       return { success: true, restored, restored_from_seat_number: restoredFromSeatNumber, skipped_no_seat: skippedNoSeat, skipped_conflict: skippedConflict };
