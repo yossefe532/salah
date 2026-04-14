@@ -105,11 +105,13 @@ const TableNode = React.memo(({ box, selected, mode, onDoubleClick, onDragStart,
 const TableAssignModalComponent = ({ isOpen, tableId, mapSeats, attendees, governorate, onClose, onAssign, onUnassign }: any) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedSeat, setSelectedSeat] = useState<Seat | null>(null);
+  const [showAlreadySeated, setShowAlreadySeated] = useState(false);
   
   useEffect(() => {
     if (isOpen) {
       setSearchTerm('');
       setSelectedSeat(null);
+      setShowAlreadySeated(false);
     }
   }, [isOpen]);
 
@@ -124,9 +126,17 @@ const TableAssignModalComponent = ({ isOpen, tableId, mapSeats, attendees, gover
   const minX = Math.min(...xs);
   const minY = Math.min(...ys);
 
+  const assignedAttendeeIds = new Set(mapSeats.map((s: Seat) => s.attendee_id).filter(Boolean));
+
   const filteredAttendees = attendees
-    .filter((a: any) => a.seat_class === tClass && !a.barcode && normalizeGov(a.governorate) === normalizeGov(governorate))
+    .filter((a: any) => a.seat_class === tClass && normalizeGov(a.governorate) === normalizeGov(governorate))
     .filter((a: any) => {
+       // Only show unseated unless showAlreadySeated is true
+       if (!showAlreadySeated) {
+          if (a.barcode) return false;
+          if (assignedAttendeeIds.has(a.id)) return false;
+       }
+       
        const term = searchTerm.toLowerCase();
        const name = (a.full_name || a.name || '').toLowerCase();
        const phone = (a.phone || '').toLowerCase();
@@ -193,13 +203,24 @@ const TableAssignModalComponent = ({ isOpen, tableId, mapSeats, attendees, gover
                     </div>
                   )}
 
-                  <input 
-                    type="text" 
-                    placeholder="ابحث بالاسم أو رقم التليفون..." 
-                    value={searchTerm}
-                    onChange={e => setSearchTerm(e.target.value)}
-                    className="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-lg text-white mb-4"
-                  />
+                  <div className="flex flex-col gap-2 mb-4">
+                    <input 
+                      type="text" 
+                      placeholder="ابحث بالاسم أو رقم التليفون..." 
+                      value={searchTerm}
+                      onChange={e => setSearchTerm(e.target.value)}
+                      className="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-lg text-white"
+                    />
+                    <label className="flex items-center gap-2 cursor-pointer select-none px-1">
+                       <input 
+                         type="checkbox" 
+                         checked={showAlreadySeated} 
+                         onChange={e => setShowAlreadySeated(e.target.checked)}
+                         className="w-4 h-4 rounded border-slate-700 bg-slate-800 text-indigo-600 focus:ring-indigo-500"
+                       />
+                       <span className="text-xs text-slate-400">عرض الجميع (بمن فيهم المسكنين بالفعل)</span>
+                    </label>
+                  </div>
                   
                   <div className="flex-1 flex flex-col gap-2 overflow-y-auto pr-2 custom-scrollbar">
                     {filteredAttendees.map((a: any) => (
@@ -254,9 +275,13 @@ const normalizeGov = (val: string) => {
 
 const AssignmentModalComponent = ({ isOpen, seat, attendees, governorate, onClose, onAssign, onUnassign }: any) => {
   const [searchTerm, setSearchTerm] = useState('');
+  const [showAlreadySeated, setShowAlreadySeated] = useState(false);
   
   useEffect(() => {
-    if (isOpen) setSearchTerm('');
+    if (isOpen) {
+      setSearchTerm('');
+      setShowAlreadySeated(false);
+    }
   }, [isOpen]);
 
   if (!isOpen || !seat) return null;
@@ -271,8 +296,11 @@ const AssignmentModalComponent = ({ isOpen, seat, attendees, governorate, onClos
   };
 
   const filteredAttendees = attendees
-    .filter((a: any) => a.seat_class === seat.seat_class && !a.barcode && normalizeGov(a.governorate) === normalizeGov(governorate))
+    .filter((a: any) => a.seat_class === seat.seat_class && normalizeGov(a.governorate) === normalizeGov(governorate))
     .filter((a: any) => {
+       if (!showAlreadySeated) {
+          if (a.barcode) return false;
+       }
        const term = searchTerm.toLowerCase();
        const name = (a.full_name || a.name || '').toLowerCase();
        const phone = (a.phone || '').toLowerCase();
@@ -300,14 +328,25 @@ const AssignmentModalComponent = ({ isOpen, seat, attendees, governorate, onClos
              </div>
            )}
 
-           <input 
-             type="text" 
-             autoFocus
-             placeholder="ابحث بالاسم أو رقم التليفون لتبديل التسكين..." 
-             value={searchTerm}
-             onChange={e => setSearchTerm(e.target.value)}
-             className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white"
-           />
+           <div className="flex flex-col gap-2">
+              <input 
+                type="text" 
+                autoFocus
+                placeholder="ابحث بالاسم أو رقم التليفون لتبديل التسكين..." 
+                value={searchTerm}
+                onChange={e => setSearchTerm(e.target.value)}
+                className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white"
+              />
+              <label className="flex items-center gap-2 cursor-pointer select-none px-1">
+                 <input 
+                   type="checkbox" 
+                   checked={showAlreadySeated} 
+                   onChange={e => setShowAlreadySeated(e.target.checked)}
+                   className="w-3 h-3 rounded border-slate-700 bg-slate-800 text-indigo-600 focus:ring-indigo-500"
+                 />
+                 <span className="text-[10px] text-slate-400">عرض الجميع (بمن فيهم المسكنين بالفعل)</span>
+              </label>
+           </div>
            <div className="flex flex-col gap-2 max-h-80 overflow-y-auto pr-2">
              {filteredAttendees.map((a: any) => (
                    <button 
@@ -346,6 +385,7 @@ const SeatingManagement: React.FC = () => {
   const [mainMode, setMainMode] = useState<'assign' | 'edit'>('assign');
   const [assignMode, setAssignMode] = useState<'tables' | 'chairs'>('tables');
   const [classFilter, setClassFilter] = useState<'A' | 'B' | 'C'>('A');
+  const [waitingListSearch, setWaitingListSearch] = useState('');
   const [editModeState, setEditModeState] = useState<EditModeState>({
     action: null,
     addType: 'table',
@@ -764,13 +804,25 @@ const SeatingManagement: React.FC = () => {
     const aid = typeof passedAttendeeId === 'string' ? passedAttendeeId : selectedAttendeeId;
     const sId = typeof passedSeatId === 'string' ? passedSeatId : selectedSeatId;
     if (!sId || !aid) return;
+
+    const attendee = attendees.find(a => a.id === aid);
+    const targetSeat = payload.seats.find(s => s.id === sId);
+    
+    // Check if attendee is already seated
+    const currentSeat = payload.seats.find(s => s.attendee_id === aid);
+    if (currentSeat || (attendee && attendee.barcode)) {
+       const seatCode = currentSeat?.seat_code || attendee?.barcode;
+       if (!window.confirm(`هذا الشخص مسكن بالفعل في المقعد (${seatCode}). هل تريد نقله إلى المقعد الجديد؟`)) {
+          return;
+       }
+    }
+
     try {
       setLoading(true);
       setError(null);
       await api.post('/seating/assign-attendee', { event_id: eventId, seat_id: sId, attendee_id: aid });
       
       // Optimistic update for instant UI feedback
-      const targetSeat = payload.seats.find(s => s.id === sId);
       const oldAttendeeIdInTargetSeat = targetSeat?.attendee_id;
       
       setPayload(prev => ({
@@ -812,16 +864,22 @@ const SeatingManagement: React.FC = () => {
       
       await api.post('/seating/unassign-attendee', { event_id: eventId, seat_id: sId, attendee_id: oldAttendeeId });
       
+      // Clear data from attendees list too
+      if (oldAttendeeId) {
+         setAttendees(prev => prev.map(a => 
+            a.id === oldAttendeeId ? { ...a, seat_number: null, barcode: null } : a
+         ));
+      }
+      
       setPayload(prev => ({
         ...prev,
         seats: prev.seats.map(s => {
           if (s.id === sId) return { ...s, status: 'available', attendee_id: null };
+          // If the attendee was in another seat somehow, clear that too
+          if (oldAttendeeId && s.attendee_id === oldAttendeeId) return { ...s, status: 'available', attendee_id: null };
           return s;
         })
       }));
-      if (oldAttendeeId) {
-        setAttendees(prev => prev.map(a => a.id === oldAttendeeId ? { ...a, seat_number: undefined, barcode: undefined } : a));
-      }
       
       loadMap();
       loadAttendees();
@@ -1958,27 +2016,73 @@ const SeatingManagement: React.FC = () => {
             </div>
           </div>
 
-          <div className="rounded-xl border border-slate-800 bg-slate-900 p-4 flex flex-col max-h-[400px]">
+          <div className="rounded-xl border border-slate-800 bg-slate-900 p-4 flex flex-col max-h-[500px]">
              <h2 className="text-sm font-bold mb-3 flex justify-between items-center">
-                <span>قائمة الانتظار (Class {classFilter})</span>
+                <span>قائمة الانتظار</span>
                 <span className="bg-indigo-600 text-white px-2 py-0.5 rounded text-xs">
-                   {attendees.filter((a: any) => a.seat_class === classFilter && !a.barcode && normalizeGov(a.governorate) === normalizeGov(governorate)).length}
+                   {attendees.filter((a: any) => !a.barcode && !mapSeats.some(s => s.attendee_id === a.id) && normalizeGov(a.governorate) === normalizeGov(governorate)).length}
                 </span>
              </h2>
-             <div className="overflow-y-auto pr-1 flex flex-col gap-2 flex-1">
-                {attendees
-                   .filter((a: any) => a.seat_class === classFilter && !a.barcode && normalizeGov(a.governorate) === normalizeGov(governorate))
-                   .map((a: any) => (
-                      <div key={a.id} className="p-2 bg-slate-800 border border-slate-700 rounded text-sm flex justify-between items-center hover:bg-slate-700 transition cursor-default">
-                         <div className="truncate text-right">
-                           <div className="font-bold text-white truncate">{a.full_name}</div>
-                           <div className="text-xs text-slate-400">{a.phone || '-'}</div>
+             
+             <div className="mb-3">
+                <input 
+                   type="text" 
+                   placeholder="بحث في المنتظرين..." 
+                   value={waitingListSearch}
+                   onChange={e => setWaitingListSearch(e.target.value)}
+                   className="w-full px-3 py-1.5 bg-slate-800 border border-slate-700 rounded text-xs text-white focus:ring-1 focus:ring-indigo-500"
+                />
+             </div>
+
+             <div className="overflow-y-auto pr-1 flex flex-col gap-4 flex-1 custom-scrollbar">
+                {['A', 'B', 'C'].map(cls => {
+                   const classAttendees = attendees.filter((a: any) => 
+                      a.seat_class === cls && 
+                      !a.barcode && 
+                      !mapSeats.some(s => s.attendee_id === a.id) && 
+                      normalizeGov(a.governorate) === normalizeGov(governorate) &&
+                      (waitingListSearch === '' || 
+                       (a.full_name || '').toLowerCase().includes(waitingListSearch.toLowerCase()) || 
+                       (a.phone || '').includes(waitingListSearch))
+                   );
+                   
+                   if (classAttendees.length === 0 && waitingListSearch !== '') return null;
+                   
+                   return (
+                      <div key={cls} className="space-y-2">
+                         <div className="flex items-center gap-2 sticky top-0 bg-slate-900 py-1 z-10">
+                            <span className={`w-2 h-2 rounded-full ${cls === 'A' ? 'bg-amber-500' : cls === 'B' ? 'bg-blue-500' : 'bg-slate-500'}`} />
+                            <span className="text-[10px] font-bold text-slate-400 uppercase">Class {cls} ({classAttendees.length})</span>
+                            <div className="flex-1 h-[1px] bg-slate-800" />
+                         </div>
+                         <div className="flex flex-col gap-1.5">
+                            {classAttendees.map((a: any) => (
+                               <div 
+                                  key={a.id} 
+                                  className="p-2 bg-slate-800/50 border border-slate-700/50 rounded text-sm flex justify-between items-center hover:bg-slate-800 transition group cursor-pointer"
+                                  onClick={() => {
+                                     if (selectedSeatId) {
+                                        assignSelected(a.id);
+                                     } else {
+                                        alert('برجاء اختيار مقعد أولاً من الخريطة');
+                                     }
+                                  }}
+                               >
+                                  <div className="truncate text-right">
+                                    <div className="font-bold text-white truncate text-xs">{a.full_name}</div>
+                                    <div className="text-[10px] text-slate-500">{a.phone || '-'}</div>
+                                  </div>
+                                  <div className="opacity-0 group-hover:opacity-100 transition">
+                                     <span className="text-[10px] bg-indigo-600 text-white px-1.5 py-0.5 rounded">تسكين</span>
+                                  </div>
+                               </div>
+                            ))}
                          </div>
                       </div>
-                   ))
-                }
-                {attendees.filter((a: any) => a.seat_class === classFilter && !a.barcode && normalizeGov(a.governorate) === normalizeGov(governorate)).length === 0 && (
-                   <div className="text-xs text-slate-500 text-center py-4">لا يوجد مشتركون في قائمة الانتظار لهذه الفئة</div>
+                   );
+                })}
+                {attendees.filter((a: any) => !a.barcode && !mapSeats.some(s => s.attendee_id === a.id) && normalizeGov(a.governorate) === normalizeGov(governorate)).length === 0 && (
+                   <div className="text-xs text-slate-500 text-center py-4">لا يوجد مشتركون في قائمة الانتظار</div>
                 )}
              </div>
           </div>
@@ -2006,28 +2110,58 @@ const SeatingManagement: React.FC = () => {
       </div>
 
       <div className="rounded-xl border border-slate-800 bg-slate-900 p-4">
-        <h2 className="text-sm font-bold mb-3">الحضور في القاعة الحالية</h2>
-        <div className="max-h-56 overflow-auto">
+        <h2 className="text-sm font-bold mb-3 flex justify-between items-center">
+           <span>المسكنين في هذه القاعة</span>
+           <span className="text-xs text-slate-500">إجمالي المسكنين: {attendees.filter(a => (a.barcode || mapSeats.some(s => s.attendee_id === a.id)) && normalizeGov(a.governorate) === normalizeGov(governorate)).length}</span>
+        </h2>
+        <div className="max-h-56 overflow-auto custom-scrollbar">
           <table className="w-full text-sm">
-            <thead className="text-slate-400">
+            <thead className="text-slate-400 sticky top-0 bg-slate-900 z-10">
               <tr>
                 <th className="text-right p-2">الاسم</th>
                 <th className="text-right p-2">Class</th>
                 <th className="text-right p-2">المقعد</th>
-                <th className="text-right p-2">Barcode</th>
+                <th className="text-right p-2">الإجراءات</th>
               </tr>
             </thead>
             <tbody>
               {attendees
-                .filter((a) => a.seat_class === classFilter)
-                .map((a) => (
-                  <tr key={a.id} className="border-t border-slate-800">
-                    <td className="p-2">{a.full_name}</td>
-                    <td className="p-2">{a.seat_class}</td>
-                    <td className="p-2">{a.seat_number || '-'}</td>
-                    <td className="p-2">{a.barcode || '-'}</td>
-                  </tr>
-                ))}
+                .filter((a) => (a.barcode || mapSeats.some(s => s.attendee_id === a.id)) && normalizeGov(a.governorate) === normalizeGov(governorate))
+                .sort((a, b) => (a.seat_class || '').localeCompare(b.seat_class || ''))
+                .map((a) => {
+                   const seat = mapSeats.find(s => s.attendee_id === a.id) || payload.seats.find(s => s.attendee_id === a.id);
+                   return (
+                    <tr key={a.id} className="border-t border-slate-800 hover:bg-slate-800/50 transition">
+                      <td className="p-2">
+                         <div className="font-bold">{a.full_name}</div>
+                         <div className="text-[10px] text-slate-500">{a.phone}</div>
+                      </td>
+                      <td className="p-2 text-center">
+                         <span className={`px-2 py-0.5 rounded text-[10px] ${a.seat_class === 'A' ? 'bg-amber-500/20 text-amber-500' : a.seat_class === 'B' ? 'bg-blue-500/20 text-blue-500' : 'bg-slate-500/20 text-slate-500'}`}>
+                            {a.seat_class}
+                         </span>
+                      </td>
+                      <td className="p-2 text-indigo-400 font-mono text-xs">{a.barcode || seat?.seat_code || '-'}</td>
+                      <td className="p-2 text-left">
+                         <button 
+                            onClick={() => {
+                               const sid = seat?.id || payload.seats.find(s => s.attendee_id === a.id)?.id;
+                               if (sid) unassignSelected(sid);
+                            }}
+                            className="text-red-400 hover:text-red-300 text-[10px] border border-red-900/50 px-2 py-1 rounded bg-red-950/20"
+                         >
+                            إلغاء التسكين
+                         </button>
+                      </td>
+                    </tr>
+                   );
+                })
+              }
+              {attendees.filter((a) => (a.barcode || mapSeats.some(s => s.attendee_id === a.id)) && normalizeGov(a.governorate) === normalizeGov(governorate)).length === 0 && (
+                 <tr>
+                    <td colSpan={4} className="p-8 text-center text-slate-500">لا يوجد مسكنين حالياً في هذه القاعة</td>
+                 </tr>
+              )}
             </tbody>
           </table>
         </div>

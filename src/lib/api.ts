@@ -981,6 +981,7 @@ export const api = {
 
     if (endpoint.startsWith('/attendees')) {
       const showTrash = endpoint.includes('trash=true');
+      const barcodeMatch = endpoint.match(/barcode=eq\.([^&]+)/);
       const idMatch = endpoint.match(/\/attendees\/([^\/?]+)/);
       
       if (idMatch) {
@@ -1004,10 +1005,14 @@ export const api = {
         return enrichAttendeesNeighborLabels([normalized, ...(relatedAttendees || []).filter((item: any) => item.id !== normalized.id)])[0];
       }
 
-      const scoped = applyCompanyScopeToAttendeesQuery(
+      let scoped = applyCompanyScopeToAttendeesQuery(
         supabase.from('attendees').select('*').eq('is_deleted', showTrash),
         currentUser
       );
+
+      if (barcodeMatch) {
+         scoped = scoped.eq('barcode', barcodeMatch[1]);
+      }
       let { data, error } = await scoped.order('created_at', { ascending: false });
       if (error && isMissingColumnError(error, 'company_id')) {
         const fallback = await supabase
