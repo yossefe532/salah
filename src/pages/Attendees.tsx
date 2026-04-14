@@ -186,6 +186,19 @@ const Attendees: React.FC = () => {
     );
   });
 
+  const formatDateTime = (value?: string | null) => {
+    if (!value) return '-';
+    const d = new Date(value);
+    if (Number.isNaN(d.getTime())) return '-';
+    return d.toLocaleString('ar-EG', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  };
+
   // Export to Excel
   const handleExportExcel = () => {
     if (filteredAttendees.length === 0) return alert('لا توجد بيانات للتصدير');
@@ -460,6 +473,14 @@ const Attendees: React.FC = () => {
                              </div>
                           </div>
                           <div className="text-xs text-gray-400 mt-0.5">{attendee.governorate}</div>
+                          <div className="mt-1.5 grid grid-cols-1 gap-1">
+                            <div className="text-[11px] text-gray-500">
+                              <span className="font-semibold text-gray-600">تاريخ الإنشاء:</span> {formatDateTime(attendee.created_at)}
+                            </div>
+                            <div className="text-[11px] text-gray-500">
+                              <span className="font-semibold text-gray-600">آخر تعديل:</span> {formatDateTime(attendee.updated_at)}
+                            </div>
+                          </div>
                         </div>
                       </div>
                     </td>
