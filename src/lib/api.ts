@@ -1445,6 +1445,23 @@ export const api = {
         return true;
       });
 
+      // Prevent PK conflicts when the same layout IDs were used before
+      // in other events/governorates (legacy data). We clear by IDs first.
+      const seatIdsToReset = adjustedSeats.map((s: any) => s.id).filter(Boolean);
+      const tableIdsToReset = adjustedTables.map((t: any) => t.id).filter(Boolean);
+      const chunk = <T,>(arr: T[], size: number) => {
+        const out: T[][] = [];
+        for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
+        return out;
+      };
+      for (const ids of chunk(seatIdsToReset, 200)) {
+        await supabase.from('seat_bookings').delete().in('seat_id', ids as any);
+        await supabase.from('seats').delete().in('id', ids as any);
+      }
+      for (const ids of chunk(tableIdsToReset, 200)) {
+        await supabase.from('seat_tables').delete().in('id', ids as any);
+      }
+
       await supabase.from('seat_bookings').delete().eq('event_id', eventId);
       await supabase.from('seats').delete().eq('event_id', eventId);
       await supabase.from('seat_tables').delete().eq('event_id', eventId);
