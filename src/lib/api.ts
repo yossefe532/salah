@@ -892,21 +892,24 @@ export const api = {
       const hallGovernorate = getGovernorateFromEventId(eventId);
       const seatClass = params.get('seatClass');
       
-      // We'll search for governorate variants to be safe
-      const govVariants = [hallGovernorate];
-      if (hallGovernorate === 'Minya') govVariants.push('minya', 'المنيا');
-      if (hallGovernorate === 'Asyut') govVariants.push('asyut', 'أسيوط', 'اسيوط');
-      if (hallGovernorate === 'Sohag') govVariants.push('sohag', 'سوهاج');
-      if (hallGovernorate === 'Qena') govVariants.push('qena', 'قنا');
+      // Search by fuzzy governorate tokens to catch case/style differences in stored data.
+      const govTokens = [hallGovernorate];
+      if (hallGovernorate === 'Minya') govTokens.push('minya', 'المنيا', 'منيا');
+      if (hallGovernorate === 'Asyut') govTokens.push('asyut', 'assiut', 'أسيوط', 'اسيوط');
+      if (hallGovernorate === 'Sohag') govTokens.push('sohag', 'سوهاج');
+      if (hallGovernorate === 'Qena') govTokens.push('qena', 'قنا');
+      const govOrFilter = govTokens
+        .filter(Boolean)
+        .map((token) => `governorate.ilike.%${String(token).replace(/,/g, '')}%`)
+        .join(',');
 
       let attendeesQuery = supabase
         .from('attendees')
         .select('*')
-        .in('governorate', govVariants)
         .in('status', ['registered', 'interested']) // Show both for seating just in case
         .eq('is_deleted', false)
         .order('created_at', { ascending: true });
-        
+      if (govOrFilter) attendeesQuery = attendeesQuery.or(govOrFilter);
       if (seatClass) attendeesQuery = attendeesQuery.eq('seat_class', seatClass);
       const { data, error } = await attendeesQuery;
       if (error) throw new Error(error.message);

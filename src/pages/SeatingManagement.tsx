@@ -102,7 +102,7 @@ const TableNode = React.memo(({ box, selected, mode, onDoubleClick, onDragStart,
            prev.inGroup === next.inGroup &&
            prev.mode === next.mode;
 });
-const TableAssignModalComponent = ({ isOpen, tableId, mapSeats, attendees, governorate, onClose, onAssign, onUnassign }: any) => {
+const TableAssignModalComponent = ({ isOpen, tableId, mapSeats, attendees, onClose, onAssign, onUnassign }: any) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedSeat, setSelectedSeat] = useState<Seat | null>(null);
   const [showAlreadySeated, setShowAlreadySeated] = useState(false);
@@ -132,11 +132,7 @@ const TableAssignModalComponent = ({ isOpen, tableId, mapSeats, attendees, gover
     .filter((a: any) => a.seat_class === tClass)
     .filter((a: any) => {
        // Only show unseated unless showAlreadySeated is true
-       if (!showAlreadySeated) {
-          const hasBarcode = a.barcode && String(a.barcode).trim() !== '';
-          if (hasBarcode) return false;
-          if (assignedAttendeeIds.has(a.id)) return false;
-       }
+      if (!showAlreadySeated && assignedAttendeeIds.has(a.id)) return false;
        
        const term = searchTerm.toLowerCase();
        const name = (a.full_name || a.name || '').toLowerCase();
@@ -274,7 +270,7 @@ const normalizeGov = (val: string) => {
   return v;
 };
 
-const AssignmentModalComponent = ({ isOpen, seat, attendees, governorate, onClose, onAssign, onUnassign }: any) => {
+const AssignmentModalComponent = ({ isOpen, seat, attendees, mapSeats, onClose, onAssign, onUnassign }: any) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [showAlreadySeated, setShowAlreadySeated] = useState(false);
   
@@ -287,22 +283,10 @@ const AssignmentModalComponent = ({ isOpen, seat, attendees, governorate, onClos
 
   if (!isOpen || !seat) return null;
 
-  const normalizeGov = (val: string) => {
-    const v = String(val || '').trim().toLowerCase();
-    if (v.includes('minya') || v.includes('منيا')) return 'minya';
-    if (v.includes('asyut') || v.includes('أسيوط') || v.includes('اسيوط')) return 'asyut';
-    if (v.includes('sohag') || v.includes('سوهاج')) return 'sohag';
-    if (v.includes('qena') || v.includes('قنا')) return 'qena';
-    return v;
-  };
-
   const filteredAttendees = attendees
     .filter((a: any) => a.seat_class === seat.seat_class)
     .filter((a: any) => {
-       if (!showAlreadySeated) {
-          const hasBarcode = a.barcode && String(a.barcode).trim() !== '';
-          if (hasBarcode) return false;
-       }
+      if (!showAlreadySeated && mapSeats.some((s: any) => s.attendee_id === a.id)) return false;
        const term = searchTerm.toLowerCase();
        const name = (a.full_name || a.name || '').toLowerCase();
        const phone = (a.phone || '').toLowerCase();
@@ -807,13 +791,12 @@ const SeatingManagement: React.FC = () => {
     const sId = typeof passedSeatId === 'string' ? passedSeatId : selectedSeatId;
     if (!sId || !aid) return;
 
-    const attendee = attendees.find(a => a.id === aid);
     const targetSeat = payload.seats.find(s => s.id === sId);
     
     // Check if attendee is already seated
     const currentSeat = payload.seats.find(s => s.attendee_id === aid);
-    if (currentSeat || (attendee && attendee.barcode)) {
-       const seatCode = currentSeat?.seat_code || attendee?.barcode;
+    if (currentSeat) {
+       const seatCode = currentSeat.seat_code;
        if (!window.confirm(`هذا الشخص مسكن بالفعل في المقعد (${seatCode}). هل تريد نقله إلى المقعد الجديد؟`)) {
           return;
        }
@@ -1936,7 +1919,7 @@ const SeatingManagement: React.FC = () => {
                     isOpen={assignmentModal.isOpen} 
                     seat={assignmentModal.seat} 
                     attendees={attendees} 
-                    governorate={governorate} 
+                    mapSeats={mapSeats}
                     onClose={() => setAssignmentModal({isOpen: false, seat: null, isTableModal: false, tableId: null})} 
                     onAssign={(id: string) => {
                        setAssignmentModal({isOpen: false, seat: null, isTableModal: false, tableId: null});
@@ -1951,7 +1934,6 @@ const SeatingManagement: React.FC = () => {
                     tableId={assignmentModal.tableId}
                     mapSeats={payload.seats}
                     attendees={attendees}
-                    governorate={governorate}
                     onClose={() => setAssignmentModal({isOpen: false, seat: null, isTableModal: false, tableId: null})}
                     onAssign={(seatId: string, attendeeId: string) => {
                        setSelectedSeatId(seatId);
@@ -2022,7 +2004,7 @@ const SeatingManagement: React.FC = () => {
              <h2 className="text-sm font-bold mb-3 flex justify-between items-center">
                 <span>قائمة الانتظار</span>
                 <span className="bg-indigo-600 text-white px-2 py-0.5 rounded text-xs">
-                   {attendees.filter((a: any) => !(a.barcode && String(a.barcode).trim() !== '') && !mapSeats.some(s => s.attendee_id === a.id)).length}
+                   {attendees.filter((a: any) => !mapSeats.some(s => s.attendee_id === a.id)).length}
                 </span>
              </h2>
              
@@ -2040,7 +2022,6 @@ const SeatingManagement: React.FC = () => {
                 {['A', 'B', 'C'].map(cls => {
                    const classAttendees = attendees.filter((a: any) => 
                       a.seat_class === cls && 
-                      !(a.barcode && String(a.barcode).trim() !== '') && 
                       !mapSeats.some(s => s.attendee_id === a.id) && 
                       (waitingListSearch === '' || 
                        (a.full_name || '').toLowerCase().includes(waitingListSearch.toLowerCase()) || 
@@ -2082,7 +2063,7 @@ const SeatingManagement: React.FC = () => {
                       </div>
                    );
                 })}
-                {attendees.filter((a: any) => !(a.barcode && String(a.barcode).trim() !== '') && !mapSeats.some(s => s.attendee_id === a.id)).length === 0 && (
+                {attendees.filter((a: any) => !mapSeats.some(s => s.attendee_id === a.id)).length === 0 && (
                    <div className="text-xs text-slate-500 text-center py-4">لا يوجد مشتركون في قائمة الانتظار</div>
                 )}
              </div>
@@ -2113,7 +2094,7 @@ const SeatingManagement: React.FC = () => {
       <div className="rounded-xl border border-slate-800 bg-slate-900 p-4">
         <h2 className="text-sm font-bold mb-3 flex justify-between items-center">
            <span>المسكنين في هذه القاعة</span>
-           <span className="text-xs text-slate-500">إجمالي المسكنين: {attendees.filter(a => (a.barcode && String(a.barcode).trim() !== '') || mapSeats.some(s => s.attendee_id === a.id)).length}</span>
+           <span className="text-xs text-slate-500">إجمالي المسكنين: {attendees.filter(a => mapSeats.some(s => s.attendee_id === a.id)).length}</span>
         </h2>
         <div className="max-h-56 overflow-auto custom-scrollbar">
           <table className="w-full text-sm">
@@ -2127,7 +2108,7 @@ const SeatingManagement: React.FC = () => {
             </thead>
             <tbody>
               {attendees
-                .filter((a) => (a.barcode && String(a.barcode).trim() !== '') || mapSeats.some(s => s.attendee_id === a.id))
+                .filter((a) => mapSeats.some(s => s.attendee_id === a.id))
                 .sort((a, b) => (a.seat_class || '').localeCompare(b.seat_class || ''))
                 .map((a) => {
                    const seat = mapSeats.find(s => s.attendee_id === a.id) || payload.seats.find(s => s.attendee_id === a.id);
@@ -2158,7 +2139,7 @@ const SeatingManagement: React.FC = () => {
                    );
                 })
               }
-              {attendees.filter((a) => (a.barcode && String(a.barcode).trim() !== '') || mapSeats.some(s => s.attendee_id === a.id)).length === 0 && (
+              {attendees.filter((a) => mapSeats.some(s => s.attendee_id === a.id)).length === 0 && (
                   <tr>
                      <td colSpan={4} className="p-8 text-center text-slate-500">لا يوجد مسكنين حالياً في هذه القاعة</td>
                   </tr>
