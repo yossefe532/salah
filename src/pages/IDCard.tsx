@@ -22,6 +22,8 @@ const IDCard: React.FC = () => {
   const [overrides, setOverrides] = useState<Record<string, any>>({});
   const [savingOverrides, setSavingOverrides] = useState(false);
   const [uploadingImage, setUploadingImage] = useState(false);
+  const autosaveTimerRef = useRef<number | null>(null);
+  const lastSavedPayloadRef = useRef<string>('');
 
   const ticketPrintRef = useRef<HTMLDivElement>(null);
   const certificatePrintRef = useRef<HTMLDivElement>(null);
@@ -31,9 +33,14 @@ const IDCard: React.FC = () => {
     try {
         const data = await api.get(`/attendees/${attendeeId}`);
         setAttendee(data);
-        if (data.ticket_overrides) {
-          setOverrides(data.ticket_overrides);
-        }
+        const initialOverrides = data.ticket_overrides || {};
+        setOverrides(initialOverrides);
+        lastSavedPayloadRef.current = JSON.stringify({
+          ticket_overrides: initialOverrides,
+          full_name_en: data.full_name_en,
+          job_title: data.job_title,
+          profile_photo_url: data.profile_photo_url
+        });
       try {
         const primaryHall = `${normalizeGovernorate(data.governorate).toUpperCase()}-2026-MAIN`;
         const halls = [primaryHall, 'MINYA-2026-MAIN', 'ASYUT-2026-MAIN', 'SOHAG-2026-MAIN', 'QENA-2026-MAIN'];
@@ -88,19 +95,19 @@ const IDCard: React.FC = () => {
   }, [id]);
 
   const triggerPrintTicket = async () => {
-    await handleSaveOverrides(true);
+    await handleSaveOverrides(true, true);
     handlePrintTicket();
   };
 
   const triggerPrintCertificate = async () => {
-    await handleSaveOverrides(true);
+    await handleSaveOverrides(true, true);
     handlePrintCertificate();
   };
 
   const handlePrintTicket = useReactToPrint({
     contentRef: ticketPrintRef,
     documentTitle: attendee ? `ticket-${attendee.full_name}` : 'ticket',
-    pageStyle: `@page { size: 85mm 140mm; margin: 0; } body { margin: 0; padding: 0; -webkit-print-color-adjust: exact; print-color-adjust: exact; }`,
+    pageStyle: `@page { size: 85mm 140mm; margin: 0; } html, body { width: 85mm !important; height: 140mm !important; margin: 0 !important; padding: 0 !important; overflow: hidden !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }`,
     onAfterPrint: () => {
       markPrinted('ticket');
     }
@@ -109,7 +116,7 @@ const IDCard: React.FC = () => {
   const handlePrintCertificate = useReactToPrint({
     contentRef: certificatePrintRef,
     documentTitle: attendee ? `certificate-${attendee.full_name}` : 'certificate',
-    pageStyle: `@page { size: 297mm 210mm; margin: 0; } body { margin: 0; padding: 0; -webkit-print-color-adjust: exact; print-color-adjust: exact; }`,
+    pageStyle: `@page { size: 297mm 210mm; margin: 0; } html, body { width: 297mm !important; height: 210mm !important; margin: 0 !important; padding: 0 !important; overflow: hidden !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }`,
     onAfterPrint: () => {
       markPrinted('certificate');
     }
@@ -235,16 +242,23 @@ const IDCard: React.FC = () => {
     e.currentTarget.style.opacity = '0';
   };
 
-  const handleSaveOverrides = async (silent = false) => {
-    if (!id) return;
+  const buildSavePayload = useCallback(() => ({
+    ticket_overrides: overrides,
+    full_name_en: attendee?.full_name_en,
+    job_title: attendee?.job_title,
+    profile_photo_url: attendee?.profile_photo_url
+  }), [attendee?.full_name_en, attendee?.job_title, attendee?.profile_photo_url, overrides]);
+
+  const handleSaveOverrides = useCallback(async (silent = false, force = false) => {
+    if (!id || !attendee) return;
+    const payload = buildSavePayload();
+    const serializedPayload = JSON.stringify(payload);
+    if (!force && serializedPayload === lastSavedPayloadRef.current) return;
+
     setSavingOverrides(true);
     try {
-      await api.patch(`/attendees/${id}`, { 
-        ticket_overrides: overrides,
-        full_name_en: attendee?.full_name_en,
-        job_title: attendee?.job_title,
-        profile_photo_url: attendee?.profile_photo_url
-      });
+      await api.patch(`/attendees/${id}`, payload);
+      lastSavedPayloadRef.current = serializedPayload;
       if (silent !== true) {
         alert('تم حفظ الإعدادات والبيانات بنجاح');
         setEditorMode(false);
@@ -257,7 +271,27 @@ const IDCard: React.FC = () => {
     } finally {
       setSavingOverrides(false);
     }
-  };
+  }, [attendee, buildSavePayload, id]);
+
+  useEffect(() => {
+    if (!id || !attendee) return;
+    const serializedPayload = JSON.stringify(buildSavePayload());
+    if (serializedPayload === lastSavedPayloadRef.current) return;
+
+    if (autosaveTimerRef.current) {
+      window.clearTimeout(autosaveTimerRef.current);
+    }
+
+    autosaveTimerRef.current = window.setTimeout(() => {
+      handleSaveOverrides(true);
+    }, 900);
+
+    return () => {
+      if (autosaveTimerRef.current) {
+        window.clearTimeout(autosaveTimerRef.current);
+      }
+    };
+  }, [attendee, buildSavePayload, handleSaveOverrides, id]);
 
   const handleTextEdit = (field: 'full_name_en' | 'job_title', value: string) => {
     setAttendee(prev => (prev ? { ...prev, [field]: value } : prev));
@@ -477,7 +511,7 @@ const IDCard: React.FC = () => {
         const base64String = reader.result as string;
         setAttendee(prev => prev ? { ...prev, profile_photo_url: base64String } : prev);
         setUploadingImage(false);
-        alert('تم تغيير الصورة للمعاينة بنجاح! سيتم حفظها مع التعديلات عند الضغط على "حفظ التعديلات"');
+        alert('تم تغيير الصورة بنجاح وسيتم حفظها تلقائياً');
       };
       reader.onerror = () => {
         setUploadingImage(false);
@@ -747,7 +781,7 @@ const IDCard: React.FC = () => {
         }
         @media print {
           @page {
-            margin: 0 !important;
+            margin: 0;
           }
           body {
             -webkit-print-color-adjust: exact;
@@ -862,30 +896,30 @@ const IDCard: React.FC = () => {
       </div>
 
       <div className="absolute -left-[99999px] top-0">
-        <div ref={ticketPrintRef}>
+        <div ref={ticketPrintRef} style={{ width: '85mm', margin: 0, padding: 0 }}>
           <style type="text/css" media="print">
             {`
               @page { size: 85mm 140mm; margin: 0; }
-              body { margin: 0 !important; padding: 0 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-              .ticket-sheet { width: 85mm !important; height: 140mm !important; border: none !important; border-radius: 0 !important; }
+              html, body { width: 85mm !important; height: 140mm !important; margin: 0 !important; padding: 0 !important; overflow: hidden !important; background-color: #10141c !important; }
+              .ticket-sheet { width: 85mm !important; height: 140mm !important; border: none !important; border-radius: 0 !important; margin: 0 !important; padding: 0 !important; box-shadow: none !important; }
             `}
           </style>
-          <div style={{ pageBreakAfter: 'always', overflow: 'hidden' }}>
+          <div style={{ width: '85mm', height: '140mm', pageBreakAfter: 'always', overflow: 'hidden', margin: 0, padding: 0 }}>
             {renderTicketFront()}
           </div>
-          <div style={{ overflow: 'hidden' }}>
+          <div style={{ width: '85mm', height: '140mm', overflow: 'hidden', margin: 0, padding: 0 }}>
             {renderTicketBack()}
           </div>
         </div>
-        <div ref={certificatePrintRef}>
+        <div ref={certificatePrintRef} style={{ width: '297mm', margin: 0, padding: 0 }}>
           <style type="text/css" media="print">
             {`
               @page { size: 297mm 210mm; margin: 0; }
-              body { margin: 0 !important; padding: 0 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-              .certificate-sheet { width: 297mm !important; height: 210mm !important; border: none !important; border-radius: 0 !important; }
+              html, body { width: 297mm !important; height: 210mm !important; margin: 0 !important; padding: 0 !important; overflow: hidden !important; background-color: #111 !important; }
+              .certificate-sheet { width: 297mm !important; height: 210mm !important; border: none !important; border-radius: 0 !important; margin: 0 !important; padding: 0 !important; box-shadow: none !important; }
             `}
           </style>
-          <div style={{ overflow: 'hidden' }}>
+          <div style={{ width: '297mm', height: '210mm', overflow: 'hidden', margin: 0, padding: 0 }}>
             {renderCertificate()}
           </div>
         </div>

@@ -15,6 +15,9 @@ const DEFAULT_EVENT_ID = 'MINYA-MAIN-HALL';
 const SEAT_RESERVED_MINUTES = 5;
 const ATTENDEE_META_PREFIX = '__attendee_meta__:';
 const ATTENDEE_METADATA_FIELDS = [
+  'full_name_en',
+  'job_title',
+  'profile_photo_url',
   'seat_number',
   'seat_class',
   'barcode',
@@ -2561,27 +2564,10 @@ export const api = {
     
     // Custom patch route for updating attendee directly
     if (endpoint.match(/^\/attendees\/[^/]+$/)) {
-      const { data: oldRecordRaw } = await supabase.from('attendees').select('*').eq('id', id).single();
       const payload: any = { ...body };
-      
-      // Use standard metadata merging logic
-      const currentWarnings = oldRecordRaw?.warnings || [];
-      const updatedPayload = attachAttendeeMetaToPayload(payload, currentWarnings);
-      
-      const directUpdatePayload: any = {};
-      
-      if (payload.full_name_en !== undefined) directUpdatePayload.full_name_en = payload.full_name_en;
-      if (payload.job_title !== undefined) directUpdatePayload.job_title = payload.job_title;
-      if (payload.profile_photo_url !== undefined) directUpdatePayload.profile_photo_url = payload.profile_photo_url;
-      if (updatedPayload.warnings !== undefined) directUpdatePayload.warnings = updatedPayload.warnings;
-      
-      const { data, error } = await supabase
-        .from('attendees')
-        .update(directUpdatePayload)
-        .eq('id', id)
-        .select()
-        .single();
-        
+
+      const result = await updateAttendeeSafely(String(id), payload);
+      const { data, error } = result as any;
       if (error) throw new Error(error.message);
       return normalizeAttendeePricing(data);
     }
