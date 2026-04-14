@@ -28,6 +28,58 @@ const IDCard: React.FC = () => {
   const ticketPrintRef = useRef<HTMLDivElement>(null);
   const certificatePrintRef = useRef<HTMLDivElement>(null);
   const previewModeRef = useRef<HTMLDivElement>(null);
+  const TICKET_WIDTH_MM = 85;
+  const TICKET_HEIGHT_MM = 140;
+  const CERTIFICATE_WIDTH_MM = 297;
+  const CERTIFICATE_HEIGHT_MM = 210;
+
+  const buildPrintPageStyle = (widthMm: number, heightMm: number, sheetClass: string) => `
+    @page { size: ${widthMm}mm ${heightMm}mm; margin: 0; }
+    @media print {
+      html, body {
+        width: ${widthMm}mm !important;
+        height: ${heightMm}mm !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        overflow: hidden !important;
+        background: #ffffff !important;
+      }
+      body {
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+      }
+      * {
+        box-sizing: border-box !important;
+      }
+      .print-root {
+        width: ${widthMm}mm !important;
+        margin: 0 !important;
+        padding: 0 !important;
+      }
+      .print-page {
+        width: ${widthMm}mm !important;
+        height: ${heightMm}mm !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        overflow: hidden !important;
+        break-after: page;
+        page-break-after: always;
+      }
+      .print-page:last-child {
+        break-after: auto;
+        page-break-after: auto;
+      }
+      .${sheetClass} {
+        width: ${widthMm}mm !important;
+        height: ${heightMm}mm !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        border: none !important;
+        border-radius: 0 !important;
+        box-shadow: none !important;
+      }
+    }
+  `;
 
   const fetchAttendee = useCallback(async (attendeeId: string) => {
     try {
@@ -107,7 +159,7 @@ const IDCard: React.FC = () => {
   const handlePrintTicket = useReactToPrint({
     contentRef: ticketPrintRef,
     documentTitle: attendee ? `ticket-${attendee.full_name}` : 'ticket',
-    pageStyle: `@page { size: 85mm 140mm; margin: 0; } html, body { width: 85mm !important; height: 140mm !important; margin: 0 !important; padding: 0 !important; overflow: hidden !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }`,
+    pageStyle: buildPrintPageStyle(TICKET_WIDTH_MM, TICKET_HEIGHT_MM, 'ticket-sheet'),
     onAfterPrint: () => {
       markPrinted('ticket');
     }
@@ -116,7 +168,7 @@ const IDCard: React.FC = () => {
   const handlePrintCertificate = useReactToPrint({
     contentRef: certificatePrintRef,
     documentTitle: attendee ? `certificate-${attendee.full_name}` : 'certificate',
-    pageStyle: `@page { size: 297mm 210mm; margin: 0; } html, body { width: 297mm !important; height: 210mm !important; margin: 0 !important; padding: 0 !important; overflow: hidden !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }`,
+    pageStyle: buildPrintPageStyle(CERTIFICATE_WIDTH_MM, CERTIFICATE_HEIGHT_MM, 'certificate-sheet'),
     onAfterPrint: () => {
       markPrinted('certificate');
     }
@@ -762,13 +814,13 @@ const IDCard: React.FC = () => {
       <div className={`flex-1 transition-all ${editorMode ? 'mr-80' : ''}`}>
         <style>{`
         .ticket-sheet {
-          width: 85mm;
-          height: 140mm;
+          width: ${TICKET_WIDTH_MM}mm;
+          height: ${TICKET_HEIGHT_MM}mm;
           background-color: #10141c;
         }
         .certificate-sheet {
-          width: 297mm;
-          height: 210mm;
+          width: ${CERTIFICATE_WIDTH_MM}mm;
+          height: ${CERTIFICATE_HEIGHT_MM}mm;
           background-color: #111;
         }
         .preview-wrap {
@@ -896,30 +948,16 @@ const IDCard: React.FC = () => {
       </div>
 
       <div className="absolute -left-[99999px] top-0">
-        <div ref={ticketPrintRef} style={{ width: '85mm', margin: 0, padding: 0 }}>
-          <style type="text/css" media="print">
-            {`
-              @page { size: 85mm 140mm; margin: 0; }
-              html, body { width: 85mm !important; height: 140mm !important; margin: 0 !important; padding: 0 !important; overflow: hidden !important; background-color: #10141c !important; }
-              .ticket-sheet { width: 85mm !important; height: 140mm !important; border: none !important; border-radius: 0 !important; margin: 0 !important; padding: 0 !important; box-shadow: none !important; }
-            `}
-          </style>
-          <div style={{ width: '85mm', height: '140mm', pageBreakAfter: 'always', overflow: 'hidden', margin: 0, padding: 0 }}>
+        <div ref={ticketPrintRef} className="print-root" style={{ width: `${TICKET_WIDTH_MM}mm`, margin: 0, padding: 0 }}>
+          <div className="print-page" style={{ width: `${TICKET_WIDTH_MM}mm`, height: `${TICKET_HEIGHT_MM}mm`, overflow: 'hidden', margin: 0, padding: 0 }}>
             {renderTicketFront()}
           </div>
-          <div style={{ width: '85mm', height: '140mm', overflow: 'hidden', margin: 0, padding: 0 }}>
+          <div className="print-page" style={{ width: `${TICKET_WIDTH_MM}mm`, height: `${TICKET_HEIGHT_MM}mm`, overflow: 'hidden', margin: 0, padding: 0 }}>
             {renderTicketBack()}
           </div>
         </div>
-        <div ref={certificatePrintRef} style={{ width: '297mm', margin: 0, padding: 0 }}>
-          <style type="text/css" media="print">
-            {`
-              @page { size: 297mm 210mm; margin: 0; }
-              html, body { width: 297mm !important; height: 210mm !important; margin: 0 !important; padding: 0 !important; overflow: hidden !important; background-color: #111 !important; }
-              .certificate-sheet { width: 297mm !important; height: 210mm !important; border: none !important; border-radius: 0 !important; margin: 0 !important; padding: 0 !important; box-shadow: none !important; }
-            `}
-          </style>
-          <div style={{ width: '297mm', height: '210mm', overflow: 'hidden', margin: 0, padding: 0 }}>
+        <div ref={certificatePrintRef} className="print-root" style={{ width: `${CERTIFICATE_WIDTH_MM}mm`, margin: 0, padding: 0 }}>
+          <div className="print-page" style={{ width: `${CERTIFICATE_WIDTH_MM}mm`, height: `${CERTIFICATE_HEIGHT_MM}mm`, overflow: 'hidden', margin: 0, padding: 0 }}>
             {renderCertificate()}
           </div>
         </div>
