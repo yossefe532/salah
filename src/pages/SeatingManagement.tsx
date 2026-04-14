@@ -18,6 +18,8 @@ type AttendeeLite = {
   seat_class: 'A' | 'B' | 'C';
   phone?: string | null;
   phone_primary?: string | null;
+  preferred_neighbor_name?: string | null;
+  preferred_neighbor_ids?: string[];
   seat_number?: number | null;
   barcode?: string | null;
 };
@@ -138,7 +140,7 @@ const TableAssignModalComponent = ({ isOpen, tableId, mapSeats, attendees, onClo
        
        const term = searchTerm.toLowerCase();
        const name = (a.full_name || a.name || '').toLowerCase();
-       const phone = (a.phone || '').toLowerCase();
+      const phone = (a.phone || a.phone_primary || '').toLowerCase();
        return name.includes(term) || phone.includes(term);
     });
 
@@ -233,7 +235,12 @@ const TableAssignModalComponent = ({ isOpen, tableId, mapSeats, attendees, onClo
                           >
                             <div className="flex flex-col">
                                <span className="font-bold text-white text-sm">{a.full_name || a.name}</span>
-                               <span className="text-xs text-slate-400 mt-1">{a.phone}</span>
+                               <span className="text-xs text-slate-400 mt-1">{a.phone || a.phone_primary || '-'}</span>
+                               {!!a.preferred_neighbor_name && (
+                                 <span className="text-[10px] text-indigo-300 mt-1">
+                                   يرغب الجلوس بجوار: {a.preferred_neighbor_name}
+                                 </span>
+                               )}
                             </div>
                             <span className="text-xs bg-slate-700 px-3 py-1.5 rounded text-slate-300">تسكين</span>
                           </button>
@@ -291,7 +298,7 @@ const AssignmentModalComponent = ({ isOpen, seat, attendees, mapSeats, onClose, 
       if (!showAlreadySeated && mapSeats.some((s: any) => s.attendee_id === a.id)) return false;
        const term = searchTerm.toLowerCase();
        const name = (a.full_name || a.name || '').toLowerCase();
-       const phone = (a.phone || '').toLowerCase();
+       const phone = (a.phone || a.phone_primary || '').toLowerCase();
        return name.includes(term) || phone.includes(term);
     });
 
@@ -344,7 +351,12 @@ const AssignmentModalComponent = ({ isOpen, seat, attendees, mapSeats, onClose, 
                    >
                      <div className="flex flex-col">
                         <span className="font-bold text-white">{a.full_name || a.name}</span>
-                        <span className="text-xs text-slate-400">{a.phone}</span>
+                        <span className="text-xs text-slate-400">{a.phone || a.phone_primary || '-'}</span>
+                        {!!a.preferred_neighbor_name && (
+                          <span className="text-[10px] text-indigo-300 mt-1">
+                            يرغب الجلوس بجوار: {a.preferred_neighbor_name}
+                          </span>
+                        )}
                      </div>
                      <span className="text-xs bg-slate-700 px-2 py-1 rounded text-slate-300">اختر</span>
                    </button>
@@ -737,6 +749,57 @@ const SeatingManagement: React.FC = () => {
   }, [mapSeats, classFilter]);
   const selectedSeat = useMemo(() => mapSeats.find((s) => s.id === selectedSeatId) || null, [mapSeats, selectedSeatId]);
   const selectedSeatAttendee = useMemo(() => attendees.find((a) => a.id === selectedSeat?.attendee_id) || null, [attendees, selectedSeat?.attendee_id]);
+  const isAttendeeSeated = useCallback((attendeeId: string) => payload.seats.some((s) => s.attendee_id === attendeeId), [payload.seats]);
+
+  const findLinkedNeighbor = useCallback((attendeeId: string) => {
+    const current = attendees.find((a) => a.id === attendeeId);
+    if (!current) return null;
+    const directIds = Array.isArray(current.preferred_neighbor_ids) ? current.preferred_neighbor_ids : [];
+    const candidates = attendees.filter((a) => {
+      if (a.id === attendeeId) return false;
+      if (a.seat_class !== current.seat_class) return false;
+      const reverseIds = Array.isArray(a.preferred_neighbor_ids) ? a.preferred_neighbor_ids : [];
+      return directIds.includes(a.id) || reverseIds.includes(attendeeId);
+    });
+    if (!candidates.length) return null;
+    // Prefer direct explicit request first.
+    const directFirst = candidates.sort((a, b) => {
+      const ad = directIds.includes(a.id) ? 0 : 1;
+      const bd = directIds.includes(b.id) ? 0 : 1;
+      return ad - bd;
+    });
+    return directFirst[0];
+  }, [attendees]);
+
+  const findAdjacentAvailableSeat = useCallback((baseSeatId: string) => {
+    const baseSeat = payload.seats.find((s) => s.id === baseSeatId);
+    if (!baseSeat) return null;
+    const isFree = (s: Seat) => !s.attendee_id && (s.status === 'available' || s.status === 'vip');
+
+    if (baseSeat.table_id) {
+      const sameTable = payload.seats
+        .filter((s) => s.table_id === baseSeat.table_id)
+        .sort((a, b) => Number(a.seat_number || 0) - Number(b.seat_number || 0));
+      const idx = sameTable.findIndex((s) => s.id === baseSeat.id);
+      for (let distance = 1; distance < sameTable.length; distance += 1) {
+        const left = idx - distance;
+        const right = idx + distance;
+        if (left >= 0 && isFree(sameTable[left])) return sameTable[left];
+        if (right < sameTable.length && isFree(sameTable[right])) return sameTable[right];
+      }
+    }
+
+    const px = Number(baseSeat.position_x || 0);
+    const py = Number(baseSeat.position_y || 0);
+    const sameClassFree = payload.seats
+      .filter((s) => s.seat_class === baseSeat.seat_class && s.id !== baseSeat.id && isFree(s))
+      .sort((a, b) => {
+        const ad = Math.hypot(Number(a.position_x || 0) - px, Number(a.position_y || 0) - py);
+        const bd = Math.hypot(Number(b.position_x || 0) - px, Number(b.position_y || 0) - py);
+        return ad - bd;
+      });
+    return sameClassFree[0] || null;
+  }, [payload.seats]);
 
   const getSeatView = (seat: Seat) => {
     const patch = layoutDraft[seat.id] as any;
@@ -827,6 +890,38 @@ const SeatingManagement: React.FC = () => {
            if (a.id === oldAttendeeIdInTargetSeat) return { ...a, seat_number: undefined, barcode: undefined };
            return a;
         }));
+      }
+
+      // Optional auto-seat linked preferred neighbor.
+      if (targetSeat) {
+        const linkedNeighbor = findLinkedNeighbor(aid);
+        if (linkedNeighbor && !isAttendeeSeated(linkedNeighbor.id)) {
+          const adjacentSeat = findAdjacentAvailableSeat(sId);
+          if (adjacentSeat) {
+            const currentName = attendees.find((a) => a.id === aid)?.full_name || 'هذا المشترك';
+            const ok = window.confirm(
+              `${currentName} لديه طلب جلوس بجوار ${linkedNeighbor.full_name}. هل تريد تسكينه تلقائياً في المقعد المجاور (${adjacentSeat.seat_code})؟`
+            );
+            if (ok) {
+              await api.post('/seating/assign-attendee', { event_id: eventId, seat_id: adjacentSeat.id, attendee_id: linkedNeighbor.id });
+              setPayload(prev => ({
+                ...prev,
+                seats: prev.seats.map(s => {
+                  if (s.id === adjacentSeat.id) return { ...s, status: 'booked', attendee_id: linkedNeighbor.id };
+                  if (s.attendee_id === linkedNeighbor.id) return { ...s, status: 'available', attendee_id: null };
+                  return s;
+                })
+              }));
+              setAttendees(prev => prev.map(a => {
+                if (a.id === linkedNeighbor.id) return { ...a, seat_number: adjacentSeat.seat_number, barcode: adjacentSeat.seat_code };
+                return a;
+              }));
+            }
+          } else {
+            const currentName = attendees.find((a) => a.id === aid)?.full_name || 'هذا المشترك';
+            alert(`تنبيه: ${currentName} لديه طلب جلوس بجوار ${linkedNeighbor.full_name} ولكن لا يوجد مقعد مجاور متاح الآن.`);
+          }
+        }
       }
       
       // Background reload
@@ -2027,7 +2122,7 @@ const SeatingManagement: React.FC = () => {
                       !mapSeats.some(s => s.attendee_id === a.id) && 
                       (waitingListSearch === '' || 
                        (a.full_name || '').toLowerCase().includes(waitingListSearch.toLowerCase()) || 
-                       (a.phone || '').includes(waitingListSearch))
+                       (a.phone || a.phone_primary || '').includes(waitingListSearch))
                    );
                    
                    if (classAttendees.length === 0 && waitingListSearch !== '') return null;
@@ -2054,7 +2149,12 @@ const SeatingManagement: React.FC = () => {
                                >
                                   <div className="truncate text-right">
                                     <div className="font-bold text-white truncate text-xs">{a.full_name}</div>
-                                    <div className="text-[10px] text-slate-500">{a.phone || '-'}</div>
+                                    <div className="text-[10px] text-slate-500">{a.phone || a.phone_primary || '-'}</div>
+                                    {!!a.preferred_neighbor_name && (
+                                      <div className="text-[10px] text-indigo-300 truncate">
+                                        بجوار: {a.preferred_neighbor_name}
+                                      </div>
+                                    )}
                                   </div>
                                   <div className="opacity-0 group-hover:opacity-100 transition">
                                      <span className="text-[10px] bg-indigo-600 text-white px-1.5 py-0.5 rounded">تسكين</span>
@@ -2118,7 +2218,7 @@ const SeatingManagement: React.FC = () => {
                     <tr key={a.id} className="border-t border-slate-800 hover:bg-slate-800/50 transition">
                       <td className="p-2">
                          <div className="font-bold">{a.full_name}</div>
-                         <div className="text-[10px] text-slate-500">{a.phone}</div>
+                         <div className="text-[10px] text-slate-500">{a.phone || a.phone_primary || '-'}</div>
                       </td>
                       <td className="p-2 text-center">
                          <span className={`px-2 py-0.5 rounded text-[10px] ${a.seat_class === 'A' ? 'bg-amber-500/20 text-amber-500' : a.seat_class === 'B' ? 'bg-blue-500/20 text-blue-500' : 'bg-slate-500/20 text-slate-500'}`}>
