@@ -336,6 +336,7 @@ const isMissingColumnError = (error: any, column: string) => {
   const msg = String(error?.message || '').toLowerCase();
   const col = String(column || '').toLowerCase();
   return msg.includes(`column ${col} does not exist`)
+    || msg.includes(`column attendees.${col} does not exist`)
     || msg.includes(`'${col}' column`)
     || msg.includes(`"${col}"`);
 };
