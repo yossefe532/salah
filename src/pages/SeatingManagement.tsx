@@ -468,6 +468,7 @@ const SeatingManagement: React.FC = () => {
   const [payload, setPayload] = useState<SeatingMapPayload>({ event_id: 'MINYA-2026-MAIN', tables: [], seats: [], layout_elements: [] });
   const [attendees, setAttendees] = useState<AttendeeLite[]>([]);
   const liveSyncInFlightRef = useRef(false);
+  const marqueeBaseSelectionRef = useRef<string[]>([]);
 
   const mapSeats = useMemo(() => {
     const baseSeats = payload.seats.filter(s => {
@@ -1336,12 +1337,14 @@ const SeatingManagement: React.FC = () => {
         const rect = e.currentTarget.getBoundingClientRect();
         const startX = e.clientX - rect.left;
         const startY = e.clientY - rect.top;
+        const additive = e.ctrlKey || e.metaKey || e.shiftKey;
         
         if (editModeState.action === 'add' && ['wave', 'stage', 'blocked', 'aisle'].includes(editModeState.addType || '')) {
             setDrawState({ active: true, startX, startY, endX: startX, endY: startY });
         } else {
+            marqueeBaseSelectionRef.current = additive ? [...selectedGroup] : [];
             setSelectionBox({ startX, startY, endX: startX, endY: startY });
-            setSelectedGroup([]);
+            if (!additive) setSelectedGroup([]);
         }
      }
   };
@@ -1414,7 +1417,13 @@ const SeatingManagement: React.FC = () => {
              }
           });
           
-          setSelectedGroup(newSelection);
+          const base = marqueeBaseSelectionRef.current || [];
+          if (base.length) {
+            const merged = Array.from(new Set([...base, ...newSelection]));
+            setSelectedGroup(merged);
+          } else {
+            setSelectedGroup(newSelection);
+          }
        });
        return;
     }
@@ -1469,6 +1478,7 @@ const SeatingManagement: React.FC = () => {
     }
 
     if (selectionBox) {
+       marqueeBaseSelectionRef.current = [];
        setSelectionBox(null);
        return;
     }
@@ -1678,6 +1688,23 @@ const SeatingManagement: React.FC = () => {
           <span className="text-[11px] text-slate-300">
             مربع التحديد بالماوس: اضغط واسحب على المساحة الفارغة داخل الخريطة لتحديد مجموعة عناصر دفعة واحدة.
           </span>
+        </div>
+      )}
+      {mainMode === 'edit' && editModeState.action === 'move' && (
+        <div className="rounded-lg border border-amber-800/60 bg-amber-950/20 p-3 flex flex-wrap items-center gap-2">
+          <span className="text-xs text-amber-200/90">
+            محدد للتحريك: {selectedGroup.length} عنصر
+          </span>
+          <span className="text-xs text-amber-200/80">
+            اسحب أي عنصر من المحدد لتحريك المجموعة كلها. استخدم `Ctrl + Click` أو اسحب مربع التحديد، ومع `Shift/Ctrl` السحب يضيف للتحديد الحالي.
+          </span>
+          <button
+            onClick={() => setSelectedGroup([])}
+            disabled={selectedGroup.length === 0}
+            className="px-3 py-1.5 rounded-md text-xs border border-amber-700 bg-amber-900/40 hover:bg-amber-800/60 disabled:opacity-50"
+          >
+            مسح التحديد
+          </button>
         </div>
       )}
 
