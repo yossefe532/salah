@@ -1001,7 +1001,10 @@ export const api = {
     }
 
     if (endpoint.startsWith('/attendees')) {
+      const query = endpoint.split('?')[1] || '';
+      const params = new URLSearchParams(query);
       const showTrash = endpoint.includes('trash=true');
+      const liteMode = params.get('lite') === '1';
       const barcodeMatch = endpoint.match(/barcode=eq\.([^&]+)/);
       const idMatch = endpoint.match(/\/attendees\/([^\/?]+)/);
       
@@ -1031,6 +1034,32 @@ export const api = {
         currentUser
       );
 
+      const governorate = params.get('governorate');
+      const seatClass = params.get('seat_class');
+      const status = params.get('status');
+      const paymentType = params.get('payment_type');
+      const attendance = params.get('attendance');
+      const q = params.get('q');
+
+      if (governorate) scoped = scoped.eq('governorate', governorate);
+      if (seatClass) scoped = scoped.eq('seat_class', seatClass);
+      if (status) scoped = scoped.eq('status', status);
+      if (paymentType) {
+        if (paymentType === 'zero_deposit') {
+          scoped = scoped.eq('payment_type', 'deposit').eq('payment_amount', 0);
+        } else {
+          scoped = scoped.eq('payment_type', paymentType);
+        }
+      }
+      if (attendance === 'present') scoped = scoped.eq('attendance_status', true);
+      if (attendance === 'absent') scoped = scoped.eq('attendance_status', false);
+      if (q) {
+        const safe = String(q).replace(/,/g, '').trim();
+        if (safe) {
+          scoped = scoped.or(`full_name.ilike.%${safe}%,phone_primary.ilike.%${safe}%,email_primary.ilike.%${safe}%`);
+        }
+      }
+
       if (barcodeMatch) {
          scoped = scoped.eq('barcode', barcodeMatch[1]);
       }
@@ -1045,6 +1074,7 @@ export const api = {
         error = fallback.error;
       }
       if (error) throw new Error(error.message);
+      if (liteMode) return data || [];
       return enrichAttendeesNeighborLabels(data || []);
     }
 

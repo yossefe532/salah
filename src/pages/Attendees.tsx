@@ -63,28 +63,22 @@ const Attendees: React.FC = () => {
   const fetchAttendees = useCallback(async () => {
     setLoading(true);
     try {
-      // Pass trash=true if viewMode is trash
-      const endpoint = viewMode === 'trash' ? '/attendees?trash=true' : '/attendees';
+      const params = new URLSearchParams();
+      params.set('lite', '1');
+      if (viewMode === 'trash') params.set('trash', 'true');
+      if (filters.governorate) params.set('governorate', filters.governorate);
+      if (filters.seat_class) params.set('seat_class', filters.seat_class);
+      if (filters.status) params.set('status', filters.status);
+      if (filters.payment_type) params.set('payment_type', filters.payment_type);
+      if (filters.attendance) params.set('attendance', filters.attendance);
+      const q = String(searchTerm || '').trim();
+      if (q) params.set('q', q);
+
+      const endpoint = `/attendees?${params.toString()}`;
       let data: Attendee[] = await api.get(endpoint);
 
       // Sort by newest
       data.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-
-      // Client-side Filtering
-      if (filters.governorate) data = data.filter(a => a.governorate === filters.governorate);
-      if (filters.seat_class) data = data.filter(a => a.seat_class === filters.seat_class);
-      if (filters.status) data = data.filter(a => a.status === filters.status);
-      
-      if (filters.payment_type) {
-          if (filters.payment_type === 'zero_deposit') {
-              data = data.filter(a => a.payment_type === 'deposit' && Number(a.payment_amount) === 0);
-          } else {
-              data = data.filter(a => a.payment_type === filters.payment_type);
-          }
-      }
-      
-      if (filters.attendance === 'present') data = data.filter(a => a.attendance_status);
-      if (filters.attendance === 'absent') data = data.filter(a => !a.attendance_status);
 
       setAttendees(data);
     } catch (error) {
@@ -92,7 +86,7 @@ const Attendees: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [filters, viewMode]);
+  }, [filters, viewMode, searchTerm]);
 
   useEffect(() => {
     fetchAttendees();
