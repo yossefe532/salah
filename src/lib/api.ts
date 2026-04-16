@@ -2261,6 +2261,335 @@ export const api = {
       }
       return { success: true, count: assignedCount };
     }
+
+    if (endpoint === '/seating/auto-seat') {
+      const eventId = body?.event_id || DEFAULT_EVENT_ID;
+      const hallGovernorate = getGovernorateFromEventId(eventId);
+      const targetClass = body?.seat_class as 'A' | 'B' | 'C' | undefined;
+      const classList: Array<'A' | 'B' | 'C'> = targetClass ? [targetClass] : ['A', 'B', 'C'];
+      const paidMode: 'any_paid' | 'fully_paid' = body?.paid_mode === 'fully_paid' ? 'fully_paid' : 'any_paid';
+
+      const getTableOrderFromSeat = (seat: any) => {
+        const fromTableId = getTableOrderFromTableId(seat?.table_id || null);
+        if (Number.isInteger(fromTableId as any) && Number(fromTableId) > 0) return Number(fromTableId);
+        return Number(seat?.table_order || 9999);
+      };
+      const sortSeats = (items: any[]) => [...(items || [])].sort((a, b) => {
+        const rowA = Number(a?.row_number || 9999);
+        const rowB = Number(b?.row_number || 9999);
+        if (rowA !== rowB) return rowA - rowB;
+        const tableA = getTableOrderFromSeat(a);
+        const tableB = getTableOrderFromSeat(b);
+        if (tableA !== tableB) return tableA - tableB;
+        const seatA = Number(a?.seat_number || 9999);
+        const seatB = Number(b?.seat_number || 9999);
+        if (seatA !== seatB) return seatA - seatB;
+        const xA = Number(a?.position_x || 9999);
+        const xB = Number(b?.position_x || 9999);
+        return xA - xB;
+      });
+      const areConsecutive = (items: any[]) => {
+        if (!items?.length) return false;
+        const sorted = [...items].sort((a, b) => Number(a?.seat_number || 0) - Number(b?.seat_number || 0));
+        for (let i = 1; i < sorted.length; i += 1) {
+          if (Number(sorted[i].seat_number) !== Number(sorted[i - 1].seat_number) + 1) return false;
+        }
+        return true;
+      };
+      const findBlock = (pool: any[], size: number) => {
+        if (size <= 0) return [] as any[];
+        const available = sortSeats(pool);
+        if (available.length < size) return null;
+        if (size === 1) return [available[0]];
+
+        const byTable = new Map<string, any[]>();
+        for (const seat of available) {
+          if (!seat?.table_id) continue;
+          const key = String(seat.table_id);
+          const arr = byTable.get(key) || [];
+          arr.push(seat);
+          byTable.set(key, arr);
+        }
+        for (const seats of byTable.values()) {
+          const sorted = sortSeats(seats);
+          for (let i = 0; i + size <= sorted.length; i += 1) {
+            const slice = sorted.slice(i, i + size);
+            if (areConsecutive(slice)) return slice;
+          }
+        }
+
+        const byRow = new Map<string, any[]>();
+        for (const seat of available) {
+          const key = `${seat?.seat_class || ''}#${Number(seat?.row_number || 0)}`;
+          const arr = byRow.get(key) || [];
+          arr.push(seat);
+          byRow.set(key, arr);
+        }
+        for (const seats of byRow.values()) {
+          const sorted = sortSeats(seats);
+          for (let i = 0; i + size <= sorted.length; i += 1) {
+            const slice = sorted.slice(i, i + size);
+            if (areConsecutive(slice)) return slice;
+          }
+        }
+
+        return null;
+      };
+
+      const overallStats: any = {
+        success: true,
+        endpoint: '/seating/auto-seat',
+        event_id: eventId,
+        governorate: hallGovernorate,
+        paid_mode: paidMode,
+        classes: {} as Record<string, any>,
+        totals: {
+          candidates: 0,
+          paid_candidates: 0,
+          unpaid_skipped: 0,
+          assigned: 0,
+          groups_assigned: 0,
+          groups_blocked: 0,
+          seat_conflicts: 0,
+          attendee_update_failed: 0,
+          no_available_seats: 0
+        }
+      };
+
+      for (const cls of classList) {
+        const [{ data: attendeesRaw, error: attendeesError }, { data: seatsRaw, error: seatsError }] = await Promise.all([
+          supabase
+            .from('attendees')
+            .select('*')
+            .eq('governorate', hallGovernorate)
+            .eq('seat_class', cls)
+            .eq('status', 'registered')
+            .eq('is_deleted', false)
+            .is('seat_number', null)
+            .order('created_at', { ascending: true })
+            .limit(5000),
+          supabase
+            .from('seats')
+            .select('id, seat_number, seat_class, seat_code, position_x, position_y, status, attendee_id, row_number, table_id')
+            .eq('event_id', eventId)
+            .eq('seat_class', cls)
+            .order('row_number', { ascending: true })
+            .limit(5000)
+        ]);
+        if (attendeesError) throw new Error(attendeesError.message);
+        if (seatsError) throw new Error(seatsError.message);
+
+        const attendees = ((attendeesRaw || []) as any[]).map((item) => normalizeAttendeePricing(applyAttendeeMeta(item)));
+        const classStats: any = {
+          candidates: attendees.length,
+          paid_candidates: 0,
+          unpaid_skipped: 0,
+          available_seats: 0,
+          assigned: 0,
+          groups_total: 0,
+          groups_assigned: 0,
+          groups_blocked_together: 0,
+          seat_conflicts: 0,
+          attendee_update_failed: 0,
+          no_available_seats: 0
+        };
+
+        const isPaid = (attendee: any) => {
+          const paymentAmount = Number(attendee?.payment_amount || 0);
+          const remaining = Number(attendee?.remaining_amount ?? 0);
+          if (paymentAmount <= 0) return false;
+          if (paidMode === 'fully_paid') return remaining <= 0;
+          return true;
+        };
+        const paidAttendees = attendees.filter((attendee) => isPaid(attendee));
+        classStats.paid_candidates = paidAttendees.length;
+        classStats.unpaid_skipped = Math.max(0, attendees.length - paidAttendees.length);
+
+        const allSeats = (seatsRaw || []) as any[];
+        const initiallyAvailable = allSeats.filter((seat) => !seat.attendee_id && seat.status === 'available');
+        classStats.available_seats = initiallyAvailable.length;
+        if (!paidAttendees.length || !initiallyAvailable.length) {
+          if (!initiallyAvailable.length && paidAttendees.length > 0) classStats.no_available_seats = paidAttendees.length;
+          overallStats.classes[cls] = classStats;
+          overallStats.totals.candidates += classStats.candidates;
+          overallStats.totals.paid_candidates += classStats.paid_candidates;
+          overallStats.totals.unpaid_skipped += classStats.unpaid_skipped;
+          overallStats.totals.no_available_seats += classStats.no_available_seats;
+          continue;
+        }
+
+        const candidateIds = new Set(paidAttendees.map((a) => String(a.id)));
+        const byId = new Map(paidAttendees.map((a) => [String(a.id), a]));
+        const adjacency = new Map<string, Set<string>>();
+        for (const attendee of paidAttendees) {
+          const id = String(attendee.id);
+          const neighborIds = Array.isArray(attendee.preferred_neighbor_ids) ? attendee.preferred_neighbor_ids : [];
+          for (const rawNeighborId of neighborIds) {
+            const neighborId = String(rawNeighborId || '');
+            if (!candidateIds.has(neighborId) || neighborId === id) continue;
+            if (!adjacency.has(id)) adjacency.set(id, new Set<string>());
+            if (!adjacency.has(neighborId)) adjacency.set(neighborId, new Set<string>());
+            adjacency.get(id)!.add(neighborId);
+            adjacency.get(neighborId)!.add(id);
+          }
+        }
+
+        const groups: Array<{ kind: 'companion' | 'company' | 'single'; members: any[]; oldestAt: string }> = [];
+        const used = new Set<string>();
+        for (const attendee of paidAttendees) {
+          const startId = String(attendee.id);
+          if (used.has(startId)) continue;
+          const neighbors = adjacency.get(startId);
+          if (!neighbors || neighbors.size === 0) continue;
+          const stack = [startId];
+          const componentIds: string[] = [];
+          used.add(startId);
+          while (stack.length > 0) {
+            const current = stack.pop()!;
+            componentIds.push(current);
+            const nextNeighbors = adjacency.get(current);
+            if (!nextNeighbors) continue;
+            for (const n of nextNeighbors) {
+              if (used.has(n)) continue;
+              used.add(n);
+              stack.push(n);
+            }
+          }
+          const members = componentIds
+            .map((id) => byId.get(id))
+            .filter(Boolean)
+            .sort((a: any, b: any) => new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime());
+          if (!members.length) continue;
+          groups.push({
+            kind: members.length > 1 ? 'companion' : 'single',
+            members,
+            oldestAt: String(members[0]?.created_at || '')
+          });
+        }
+
+        const remainingSingles = paidAttendees.filter((attendee) => !used.has(String(attendee.id)));
+        const companyMap = new Map<string, any[]>();
+        for (const attendee of remainingSingles) {
+          const companyId = attendee.company_id ? String(attendee.company_id) : `__single__${attendee.id}`;
+          const arr = companyMap.get(companyId) || [];
+          arr.push(attendee);
+          companyMap.set(companyId, arr);
+        }
+        for (const companyMembers of companyMap.values()) {
+          const members = [...companyMembers].sort((a, b) => new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime());
+          groups.push({
+            kind: members.length > 1 && members.every((m) => !!m.company_id) ? 'company' : 'single',
+            members,
+            oldestAt: String(members[0]?.created_at || '')
+          });
+        }
+        groups.sort((a, b) => new Date(a.oldestAt || 0).getTime() - new Date(b.oldestAt || 0).getTime());
+        classStats.groups_total = groups.length;
+
+        let availablePool = sortSeats(initiallyAvailable);
+        const removeFromPool = (seatIds: string[]) => {
+          const idSet = new Set(seatIds.map((id) => String(id)));
+          availablePool = availablePool.filter((seat) => !idSet.has(String(seat.id)));
+        };
+
+        for (const group of groups) {
+          if (!group.members.length) continue;
+          if (availablePool.length <= 0) {
+            classStats.no_available_seats += group.members.length;
+            continue;
+          }
+
+          const groupSize = group.members.length;
+          const strictTogether = group.kind === 'companion' && groupSize > 1;
+          let pickedSeats = findBlock(availablePool, groupSize);
+          if (!pickedSeats && !strictTogether) {
+            pickedSeats = sortSeats(availablePool).slice(0, Math.min(groupSize, availablePool.length));
+          }
+          if (!pickedSeats || pickedSeats.length === 0) {
+            classStats.groups_blocked_together += 1;
+            continue;
+          }
+
+          const seatsToUse = pickedSeats.slice(0, Math.min(group.members.length, pickedSeats.length));
+          removeFromPool(seatsToUse.map((seat) => String(seat.id)));
+          let groupAssigned = 0;
+
+          for (let i = 0; i < seatsToUse.length; i += 1) {
+            const attendee = group.members[i];
+            const seat = seatsToUse[i];
+            if (!attendee || !seat) continue;
+
+            const { data: claimedSeat, error: claimSeatError } = await supabase
+              .from('seats')
+              .update({ status: 'booked', attendee_id: attendee.id, reserved_by: null, reserved_until: null })
+              .eq('event_id', eventId)
+              .eq('id', seat.id)
+              .eq('status', 'available')
+              .is('attendee_id', null)
+              .select('id, seat_number, seat_class, seat_code')
+              .maybeSingle();
+            if (claimSeatError) throw new Error(claimSeatError.message);
+            if (!claimedSeat) {
+              classStats.seat_conflicts += 1;
+              continue;
+            }
+
+            const updateRes = await updateAttendeeSafely(String(attendee.id), {
+              seat_number: Number(claimedSeat.seat_number),
+              seat_class: claimedSeat.seat_class,
+              barcode: claimedSeat.seat_code
+            });
+            if (updateRes.error) {
+              classStats.attendee_update_failed += 1;
+              await supabase
+                .from('seats')
+                .update({ status: 'available', attendee_id: null, reserved_by: null, reserved_until: null })
+                .eq('event_id', eventId)
+                .eq('id', claimedSeat.id)
+                .eq('attendee_id', attendee.id);
+              continue;
+            }
+            groupAssigned += 1;
+          }
+
+          if (groupAssigned > 0) {
+            classStats.assigned += groupAssigned;
+            classStats.groups_assigned += 1;
+          }
+        }
+
+        overallStats.classes[cls] = classStats;
+        overallStats.totals.candidates += classStats.candidates;
+        overallStats.totals.paid_candidates += classStats.paid_candidates;
+        overallStats.totals.unpaid_skipped += classStats.unpaid_skipped;
+        overallStats.totals.assigned += classStats.assigned;
+        overallStats.totals.groups_assigned += classStats.groups_assigned;
+        overallStats.totals.groups_blocked += classStats.groups_blocked_together;
+        overallStats.totals.seat_conflicts += classStats.seat_conflicts;
+        overallStats.totals.attendee_update_failed += classStats.attendee_update_failed;
+        overallStats.totals.no_available_seats += classStats.no_available_seats;
+      }
+
+      const legacyByClass: any = {};
+      for (const cls of classList) {
+        const item = overallStats.classes?.[cls] || {};
+        legacyByClass[cls] = {
+          candidates: Number(item.candidates || 0),
+          available_seats: Number(item.available_seats || 0),
+          assigned: Number(item.assigned || 0),
+          unassigned: Math.max(0, Number(item.paid_candidates || 0) - Number(item.assigned || 0))
+        };
+      }
+
+      return {
+        ...overallStats,
+        by_class: legacyByClass,
+        total_candidates: Number(overallStats.totals?.candidates || 0),
+        total_available_seats: Number((legacyByClass.A?.available_seats || 0) + (legacyByClass.B?.available_seats || 0) + (legacyByClass.C?.available_seats || 0)),
+        total_assigned: Number(overallStats.totals?.assigned || 0),
+        total_unassigned: Math.max(0, Number(overallStats.totals?.paid_candidates || 0) - Number(overallStats.totals?.assigned || 0))
+      };
+    }
     
     if (endpoint === '/seating/auto-assign') {
       const eventId = body?.event_id || DEFAULT_EVENT_ID;

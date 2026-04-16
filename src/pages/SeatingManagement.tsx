@@ -982,6 +982,34 @@ const SeatingManagement: React.FC = () => {
     }
   };
 
+  const autoSeatFromSeatingManagement = async () => {
+    if (!window.confirm('سيتم تشغيل التسكين التلقائي لكل المشتركين غير المسكنين داخل هذه القاعة. هل تريد المتابعة؟')) return;
+    try {
+      setLoading(true);
+      setError(null);
+      const result = await api.post('/seating/auto-seat', { event_id: eventId });
+      await Promise.all([loadMap(), loadAttendees()]);
+
+      const summaryByClass = result?.by_class || {};
+      const lines = [
+        'تم تنفيذ التسكين التلقائي بنجاح.',
+        `إجمالي المرشحين: ${result?.total_candidates ?? 0}`,
+        `المقاعد المتاحة وقت التنفيذ: ${result?.total_available_seats ?? 0}`,
+        `تم تسكينهم: ${result?.total_assigned ?? 0}`,
+        `لم يتم تسكينهم: ${result?.total_unassigned ?? 0}`,
+        '',
+        `الفئة A: تسكين ${summaryByClass?.A?.assigned ?? 0} من ${summaryByClass?.A?.candidates ?? 0}`,
+        `الفئة B: تسكين ${summaryByClass?.B?.assigned ?? 0} من ${summaryByClass?.B?.candidates ?? 0}`,
+        `الفئة C: تسكين ${summaryByClass?.C?.assigned ?? 0} من ${summaryByClass?.C?.candidates ?? 0}`
+      ];
+      alert(lines.join('\n'));
+    } catch (e: any) {
+      setError(e.message || 'فشل التسكين التلقائي');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const assignSelected = async (passedAttendeeId?: any, passedSeatId?: string) => {
     const aid = typeof passedAttendeeId === 'string' ? passedAttendeeId : selectedAttendeeId;
     const sId = typeof passedSeatId === 'string' ? passedSeatId : selectedSeatId;
@@ -1105,7 +1133,7 @@ const SeatingManagement: React.FC = () => {
     try {
       setLoading(true);
       setError(null);
-      await api.post('/seating/auto-assign', { event_id: eventId, seat_class: cls });
+      await api.post('/seating/auto-seat', { event_id: eventId, seat_class: cls, paid_mode: 'any_paid' });
       await Promise.all([loadMap(), loadAttendees()]);
     } catch (e: any) {
       setError(e.message || 'فشل التسكين التلقائي');
@@ -1703,16 +1731,12 @@ const SeatingManagement: React.FC = () => {
           >
             استرجاع التسكين من الباركود
           </button>
-          <button onClick={async () => {
-             if (!window.confirm('هل أنت متأكد من تسكين جميع العملاء المتبقين عشوائياً؟')) return;
-             try {
-                setLoading(true);
-                const eligible = attendees.filter(a => !a.seat_number);
-                await api.post('/seating/auto-assign-all', { event_id: eventId });
-                await loadMap();
-             } catch(e: any) { alert(e.message); }
-             finally { setLoading(false); }
-          }} className="px-4 py-2 rounded-md text-sm bg-emerald-600">تسكين تلقائي شامل للكل</button>
+          <button
+            onClick={autoSeatFromSeatingManagement}
+            className="px-4 py-2 rounded-md text-sm bg-emerald-600"
+          >
+            تسكين تلقائي من إدارة القاعة
+          </button>
         </div>
         <div className="mt-2 grid grid-cols-2 md:grid-cols-6 gap-2">
           <button onClick={undoLayout} disabled={historyIndex <= 0} className="px-3 py-2 rounded-md text-sm border border-slate-700 bg-slate-800 disabled:opacity-50">Undo</button>
