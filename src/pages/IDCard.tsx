@@ -18,6 +18,7 @@ const IDCard: React.FC = () => {
   const previewMode = (searchParams.get('template') || 'ticket') as 'ticket' | 'back' | 'certificate';
   const TICKET_WIDTH_MM = 85;
   const TICKET_HEIGHT_MM = 140;
+  const TICKET_WIDTH_TO_HEIGHT_RATIO = TICKET_WIDTH_MM / TICKET_HEIGHT_MM;
   const TEMPLATE_VERSION = '20260416_v2';
   const [attendee, setAttendee] = useState<Attendee | null>(null);
   const [seatInfo, setSeatInfo] = useState<any>(null);
@@ -345,13 +346,17 @@ const IDCard: React.FC = () => {
         scale: exportScale,
         useCORS: true,
         backgroundColor: '#10141c',
-        logging: false
+        logging: false,
+        windowWidth: frontNode.scrollWidth,
+        windowHeight: frontNode.scrollHeight
       });
       const backCanvas = await html2canvas(backNode, {
         scale: exportScale,
         useCORS: true,
         backgroundColor: '#10141c',
-        logging: false
+        logging: false,
+        windowWidth: backNode.scrollWidth,
+        windowHeight: backNode.scrollHeight
       });
 
       const pdf = new jsPDF({
@@ -427,7 +432,7 @@ const IDCard: React.FC = () => {
           left: `${Number(getOverride('photo_x', 50.5))}%`, 
           transform: 'translateX(-50%)', 
           width: `${Number(getOverride('photo_w', 41))}%`, 
-          aspectRatio: '1 / 1',
+          height: `${Number(getOverride('photo_h', Number(getOverride('photo_w', 41)) * TICKET_WIDTH_TO_HEIGHT_RATIO))}%`,
           boxShadow: '0 0 0 4px #10141c, 0 0 0 7px #c7a57a'
         }}>
           {attendee.profile_photo_url ? (
@@ -688,6 +693,10 @@ const IDCard: React.FC = () => {
               <div>
                 <label className="text-xs text-gray-600 flex justify-between"><span>تحريك الإطار (Y)</span> <span>{getOverride('photo_y', 17.5)}%</span></label>
                 <input type="range" min="5" max="40" step="0.5" value={getOverride('photo_y', 17.5)} onChange={(e) => handleOverrideChange('photo_y', e.target.value)} className="w-full" />
+              </div>
+              <div>
+                <label className="text-xs text-gray-600 flex justify-between"><span>ارتفاع الإطار (H)</span> <span>{getOverride('photo_h', Number(getOverride('photo_w', 41)) * TICKET_WIDTH_TO_HEIGHT_RATIO).toFixed(2)}%</span></label>
+                <input type="range" min="10" max="40" step="0.1" value={getOverride('photo_h', Number(getOverride('photo_w', 41)) * TICKET_WIDTH_TO_HEIGHT_RATIO)} onChange={(e) => handleOverrideChange('photo_h', e.target.value)} className="w-full" />
               </div>
             </div>
           </div>
