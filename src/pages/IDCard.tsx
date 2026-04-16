@@ -345,15 +345,13 @@ const IDCard: React.FC = () => {
         scale: exportScale,
         useCORS: true,
         backgroundColor: '#10141c',
-        logging: false,
-        foreignObjectRendering: true
+        logging: false
       });
       const backCanvas = await html2canvas(backNode, {
         scale: exportScale,
         useCORS: true,
         backgroundColor: '#10141c',
-        logging: false,
-        foreignObjectRendering: true
+        logging: false
       });
 
       const pdf = new jsPDF({
@@ -1004,7 +1002,7 @@ const IDCard: React.FC = () => {
         </div>
       </div>
 
-      <div className="fixed -left-[200vw] top-0 pointer-events-none">
+      <div className="fixed left-0 top-0 pointer-events-none opacity-[0.01] z-0">
         <div ref={ticketPrintRef} style={{ width: `${TICKET_WIDTH_MM}mm`, margin: 0, padding: 0 }}>
           <style type="text/css" media="print">
             {`
