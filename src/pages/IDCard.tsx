@@ -44,6 +44,7 @@ const IDCard: React.FC = () => {
         lastSavedPayloadRef.current = JSON.stringify({
           ticket_overrides: initialOverrides,
           full_name_en: data.full_name_en,
+          job_title: data.job_title,
           profile_photo_url: data.profile_photo_url
         });
       try {
@@ -264,6 +265,13 @@ const IDCard: React.FC = () => {
     return '13.28px'; // 9.96pt * 1.333 = 13.28px
   };
 
+  const getJobTitleFontSize = (title: string) => {
+    if (title.length > 30) return '10px';
+    if (title.length > 22) return '11.5px';
+    if (title.length > 16) return '13px';
+    return '13.92px';
+  };
+
   const getCertificateNameFontSize = (name: string) => {
     if (name.length > 28) return '28px';
     if (name.length > 22) return '31px';
@@ -278,8 +286,9 @@ const IDCard: React.FC = () => {
   const buildSavePayload = useCallback(() => ({
     ticket_overrides: overrides,
     full_name_en: attendee?.full_name_en,
+    job_title: attendee?.job_title,
     profile_photo_url: attendee?.profile_photo_url
-  }), [attendee?.full_name_en, attendee?.profile_photo_url, overrides]);
+  }), [attendee?.full_name_en, attendee?.job_title, attendee?.profile_photo_url, overrides]);
 
   const handleSaveOverrides = useCallback(async (silent = false, force = false) => {
     if (!id || !attendee) return;
@@ -389,7 +398,7 @@ const IDCard: React.FC = () => {
     };
   }, [attendee, buildSavePayload, handleSaveOverrides, id]);
 
-  const handleTextEdit = (field: 'full_name_en', value: string) => {
+  const handleTextEdit = (field: 'full_name_en' | 'job_title', value: string) => {
     setAttendee(prev => (prev ? { ...prev, [field]: value } : prev));
   };
 
@@ -403,6 +412,7 @@ const IDCard: React.FC = () => {
     const resolvedSeatClass = seatInfo?.seat?.seat_class || attendee.seat_class;
     const frontSrc = frontTemplateByClass[resolvedSeatClass || 'C'] || frontTemplateByClass.C;
     const fullName = getDisplayName(attendee);
+    const jobTitle = String(attendee.job_title || '').trim();
     const resolvedBarcode = seatInfo?.seat?.seat_code || attendee.barcode;
     const resolvedSeatNumber = seatInfo?.seat?.seat_number ?? attendee.seat_number ?? parseSeatNumberFromSeatCode(resolvedBarcode);
     const tableOrWave = parseTableOrWaveFromSeatCode(resolvedBarcode, resolvedSeatClass);
@@ -463,6 +473,31 @@ const IDCard: React.FC = () => {
             }}
           >
             {fullName}
+          </div>
+        </div>
+
+        <div className="absolute z-10 flex justify-start" style={{ 
+          top: `${Number(getOverride('title_y', 49.8))}%`, 
+          left: `${Number(getOverride('title_x', 46))}%`, 
+          width: `${Number(getOverride('title_w', 42))}%` 
+        }}>
+          <div
+            className="text-[#e0d3c2]"
+            dir="ltr"
+            style={{
+              fontFamily: '"TT Runs Trial", sans-serif',
+              fontWeight: 600,
+              fontSize: `${getOverride('title_size', parseFloat(getJobTitleFontSize(jobTitle)))}px`,
+              lineHeight: `${getOverride('title_lh', 1.2)}`,
+              whiteSpace: Number(getOverride('title_wrap', 0)) ? 'normal' : 'nowrap',
+              wordBreak: Number(getOverride('title_wrap', 0)) ? 'break-word' : 'normal',
+              overflow: 'visible',
+              textAlign: 'left',
+              width: '100%',
+              maxWidth: '100%'
+            }}
+          >
+            {jobTitle}
           </div>
         </div>
 
@@ -700,6 +735,48 @@ const IDCard: React.FC = () => {
             </div>
           </div>
 
+          <div className="space-y-3">
+            <h3 className="font-semibold text-sm text-emerald-600 border-b pb-1">المسمى الوظيفي (التيكت)</h3>
+            <div className="mb-2">
+              <label className="text-xs text-gray-600 block mb-1">تعديل المسمى الوظيفي</label>
+              <input 
+                type="text" 
+                value={attendee.job_title || ''} 
+                onChange={(e) => handleTextEdit('job_title', e.target.value)}
+                className="w-full text-sm p-1 border rounded text-right"
+                dir="ltr"
+              />
+            </div>
+            <div className="flex items-center justify-between">
+              <label className="text-xs text-gray-600">تعدد الأسطر (Wrap)</label>
+              <input type="checkbox" checked={Number(getOverride('title_wrap', 0)) === 1} onChange={(e) => handleOverrideChange('title_wrap', e.target.checked ? '1' : '0')} />
+            </div>
+            <div>
+              <label className="text-xs text-gray-600 flex justify-between"><span>Font Size</span> <span>{getOverride('title_size', parseFloat(getJobTitleFontSize(attendee?.job_title || '')))}px</span></label>
+              <input type="range" min="8" max="24" step="0.5" value={getOverride('title_size', parseFloat(getJobTitleFontSize(attendee?.job_title || '')))} onChange={(e) => handleOverrideChange('title_size', e.target.value)} className="w-full" />
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="text-xs text-gray-600 flex justify-between"><span>Width</span> <span>{getOverride('title_w', 42)}%</span></label>
+                <input type="range" min="20" max="100" step="1" value={getOverride('title_w', 42)} onChange={(e) => handleOverrideChange('title_w', e.target.value)} className="w-full" />
+              </div>
+              <div>
+                <label className="text-xs text-gray-600 flex justify-between"><span>Line Height</span> <span>{getOverride('title_lh', 1.2)}</span></label>
+                <input type="range" min="0.5" max="2.5" step="0.1" value={getOverride('title_lh', 1.2)} onChange={(e) => handleOverrideChange('title_lh', e.target.value)} className="w-full" />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="text-xs text-gray-600 flex justify-between"><span>Move X</span> <span>{getOverride('title_x', 46)}%</span></label>
+                <input type="range" min="30" max="70" step="0.5" value={getOverride('title_x', 46)} onChange={(e) => handleOverrideChange('title_x', e.target.value)} className="w-full" />
+              </div>
+              <div>
+                <label className="text-xs text-gray-600 flex justify-between"><span>Move Y</span> <span>{getOverride('title_y', 49.8)}%</span></label>
+                <input type="range" min="30" max="60" step="0.5" value={getOverride('title_y', 49.8)} onChange={(e) => handleOverrideChange('title_y', e.target.value)} className="w-full" />
+              </div>
+            </div>
+          </div>
+
           {/* Ticket QR Code Settings */}
           <div className="space-y-3">
             <h3 className="font-semibold text-sm text-emerald-600 border-b pb-1">الـ QR Code</h3>
@@ -925,7 +1002,7 @@ const IDCard: React.FC = () => {
         </div>
       </div>
 
-      <div className="absolute -left-[99999px] top-0">
+      <div className="fixed left-0 top-0 opacity-0 pointer-events-none -z-10">
         <div ref={ticketPrintRef} style={{ width: `${TICKET_WIDTH_MM}mm`, margin: 0, padding: 0 }}>
           <style type="text/css" media="print">
             {`
