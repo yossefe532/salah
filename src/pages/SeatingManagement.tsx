@@ -389,6 +389,8 @@ const SeatingManagement: React.FC = () => {
   const [classFilter, setClassFilter] = useState<'A' | 'B' | 'C'>('A');
   const [waitingListSearch, setWaitingListSearch] = useState('');
   const [waitingPaymentFilter, setWaitingPaymentFilter] = useState<'all' | 'paid' | 'unpaid_or_zero'>('all');
+  const [autoSeatPaidMode, setAutoSeatPaidMode] = useState<'any_paid' | 'fully_paid'>('any_paid');
+  const [autoSeatClassFilter, setAutoSeatClassFilter] = useState<'all' | 'A' | 'B' | 'C'>('all');
   const [editModeState, setEditModeState] = useState<EditModeState>({
     action: null,
     addType: 'table',
@@ -987,12 +989,16 @@ const SeatingManagement: React.FC = () => {
     try {
       setLoading(true);
       setError(null);
-      const result = await api.post('/seating/auto-seat', { event_id: eventId });
+      const payload: any = { event_id: eventId, paid_mode: autoSeatPaidMode };
+      if (autoSeatClassFilter !== 'all') payload.seat_class = autoSeatClassFilter;
+      const result = await api.post('/seating/auto-seat', payload);
       await Promise.all([loadMap(), loadAttendees()]);
 
       const summaryByClass = result?.by_class || {};
       const lines = [
         'تم تنفيذ التسكين التلقائي بنجاح.',
+        `نمط الدفع: ${autoSeatPaidMode === 'fully_paid' ? 'مدفوع بالكامل فقط' : 'أي دافع (أكثر من صفر)'}`,
+        `الفئة المستهدفة: ${autoSeatClassFilter === 'all' ? 'كل الفئات' : `Class ${autoSeatClassFilter}`}`,
         `إجمالي المرشحين: ${result?.total_candidates ?? 0}`,
         `المقاعد المتاحة وقت التنفيذ: ${result?.total_available_seats ?? 0}`,
         `تم تسكينهم: ${result?.total_assigned ?? 0}`,
@@ -1737,6 +1743,29 @@ const SeatingManagement: React.FC = () => {
           >
             تسكين تلقائي من إدارة القاعة
           </button>
+        </div>
+        <div className="mt-2 grid grid-cols-1 md:grid-cols-3 gap-2">
+          <select
+            value={autoSeatPaidMode}
+            onChange={(e) => setAutoSeatPaidMode(e.target.value as 'any_paid' | 'fully_paid')}
+            className="px-3 py-2 rounded-md text-sm bg-slate-800 border border-slate-700"
+          >
+            <option value="any_paid">أي دافع (عربون أكبر من صفر)</option>
+            <option value="fully_paid">مدفوع بالكامل فقط</option>
+          </select>
+          <select
+            value={autoSeatClassFilter}
+            onChange={(e) => setAutoSeatClassFilter(e.target.value as 'all' | 'A' | 'B' | 'C')}
+            className="px-3 py-2 rounded-md text-sm bg-slate-800 border border-slate-700"
+          >
+            <option value="all">كل الفئات</option>
+            <option value="A">Class A</option>
+            <option value="B">Class B</option>
+            <option value="C">Class C</option>
+          </select>
+          <div className="px-3 py-2 rounded-md text-xs bg-slate-800 border border-slate-700 text-slate-300">
+            التسكين التلقائي يراعي: الأقدم أولاً + الدفع + الجار المفضل + الشركة.
+          </div>
         </div>
         <div className="mt-2 grid grid-cols-2 md:grid-cols-6 gap-2">
           <button onClick={undoLayout} disabled={historyIndex <= 0} className="px-3 py-2 rounded-md text-sm border border-slate-700 bg-slate-800 disabled:opacity-50">Undo</button>

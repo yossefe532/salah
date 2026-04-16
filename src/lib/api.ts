@@ -2365,7 +2365,6 @@ export const api = {
             .eq('seat_class', cls)
             .eq('status', 'registered')
             .eq('is_deleted', false)
-            .is('seat_number', null)
             .order('created_at', { ascending: true })
             .limit(5000),
           supabase
@@ -2380,8 +2379,17 @@ export const api = {
         if (seatsError) throw new Error(seatsError.message);
 
         const attendees = ((attendeesRaw || []) as any[]).map((item) => normalizeAttendeePricing(applyAttendeeMeta(item)));
+        const allSeats = (seatsRaw || []) as any[];
+        const seatedInHallIds = new Set(allSeats.filter((seat) => !!seat.attendee_id).map((seat) => String(seat.attendee_id)));
+        const unseatedCandidates = attendees.filter((attendee) => {
+          const id = String(attendee?.id || '');
+          if (!id) return false;
+          if (seatedInHallIds.has(id)) return false;
+          // Keep behavior safe for schemas that may not track seat_number column.
+          return !(attendee?.barcode && String(attendee.barcode).trim() !== '');
+        });
         const classStats: any = {
-          candidates: attendees.length,
+          candidates: unseatedCandidates.length,
           paid_candidates: 0,
           unpaid_skipped: 0,
           available_seats: 0,
@@ -2401,11 +2409,10 @@ export const api = {
           if (paidMode === 'fully_paid') return remaining <= 0;
           return true;
         };
-        const paidAttendees = attendees.filter((attendee) => isPaid(attendee));
+        const paidAttendees = unseatedCandidates.filter((attendee) => isPaid(attendee));
         classStats.paid_candidates = paidAttendees.length;
-        classStats.unpaid_skipped = Math.max(0, attendees.length - paidAttendees.length);
+        classStats.unpaid_skipped = Math.max(0, unseatedCandidates.length - paidAttendees.length);
 
-        const allSeats = (seatsRaw || []) as any[];
         const initiallyAvailable = allSeats.filter((seat) => !seat.attendee_id && seat.status === 'available');
         classStats.available_seats = initiallyAvailable.length;
         if (!paidAttendees.length || !initiallyAvailable.length) {
@@ -2603,12 +2610,11 @@ export const api = {
         const [{ data: attendees }, { data: seats }] = await Promise.all([
           supabase
             .from('attendees')
-            .select('id, full_name, governorate, seat_class, status, seat_number')
+            .select('id, full_name, governorate, seat_class, status, barcode')
             .eq('governorate', hallGovernorate)
             .eq('seat_class', cls)
             .eq('status', 'registered')
             .eq('is_deleted', false)
-            .is('seat_number', null)
             .order('created_at', { ascending: true })
             .limit(5000),
           supabase
@@ -2620,7 +2626,7 @@ export const api = {
             .limit(5000)
         ]);
 
-        const attendeeList = (attendees || []) as any[];
+        const attendeeList = ((attendees || []) as any[]).filter((a) => !(a?.barcode && String(a.barcode).trim() !== ''));
         const seatList = (seats || []) as any[];
         const availableSeats = seatList
           .filter((s) => !s.attendee_id && (s.status === 'available' || s.status === 'vip'))
