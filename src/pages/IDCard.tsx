@@ -18,6 +18,7 @@ const IDCard: React.FC = () => {
   const previewMode = (searchParams.get('template') || 'ticket') as 'ticket' | 'back' | 'certificate';
   const TICKET_WIDTH_MM = 85;
   const TICKET_HEIGHT_MM = 140;
+  const TEMPLATE_VERSION = '20260416';
   const [attendee, setAttendee] = useState<Attendee | null>(null);
   const [seatInfo, setSeatInfo] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -181,9 +182,9 @@ const IDCard: React.FC = () => {
   };
 
   const frontTemplateByClass: Record<string, string> = {
-    A: '/templates/ticket-front-a.jpg',
-    B: '/templates/ticket-front-b.jpg',
-    C: '/templates/ticket-front-c.jpg'
+    A: `/templates/ticket-front-a.jpg?v=${TEMPLATE_VERSION}`,
+    B: `/templates/ticket-front-b.jpg?v=${TEMPLATE_VERSION}`,
+    C: `/templates/ticket-front-c.jpg?v=${TEMPLATE_VERSION}`
   };
 
   const backTemplateByGovernorate: Record<string, string> = {
