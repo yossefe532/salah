@@ -4,6 +4,7 @@ import { api, normalizeGovernorate } from '../lib/api';
 import { Attendee } from '../types';
 import { QRCodeCanvas } from 'qrcode.react';
 import { useReactToPrint } from 'react-to-print';
+import html2canvas from 'html2canvas';
 import { Printer, ArrowLeft, Ticket, ScanFace, FileBadge2, Download, Settings2, Save, X, Upload } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import { parseTableOrWaveFromSeatCode, parseSeatNumberFromSeatCode } from '../lib/seat-code';
@@ -15,6 +16,8 @@ const IDCard: React.FC = () => {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const previewMode = (searchParams.get('template') || 'ticket') as 'ticket' | 'back' | 'certificate';
+  const TICKET_WIDTH_MM = 85;
+  const TICKET_HEIGHT_MM = 140;
   const [attendee, setAttendee] = useState<Attendee | null>(null);
   const [seatInfo, setSeatInfo] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -27,59 +30,9 @@ const IDCard: React.FC = () => {
 
   const ticketPrintRef = useRef<HTMLDivElement>(null);
   const certificatePrintRef = useRef<HTMLDivElement>(null);
+  const ticketFrontPdfRef = useRef<HTMLDivElement>(null);
+  const ticketBackPdfRef = useRef<HTMLDivElement>(null);
   const previewModeRef = useRef<HTMLDivElement>(null);
-  const TICKET_WIDTH_MM = 85;
-  const TICKET_HEIGHT_MM = 140;
-  const CERTIFICATE_WIDTH_MM = 297;
-  const CERTIFICATE_HEIGHT_MM = 210;
-
-  const buildPrintPageStyle = (widthMm: number, heightMm: number, sheetClass: string) => `
-    @page { size: ${widthMm}mm ${heightMm}mm; margin: 0; }
-    @media print {
-      html, body {
-        width: ${widthMm}mm !important;
-        height: ${heightMm}mm !important;
-        margin: 0 !important;
-        padding: 0 !important;
-        overflow: hidden !important;
-        background: #ffffff !important;
-      }
-      body {
-        -webkit-print-color-adjust: exact !important;
-        print-color-adjust: exact !important;
-      }
-      * {
-        box-sizing: border-box !important;
-      }
-      .print-root {
-        width: ${widthMm}mm !important;
-        margin: 0 !important;
-        padding: 0 !important;
-      }
-      .print-page {
-        width: ${widthMm}mm !important;
-        height: ${heightMm}mm !important;
-        margin: 0 !important;
-        padding: 0 !important;
-        overflow: hidden !important;
-        break-after: page;
-        page-break-after: always;
-      }
-      .print-page:last-child {
-        break-after: auto;
-        page-break-after: auto;
-      }
-      .${sheetClass} {
-        width: ${widthMm}mm !important;
-        height: ${heightMm}mm !important;
-        margin: 0 !important;
-        padding: 0 !important;
-        border: none !important;
-        border-radius: 0 !important;
-        box-shadow: none !important;
-      }
-    }
-  `;
 
   const fetchAttendee = useCallback(async (attendeeId: string) => {
     try {
@@ -90,7 +43,6 @@ const IDCard: React.FC = () => {
         lastSavedPayloadRef.current = JSON.stringify({
           ticket_overrides: initialOverrides,
           full_name_en: data.full_name_en,
-          job_title: data.job_title,
           profile_photo_url: data.profile_photo_url
         });
       try {
@@ -159,7 +111,21 @@ const IDCard: React.FC = () => {
   const handlePrintTicket = useReactToPrint({
     contentRef: ticketPrintRef,
     documentTitle: attendee ? `ticket-${attendee.full_name}` : 'ticket',
-    pageStyle: buildPrintPageStyle(TICKET_WIDTH_MM, TICKET_HEIGHT_MM, 'ticket-sheet'),
+    pageStyle: `
+      @page { size: ${TICKET_WIDTH_MM}mm ${TICKET_HEIGHT_MM}mm; margin: 0; }
+      html, body {
+        width: ${TICKET_WIDTH_MM}mm !important;
+        height: ${TICKET_HEIGHT_MM}mm !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        overflow: hidden !important;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+      }
+      body * {
+        margin: 0 !important;
+      }
+    `,
     onAfterPrint: () => {
       markPrinted('ticket');
     }
@@ -168,7 +134,7 @@ const IDCard: React.FC = () => {
   const handlePrintCertificate = useReactToPrint({
     contentRef: certificatePrintRef,
     documentTitle: attendee ? `certificate-${attendee.full_name}` : 'certificate',
-    pageStyle: buildPrintPageStyle(CERTIFICATE_WIDTH_MM, CERTIFICATE_HEIGHT_MM, 'certificate-sheet'),
+    pageStyle: `@page { size: 297mm 210mm; margin: 0; } html, body { width: 297mm !important; height: 210mm !important; margin: 0 !important; padding: 0 !important; overflow: hidden !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }`,
     onAfterPrint: () => {
       markPrinted('certificate');
     }
@@ -276,13 +242,6 @@ const IDCard: React.FC = () => {
     return '13.28px'; // 9.96pt * 1.333 = 13.28px
   };
 
-  const getJobTitleFontSize = (title: string) => {
-    if (title.length > 30) return '10px';
-    if (title.length > 22) return '11.5px';
-    if (title.length > 16) return '13px';
-    return '13.92px'; // 10.44pt * 1.333 = 13.92px
-  };
-
   const getCertificateNameFontSize = (name: string) => {
     if (name.length > 28) return '28px';
     if (name.length > 22) return '31px';
@@ -297,9 +256,8 @@ const IDCard: React.FC = () => {
   const buildSavePayload = useCallback(() => ({
     ticket_overrides: overrides,
     full_name_en: attendee?.full_name_en,
-    job_title: attendee?.job_title,
     profile_photo_url: attendee?.profile_photo_url
-  }), [attendee?.full_name_en, attendee?.job_title, attendee?.profile_photo_url, overrides]);
+  }), [attendee?.full_name_en, attendee?.profile_photo_url, overrides]);
 
   const handleSaveOverrides = useCallback(async (silent = false, force = false) => {
     if (!id || !attendee) return;
@@ -325,6 +283,60 @@ const IDCard: React.FC = () => {
     }
   }, [attendee, buildSavePayload, id]);
 
+  const handleDownloadTicketPdf = useCallback(async () => {
+    if (!attendee) return;
+
+    await handleSaveOverrides(true, true);
+
+    const frontNode = ticketFrontPdfRef.current;
+    const backNode = ticketBackPdfRef.current;
+    if (!frontNode || !backNode) {
+      alert('معاينة التيكت غير جاهزة للحفظ الآن');
+      return;
+    }
+
+    const waitForImages = async (container: HTMLElement) => {
+      const images = Array.from(container.querySelectorAll('img'));
+      await Promise.all(images.map((img) => {
+        if (img.complete) return Promise.resolve();
+        return new Promise<void>((resolve) => {
+          img.onload = () => resolve();
+          img.onerror = () => resolve();
+        });
+      }));
+    };
+
+    try {
+      await waitForImages(frontNode);
+      await waitForImages(backNode);
+
+      const [frontCanvas, backCanvas] = await Promise.all([
+        html2canvas(frontNode, { scale: 2, useCORS: true, backgroundColor: '#10141c' }),
+        html2canvas(backNode, { scale: 2, useCORS: true, backgroundColor: '#10141c' })
+      ]);
+
+      const pdf = new jsPDF({
+        orientation: 'portrait',
+        unit: 'mm',
+        format: [TICKET_WIDTH_MM, TICKET_HEIGHT_MM]
+      });
+
+      const frontImg = frontCanvas.toDataURL('image/png');
+      const backImg = backCanvas.toDataURL('image/png');
+
+      pdf.addImage(frontImg, 'PNG', 0, 0, TICKET_WIDTH_MM, TICKET_HEIGHT_MM);
+      pdf.addPage([TICKET_WIDTH_MM, TICKET_HEIGHT_MM], 'portrait');
+      pdf.addImage(backImg, 'PNG', 0, 0, TICKET_WIDTH_MM, TICKET_HEIGHT_MM);
+
+      const baseName = String(attendee.full_name || attendee.id || 'attendee').replace(/[\\/:*?"<>|]/g, '_');
+      pdf.save(`ticket-${baseName}.pdf`);
+      await markPrinted('ticket');
+    } catch (error) {
+      console.error('Error generating ticket PDF:', error);
+      alert('حدث خطأ أثناء حفظ PDF للتيكت');
+    }
+  }, [attendee, handleSaveOverrides, markPrinted]);
+
   useEffect(() => {
     if (!id || !attendee) return;
     const serializedPayload = JSON.stringify(buildSavePayload());
@@ -345,7 +357,7 @@ const IDCard: React.FC = () => {
     };
   }, [attendee, buildSavePayload, handleSaveOverrides, id]);
 
-  const handleTextEdit = (field: 'full_name_en' | 'job_title', value: string) => {
+  const handleTextEdit = (field: 'full_name_en', value: string) => {
     setAttendee(prev => (prev ? { ...prev, [field]: value } : prev));
   };
 
@@ -359,7 +371,6 @@ const IDCard: React.FC = () => {
     const resolvedSeatClass = seatInfo?.seat?.seat_class || attendee.seat_class;
     const frontSrc = frontTemplateByClass[resolvedSeatClass || 'C'] || frontTemplateByClass.C;
     const fullName = getDisplayName(attendee);
-    const jobTitle = String(attendee.job_title || '').trim();
     const resolvedBarcode = seatInfo?.seat?.seat_code || attendee.barcode;
     const resolvedSeatNumber = seatInfo?.seat?.seat_number ?? attendee.seat_number ?? parseSeatNumberFromSeatCode(resolvedBarcode);
     const tableOrWave = parseTableOrWaveFromSeatCode(resolvedBarcode, resolvedSeatClass);
@@ -420,32 +431,6 @@ const IDCard: React.FC = () => {
             }}
           >
             {fullName}
-          </div>
-        </div>
-
-        {/* Job Title Section */}
-        <div className="absolute z-10 flex justify-start" style={{ 
-          top: `${Number(getOverride('title_y', 49.8))}%`, 
-          left: `${Number(getOverride('title_x', 46))}%`, 
-          width: `${Number(getOverride('title_w', 42))}%` 
-        }}>
-          <div
-            className="text-[#e0d3c2]"
-            dir="ltr"
-            style={{
-              fontFamily: '"TT Runs Trial", sans-serif',
-              fontWeight: 600,
-              fontSize: `${getOverride('title_size', parseFloat(getJobTitleFontSize(jobTitle)))}px`,
-              lineHeight: `${getOverride('title_lh', 1.2)}`,
-              whiteSpace: Number(getOverride('title_wrap', 0)) ? 'normal' : 'nowrap',
-              wordBreak: Number(getOverride('title_wrap', 0)) ? 'break-word' : 'normal',
-              overflow: 'visible',
-              textAlign: 'left',
-              width: '100%',
-              maxWidth: '100%'
-            }}
-          >
-            {jobTitle}
           </div>
         </div>
 
@@ -683,49 +668,6 @@ const IDCard: React.FC = () => {
             </div>
           </div>
 
-          {/* Ticket Job Title Settings */}
-          <div className="space-y-3">
-            <h3 className="font-semibold text-sm text-emerald-600 border-b pb-1">المسمى الوظيفي (التيكت)</h3>
-            <div className="mb-2">
-              <label className="text-xs text-gray-600 block mb-1">تعديل المسمى الوظيفي</label>
-              <input 
-                type="text" 
-                value={attendee.job_title || ''} 
-                onChange={(e) => handleTextEdit('job_title', e.target.value)}
-                className="w-full text-sm p-1 border rounded text-right"
-                dir="ltr"
-              />
-            </div>
-            <div className="flex items-center justify-between">
-              <label className="text-xs text-gray-600">تعدد الأسطر (Wrap)</label>
-              <input type="checkbox" checked={Number(getOverride('title_wrap', 0)) === 1} onChange={(e) => handleOverrideChange('title_wrap', e.target.checked ? '1' : '0')} />
-            </div>
-            <div>
-              <label className="text-xs text-gray-600 flex justify-between"><span>Font Size</span> <span>{getOverride('title_size', parseFloat(getJobTitleFontSize(attendee?.job_title || '')))}px</span></label>
-              <input type="range" min="8" max="24" step="0.5" value={getOverride('title_size', parseFloat(getJobTitleFontSize(attendee?.job_title || '')))} onChange={(e) => handleOverrideChange('title_size', e.target.value)} className="w-full" />
-            </div>
-            <div className="grid grid-cols-2 gap-2">
-              <div>
-                <label className="text-xs text-gray-600 flex justify-between"><span>Width</span> <span>{getOverride('title_w', 42)}%</span></label>
-                <input type="range" min="20" max="100" step="1" value={getOverride('title_w', 42)} onChange={(e) => handleOverrideChange('title_w', e.target.value)} className="w-full" />
-              </div>
-              <div>
-                <label className="text-xs text-gray-600 flex justify-between"><span>Line Height</span> <span>{getOverride('title_lh', 1.2)}</span></label>
-                <input type="range" min="0.5" max="2.5" step="0.1" value={getOverride('title_lh', 1.2)} onChange={(e) => handleOverrideChange('title_lh', e.target.value)} className="w-full" />
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-2">
-              <div>
-                <label className="text-xs text-gray-600 flex justify-between"><span>Move X</span> <span>{getOverride('title_x', 46)}%</span></label>
-                <input type="range" min="30" max="70" step="0.5" value={getOverride('title_x', 46)} onChange={(e) => handleOverrideChange('title_x', e.target.value)} className="w-full" />
-              </div>
-              <div>
-                <label className="text-xs text-gray-600 flex justify-between"><span>Move Y</span> <span>{getOverride('title_y', 49.8)}%</span></label>
-                <input type="range" min="30" max="60" step="0.5" value={getOverride('title_y', 49.8)} onChange={(e) => handleOverrideChange('title_y', e.target.value)} className="w-full" />
-              </div>
-            </div>
-          </div>
-
           {/* Ticket QR Code Settings */}
           <div className="space-y-3">
             <h3 className="font-semibold text-sm text-emerald-600 border-b pb-1">الـ QR Code</h3>
@@ -819,8 +761,8 @@ const IDCard: React.FC = () => {
           background-color: #10141c;
         }
         .certificate-sheet {
-          width: ${CERTIFICATE_WIDTH_MM}mm;
-          height: ${CERTIFICATE_HEIGHT_MM}mm;
+          width: 297mm;
+          height: 210mm;
           background-color: #111;
         }
         .preview-wrap {
@@ -833,13 +775,17 @@ const IDCard: React.FC = () => {
         }
         @media print {
           @page {
-            margin: 0;
+            size: ${TICKET_WIDTH_MM}mm ${TICKET_HEIGHT_MM}mm;
+            margin: 0 !important;
           }
-          body {
+          html, body {
+            width: ${TICKET_WIDTH_MM}mm !important;
+            height: ${TICKET_HEIGHT_MM}mm !important;
             -webkit-print-color-adjust: exact;
             print-color-adjust: exact;
             margin: 0 !important;
             padding: 0 !important;
+            overflow: hidden !important;
           }
           .no-print {
             display: none !important;
@@ -900,8 +846,8 @@ const IDCard: React.FC = () => {
           <Download className="h-4 w-4 ml-2" />
           حفظ QR فقط
         </button>
-        <button onClick={triggerPrintTicket} className="inline-flex items-center px-4 py-2 rounded-md text-indigo-700 bg-indigo-100 hover:bg-indigo-200">
-          <Printer className="h-4 w-4 ml-2" />
+        <button onClick={handleDownloadTicketPdf} className="inline-flex items-center px-4 py-2 rounded-md text-indigo-700 bg-indigo-100 hover:bg-indigo-200">
+          <Download className="h-4 w-4 ml-2" />
           حفظ PDF للتيكت
         </button>
         <button onClick={triggerPrintCertificate} className="inline-flex items-center px-4 py-2 rounded-md text-white bg-emerald-600 hover:bg-emerald-700">
@@ -948,16 +894,30 @@ const IDCard: React.FC = () => {
       </div>
 
       <div className="absolute -left-[99999px] top-0">
-        <div ref={ticketPrintRef} className="print-root" style={{ width: `${TICKET_WIDTH_MM}mm`, margin: 0, padding: 0 }}>
-          <div className="print-page" style={{ width: `${TICKET_WIDTH_MM}mm`, height: `${TICKET_HEIGHT_MM}mm`, overflow: 'hidden', margin: 0, padding: 0 }}>
+        <div ref={ticketPrintRef} style={{ width: `${TICKET_WIDTH_MM}mm`, height: `${TICKET_HEIGHT_MM}mm`, margin: 0, padding: 0 }}>
+          <style type="text/css" media="print">
+            {`
+              @page { size: ${TICKET_WIDTH_MM}mm ${TICKET_HEIGHT_MM}mm; margin: 0; }
+              html, body { width: ${TICKET_WIDTH_MM}mm !important; height: ${TICKET_HEIGHT_MM}mm !important; margin: 0 !important; padding: 0 !important; overflow: hidden !important; background-color: #10141c !important; }
+              .ticket-sheet { width: ${TICKET_WIDTH_MM}mm !important; height: ${TICKET_HEIGHT_MM}mm !important; border: none !important; border-radius: 0 !important; margin: 0 !important; padding: 0 !important; box-shadow: none !important; }
+            `}
+          </style>
+          <div ref={ticketFrontPdfRef} style={{ width: `${TICKET_WIDTH_MM}mm`, height: `${TICKET_HEIGHT_MM}mm`, pageBreakAfter: 'always', overflow: 'hidden', margin: 0, padding: 0 }}>
             {renderTicketFront()}
           </div>
-          <div className="print-page" style={{ width: `${TICKET_WIDTH_MM}mm`, height: `${TICKET_HEIGHT_MM}mm`, overflow: 'hidden', margin: 0, padding: 0 }}>
+          <div ref={ticketBackPdfRef} style={{ width: `${TICKET_WIDTH_MM}mm`, height: `${TICKET_HEIGHT_MM}mm`, overflow: 'hidden', margin: 0, padding: 0 }}>
             {renderTicketBack()}
           </div>
         </div>
-        <div ref={certificatePrintRef} className="print-root" style={{ width: `${CERTIFICATE_WIDTH_MM}mm`, margin: 0, padding: 0 }}>
-          <div className="print-page" style={{ width: `${CERTIFICATE_WIDTH_MM}mm`, height: `${CERTIFICATE_HEIGHT_MM}mm`, overflow: 'hidden', margin: 0, padding: 0 }}>
+        <div ref={certificatePrintRef} style={{ width: '297mm', margin: 0, padding: 0 }}>
+          <style type="text/css" media="print">
+            {`
+              @page { size: 297mm 210mm; margin: 0; }
+              html, body { width: 297mm !important; height: 210mm !important; margin: 0 !important; padding: 0 !important; overflow: hidden !important; background-color: #111 !important; }
+              .certificate-sheet { width: 297mm !important; height: 210mm !important; border: none !important; border-radius: 0 !important; margin: 0 !important; padding: 0 !important; box-shadow: none !important; }
+            `}
+          </style>
+          <div style={{ width: '297mm', height: '210mm', overflow: 'hidden', margin: 0, padding: 0 }}>
             {renderCertificate()}
           </div>
         </div>
