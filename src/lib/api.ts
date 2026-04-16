@@ -1189,13 +1189,26 @@ export const api = {
       const nextTableId = `${gov}-${newClass}-T${newName}`;
       const tableOrder = parseInt(newName) || table.table_order;
       
-      const { error: updateTableError } = await supabase.from('seat_tables').update({ 
-         id: nextTableId, 
-         seat_class: newClass, 
-         seats_count: newCount,
-         table_order: tableOrder
-      }).eq('id', tableId);
-      if (updateTableError) throw new Error(updateTableError.message);
+      // Renaming table id directly violates FK (seats.table_id -> seat_tables.id),
+      // so when id changes we create target table first, move seats, then delete old table.
+      if (nextTableId !== tableId) {
+        const { error: insertNewTableError } = await supabase.from('seat_tables').insert([{
+          ...table,
+          id: nextTableId,
+          event_id: eventId,
+          seat_class: newClass,
+          seats_count: newCount,
+          table_order: tableOrder
+        }]);
+        if (insertNewTableError) throw new Error(insertNewTableError.message);
+      } else {
+        const { error: updateTableError } = await supabase.from('seat_tables').update({
+          seat_class: newClass,
+          seats_count: newCount,
+          table_order: tableOrder
+        }).eq('id', tableId);
+        if (updateTableError) throw new Error(updateTableError.message);
+      }
       
       for (const s of existingSeats) {
          const newSeatCode = buildSeatCode(newClass as any, table.row_number, 'left', tableOrder, s.seat_number).replace(`T${tableOrder}`, `T${newName}`);
@@ -1207,6 +1220,11 @@ export const api = {
             seat_code: newSeatCode
          }).eq('id', s.id);
          if (updateSeatError) throw new Error(updateSeatError.message);
+      }
+
+      if (nextTableId !== tableId) {
+        const { error: deleteOldTableError } = await supabase.from('seat_tables').delete().eq('id', tableId);
+        if (deleteOldTableError) throw new Error(deleteOldTableError.message);
       }
       
       if (newCount > currentCount) {
