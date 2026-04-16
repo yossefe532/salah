@@ -1173,7 +1173,8 @@ export const api = {
       const tableId = body?.table_id;
       const newName = body?.name;
       const newClass = body?.seat_class;
-      const newCount = Number(body?.chairs_count);
+      const requestedCount = Number(body?.chairs_count);
+      const newCount = Number.isFinite(requestedCount) ? Math.max(1, Math.floor(requestedCount)) : 1;
       
       const { data: table } = await supabase.from('seat_tables').select('*').eq('id', tableId).single();
       if (!table) throw new Error('Table not found');
@@ -1188,31 +1189,33 @@ export const api = {
       const nextTableId = `${gov}-${newClass}-T${newName}`;
       const tableOrder = parseInt(newName) || table.table_order;
       
-      await supabase.from('seat_tables').update({ 
+      const { error: updateTableError } = await supabase.from('seat_tables').update({ 
          id: nextTableId, 
          seat_class: newClass, 
          seats_count: newCount,
          table_order: tableOrder
       }).eq('id', tableId);
+      if (updateTableError) throw new Error(updateTableError.message);
       
       for (const s of existingSeats) {
          const newSeatCode = buildSeatCode(newClass as any, table.row_number, 'left', tableOrder, s.seat_number).replace(`T${tableOrder}`, `T${newName}`);
          const newSeatId = `${nextTableId}-S${s.seat_number}`;
-         await supabase.from('seats').update({
+         const { error: updateSeatError } = await supabase.from('seats').update({
             id: newSeatId,
             table_id: nextTableId,
             seat_class: newClass,
             seat_code: newSeatCode
          }).eq('id', s.id);
+         if (updateSeatError) throw new Error(updateSeatError.message);
       }
       
       if (newCount > currentCount) {
          // Add new seats
          const newSeats = [];
-         const existingNumbers = existingSeats.map(s => s.seat_number);
-         let nextNum = existingNumbers.length > 0 ? Math.max(...existingNumbers) + 1 : 1;
-         for (let i = 0; i < (newCount - currentCount); i++) {
-             const num = nextNum++;
+         const existingNumbersSet = new Set(existingSeats.map(s => Number(s.seat_number || 0)));
+         let num = 1;
+         while (newSeats.length < (newCount - currentCount)) {
+             while (existingNumbersSet.has(num)) num += 1;
              newSeats.push({
                id: `${nextTableId}-S${num}`,
                event_id: eventId,
@@ -1224,11 +1227,16 @@ export const api = {
                seat_number: num,
                seat_code: buildSeatCode(newClass as any, table.row_number, 'left', tableOrder, num).replace(`T${tableOrder}`, `T${newName}`),
                status: 'available',
-               position_x: Number(existingSeats[0]?.position_x || 50) + (i * 2), // rough offset
+               position_x: Number(existingSeats[0]?.position_x || 50) + ((newSeats.length) * 2), // rough offset
                position_y: Number(existingSeats[0]?.position_y || 50)
              });
+             existingNumbersSet.add(num);
+             num += 1;
          }
-         await supabase.from('seats').insert(newSeats);
+         if (newSeats.length > 0) {
+           const { error: insertSeatsError } = await supabase.from('seats').insert(newSeats);
+           if (insertSeatsError) throw new Error(insertSeatsError.message);
+         }
       } else if (newCount < currentCount) {
          // Remove excess seats prioritizing empty ones
          const seatsToRemoveCount = currentCount - newCount;
@@ -1243,7 +1251,8 @@ export const api = {
              if (s.attendee_id) {
                  await updateAttendeeSafely(String(s.attendee_id), { seat_number: null, barcode: null });
              }
-             await supabase.from('seats').delete().eq('id', s.id);
+            const { error: deleteSeatError } = await supabase.from('seats').delete().eq('id', s.id);
+            if (deleteSeatError) throw new Error(deleteSeatError.message);
          }
       }
       
