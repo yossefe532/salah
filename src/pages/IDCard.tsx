@@ -18,7 +18,7 @@ const IDCard: React.FC = () => {
   const previewMode = (searchParams.get('template') || 'ticket') as 'ticket' | 'back' | 'certificate';
   const TICKET_WIDTH_MM = 85;
   const TICKET_HEIGHT_MM = 140;
-  const TEMPLATE_VERSION = '20260416';
+  const TEMPLATE_VERSION = '20260416_v2';
   const [attendee, setAttendee] = useState<Attendee | null>(null);
   const [seatInfo, setSeatInfo] = useState<any>(null);
   const [loading, setLoading] = useState(true);
