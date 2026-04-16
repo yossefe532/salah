@@ -1262,20 +1262,30 @@ export const api = {
          const xs = existingSeats.map(s => Number(s.position_x || 0));
          const ys = existingSeats.map(s => Number(s.position_y || 0));
          const minX = existingSeats.length > 0 ? Math.min(...xs) : 50;
+         const maxX = existingSeats.length > 0 ? Math.max(...xs) : 50;
          const minY = existingSeats.length > 0 ? Math.min(...ys) : 50;
-         const bx = minX;
+         const cx = (minX + maxX) / 2;
          const by = minY;
+         
+         const topCount = Math.ceil(newCount / 2);
+         const bottomCount = Math.floor(newCount / 2);
 
          for (let i = 0; i < finalSeatsList.length; i++) {
              const s = finalSeatsList[i];
-             const isTop = i < Math.ceil(newCount / 2);
-             const posInRow = isTop ? i : i - Math.ceil(newCount / 2);
+             const isTop = i < topCount;
+             const rowCount = isTop ? topCount : bottomCount;
+             const posInRow = isTop ? i : i - topCount;
              
-             const newX = bx + posInRow * 3.5;
+             // Center each row symmetrically based on its count
+             const rowWidth = (rowCount - 1) * 3.5;
+             const rowStartX = cx - (rowWidth / 2);
+             
+             const newX = rowStartX + posInRow * 3.5;
              const newY = by + (isTop ? 0 : 5);
 
              s.position_x = newX;
              s.position_y = newY;
+
 
              if (!s.isNew) {
                  const newSeatCode = buildSeatCode(newClass as any, table.row_number, 'left', tableOrder, s.seat_number).replace(`T${tableOrder}`, `T${newName}`);
@@ -1431,12 +1441,20 @@ export const api = {
         }]);
         
         const seats = [];
+        const topCount = Math.ceil(chairsCount / 2);
+        const bottomCount = Math.floor(chairsCount / 2);
+
         for(let i = 1; i <= chairsCount; i++) {
-          const cols = Math.ceil(chairsCount / 2);
-          const localRow = Math.floor((i - 1) / cols);
-          const localCol = (i - 1) % cols;
-          const seatX = offsetX + (localCol - (cols/2 - 0.5)) * 2.2;
-          const seatY = offsetY + (localRow - 0.5) * 2.2;
+          const isTop = i <= topCount;
+          const rowCount = isTop ? topCount : bottomCount;
+          const localCol = isTop ? (i - 1) : (i - 1 - topCount);
+          
+          const rowWidth = (rowCount - 1) * 3.5;
+          const rowStartX = offsetX - (rowWidth / 2);
+          
+          const seatX = rowStartX + localCol * 3.5;
+          const seatY = offsetY + (isTop ? -2.5 : 2.5);
+
           seats.push({
             id: `${tableId}-S${i}`,
             event_id: eventId,
