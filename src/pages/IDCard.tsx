@@ -18,6 +18,8 @@ const IDCard: React.FC = () => {
   const previewMode = (searchParams.get('template') || 'ticket') as 'ticket' | 'back' | 'certificate';
   const TICKET_WIDTH_MM = 85;
   const TICKET_HEIGHT_MM = 140;
+  const TICKET_SPREAD_WIDTH_MM = TICKET_WIDTH_MM * 2;
+  const TICKET_SPREAD_HEIGHT_MM = TICKET_HEIGHT_MM;
   const TEMPLATE_VERSION = '20260416_v2';
   const [attendee, setAttendee] = useState<Attendee | null>(null);
   const [seatInfo, setSeatInfo] = useState<any>(null);
@@ -31,8 +33,7 @@ const IDCard: React.FC = () => {
 
   const ticketPrintRef = useRef<HTMLDivElement>(null);
   const certificatePrintRef = useRef<HTMLDivElement>(null);
-  const ticketFrontPdfRef = useRef<HTMLDivElement>(null);
-  const ticketBackPdfRef = useRef<HTMLDivElement>(null);
+  const ticketSpreadPdfRef = useRef<HTMLDivElement>(null);
   const previewModeRef = useRef<HTMLDivElement>(null);
 
   const fetchAttendee = useCallback(async (attendeeId: string) => {
@@ -113,18 +114,39 @@ const IDCard: React.FC = () => {
     contentRef: ticketPrintRef,
     documentTitle: attendee ? `ticket-${attendee.full_name}` : 'ticket',
     pageStyle: `
-      @page { size: ${TICKET_WIDTH_MM}mm ${TICKET_HEIGHT_MM}mm; margin: 0; }
+      @page { size: ${TICKET_SPREAD_WIDTH_MM}mm ${TICKET_SPREAD_HEIGHT_MM}mm; margin: 0; }
       html, body {
-        width: ${TICKET_WIDTH_MM}mm !important;
-        height: ${TICKET_HEIGHT_MM}mm !important;
+        width: ${TICKET_SPREAD_WIDTH_MM}mm !important;
+        height: ${TICKET_SPREAD_HEIGHT_MM}mm !important;
         margin: 0 !important;
         padding: 0 !important;
         overflow: hidden !important;
         -webkit-print-color-adjust: exact;
         print-color-adjust: exact;
+        color-adjust: exact;
+      }
+      * {
+        box-sizing: border-box !important;
       }
       body * {
         margin: 0 !important;
+      }
+      .ticket-spread-sheet {
+        width: ${TICKET_SPREAD_WIDTH_MM}mm !important;
+        height: ${TICKET_SPREAD_HEIGHT_MM}mm !important;
+        display: flex !important;
+        align-items: stretch !important;
+        justify-content: flex-start !important;
+        gap: 0 !important;
+        overflow: hidden !important;
+        page-break-inside: avoid !important;
+      }
+      .ticket-sheet {
+        width: ${TICKET_WIDTH_MM}mm !important;
+        height: ${TICKET_HEIGHT_MM}mm !important;
+        margin: 0 !important;
+        border: 0 !important;
+        box-shadow: none !important;
       }
     `,
     onAfterPrint: () => {
@@ -143,7 +165,7 @@ const IDCard: React.FC = () => {
 
   const handleDownloadQr = useCallback(() => {
     if (!attendee) return;
-    const canvas = document.getElementById('qr-code-canvas') as HTMLCanvasElement;
+    const canvas = document.getElementById('qr-code-canvas-main') as HTMLCanvasElement;
     if (!canvas) {
        alert('QR Code غير متوفر للتحميل');
        return;
@@ -289,9 +311,8 @@ const IDCard: React.FC = () => {
 
     await handleSaveOverrides(true, true);
 
-    const frontNode = ticketFrontPdfRef.current;
-    const backNode = ticketBackPdfRef.current;
-    if (!frontNode || !backNode) {
+    const spreadNode = ticketSpreadPdfRef.current;
+    if (!spreadNode) {
       alert('معاينة التيكت غير جاهزة للحفظ الآن');
       return;
     }
@@ -308,29 +329,30 @@ const IDCard: React.FC = () => {
     };
 
     try {
-      await waitForImages(frontNode);
-      await waitForImages(backNode);
-
-      const [frontCanvas, backCanvas] = await Promise.all([
-        html2canvas(frontNode, { scale: 2, useCORS: true, backgroundColor: '#10141c' }),
-        html2canvas(backNode, { scale: 2, useCORS: true, backgroundColor: '#10141c' })
-      ]);
-
-      const pdf = new jsPDF({
-        orientation: 'portrait',
-        unit: 'mm',
-        format: [TICKET_WIDTH_MM, TICKET_HEIGHT_MM]
+      await waitForImages(spreadNode);
+      const exportScale = Math.max(3, Math.min(5, window.devicePixelRatio * 2));
+      const spreadCanvas = await html2canvas(spreadNode, {
+        scale: exportScale,
+        useCORS: true,
+        backgroundColor: '#10141c',
+        logging: false
       });
 
-      const frontImg = frontCanvas.toDataURL('image/png');
-      const backImg = backCanvas.toDataURL('image/png');
+      const pdf = new jsPDF({
+        orientation: 'landscape',
+        unit: 'mm',
+        format: [TICKET_SPREAD_WIDTH_MM, TICKET_SPREAD_HEIGHT_MM],
+        compress: true,
+        putOnlyUsedFonts: true
+      });
 
-      pdf.addImage(frontImg, 'PNG', 0, 0, TICKET_WIDTH_MM, TICKET_HEIGHT_MM);
-      pdf.addPage([TICKET_WIDTH_MM, TICKET_HEIGHT_MM], 'portrait');
-      pdf.addImage(backImg, 'PNG', 0, 0, TICKET_WIDTH_MM, TICKET_HEIGHT_MM);
+      const spreadImg = spreadCanvas.toDataURL('image/png');
+
+      pdf.addImage(spreadImg, 'PNG', 0, 0, TICKET_SPREAD_WIDTH_MM, TICKET_SPREAD_HEIGHT_MM, undefined, 'FAST');
 
       const baseName = String(attendee.full_name || attendee.id || 'attendee').replace(/[\\/:*?"<>|]/g, '_');
-      pdf.save(`ticket-${baseName}.pdf`);
+      const seatToken = String(attendee.barcode || `${attendee.seat_class || 'X'}-${attendee.seat_number || '0'}`).replace(/[\\/:*?"<>|]/g, '_');
+      pdf.save(`ticket-${seatToken}-${baseName}.pdf`);
       await markPrinted('ticket');
     } catch (error) {
       console.error('Error generating ticket PDF:', error);
@@ -367,7 +389,7 @@ const IDCard: React.FC = () => {
     return defaultVal;
   };
 
-  const renderTicketFront = () => {
+  const renderTicketFront = (qrCanvasId?: string) => {
     if (!attendee) return null;
     const resolvedSeatClass = seatInfo?.seat?.seat_class || attendee.seat_class;
     const frontSrc = frontTemplateByClass[resolvedSeatClass || 'C'] || frontTemplateByClass.C;
@@ -443,7 +465,7 @@ const IDCard: React.FC = () => {
         }}>
           {attendee.qr_code || attendee.id ? (
             <div className="bg-white p-[3px] rounded-[3px]">
-               <QRCodeCanvas id="qr-code-canvas" value={attendee.qr_code || attendee.id} size={Number(getOverride('qr_size', 62))} level="H" includeMargin={false} />
+               <QRCodeCanvas id={qrCanvasId} value={attendee.qr_code || attendee.id} size={Number(getOverride('qr_size', 62))} level="H" includeMargin={false} />
             </div>
           ) : (
             <div className="h-[62px]" />
@@ -875,7 +897,7 @@ const IDCard: React.FC = () => {
             <div className="flex items-center gap-2 mb-2 text-white bg-slate-800 px-3 py-1 rounded-t-lg">
               <Printer className="w-4 h-4" /> معاينة التيكت (وش)
             </div>
-            {renderTicketFront()}
+            {renderTicketFront('qr-code-canvas-main')}
           </div>
 
           <div className="preview-wrap mt-8">
@@ -895,18 +917,17 @@ const IDCard: React.FC = () => {
       </div>
 
       <div className="absolute -left-[99999px] top-0">
-        <div ref={ticketPrintRef} style={{ width: `${TICKET_WIDTH_MM}mm`, height: `${TICKET_HEIGHT_MM}mm`, margin: 0, padding: 0 }}>
+        <div ref={ticketPrintRef} style={{ width: `${TICKET_SPREAD_WIDTH_MM}mm`, height: `${TICKET_SPREAD_HEIGHT_MM}mm`, margin: 0, padding: 0 }}>
           <style type="text/css" media="print">
             {`
-              @page { size: ${TICKET_WIDTH_MM}mm ${TICKET_HEIGHT_MM}mm; margin: 0; }
-              html, body { width: ${TICKET_WIDTH_MM}mm !important; height: ${TICKET_HEIGHT_MM}mm !important; margin: 0 !important; padding: 0 !important; overflow: hidden !important; background-color: #10141c !important; }
+              @page { size: ${TICKET_SPREAD_WIDTH_MM}mm ${TICKET_SPREAD_HEIGHT_MM}mm; margin: 0; }
+              html, body { width: ${TICKET_SPREAD_WIDTH_MM}mm !important; height: ${TICKET_SPREAD_HEIGHT_MM}mm !important; margin: 0 !important; padding: 0 !important; overflow: hidden !important; background-color: #10141c !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; color-adjust: exact; }
+              .ticket-spread-sheet { width: ${TICKET_SPREAD_WIDTH_MM}mm !important; height: ${TICKET_SPREAD_HEIGHT_MM}mm !important; display: flex !important; gap: 0 !important; overflow: hidden !important; }
               .ticket-sheet { width: ${TICKET_WIDTH_MM}mm !important; height: ${TICKET_HEIGHT_MM}mm !important; border: none !important; border-radius: 0 !important; margin: 0 !important; padding: 0 !important; box-shadow: none !important; }
             `}
           </style>
-          <div ref={ticketFrontPdfRef} style={{ width: `${TICKET_WIDTH_MM}mm`, height: `${TICKET_HEIGHT_MM}mm`, pageBreakAfter: 'always', overflow: 'hidden', margin: 0, padding: 0 }}>
-            {renderTicketFront()}
-          </div>
-          <div ref={ticketBackPdfRef} style={{ width: `${TICKET_WIDTH_MM}mm`, height: `${TICKET_HEIGHT_MM}mm`, overflow: 'hidden', margin: 0, padding: 0 }}>
+          <div ref={ticketSpreadPdfRef} className="ticket-spread-sheet" style={{ width: `${TICKET_SPREAD_WIDTH_MM}mm`, height: `${TICKET_SPREAD_HEIGHT_MM}mm`, overflow: 'hidden', margin: 0, padding: 0 }}>
+            {renderTicketFront('qr-code-canvas-export')}
             {renderTicketBack()}
           </div>
         </div>
