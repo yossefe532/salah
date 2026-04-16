@@ -4,11 +4,9 @@ import { api, normalizeGovernorate } from '../lib/api';
 import { Attendee } from '../types';
 import { QRCodeCanvas } from 'qrcode.react';
 import { useReactToPrint } from 'react-to-print';
-import html2canvas from 'html2canvas';
 import { Printer, ArrowLeft, Ticket, ScanFace, FileBadge2, Download, Settings2, Save, X, Upload } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import { parseTableOrWaveFromSeatCode, parseSeatNumberFromSeatCode } from '../lib/seat-code';
-import { supabase } from '../lib/supabase';
 
 const IDCard: React.FC = () => {
   const params = useParams();
@@ -32,9 +30,6 @@ const IDCard: React.FC = () => {
 
   const ticketPrintRef = useRef<HTMLDivElement>(null);
   const certificatePrintRef = useRef<HTMLDivElement>(null);
-  const ticketFrontPdfRef = useRef<HTMLDivElement>(null);
-  const ticketBackPdfRef = useRef<HTMLDivElement>(null);
-  const previewModeRef = useRef<HTMLDivElement>(null);
 
   const fetchAttendee = useCallback(async (attendeeId: string) => {
     try {
@@ -195,7 +190,7 @@ const IDCard: React.FC = () => {
     }
   }, [attendee]);
 
-  const normalizeGovernorate = (value?: string) => {
+  const getGovernorateTemplateKey = (value?: string) => {
     const key = String(value || '').trim().toLowerCase();
     if (key.includes('minya') || key.includes('منيا')) return 'Minya';
     if (key.includes('asyut') || key.includes('assiut') || key.includes('أسيوط') || key.includes('اسيوط')) return 'Asyut';
@@ -315,49 +310,344 @@ const IDCard: React.FC = () => {
     }
   }, [attendee, buildSavePayload, id]);
 
+  const getOverride = useCallback((key: string, defaultVal: number | string) => {
+    if (overrides[key] !== undefined) return overrides[key];
+    return defaultVal;
+  }, [overrides]);
+
   const handleDownloadTicketPdf = useCallback(async () => {
     if (!attendee) return;
 
-    await handleSaveOverrides(true, true);
+    const PDF_DPI = 300;
+    const PX_PER_MM = PDF_DPI / 25.4;
+    const CSS_TO_EXPORT_SCALE = PDF_DPI / 96;
 
-    const frontNode = ticketFrontPdfRef.current;
-    const backNode = ticketBackPdfRef.current;
-    if (!frontNode || !backNode) {
-      alert('معاينة التيكت غير جاهزة للحفظ الآن');
-      return;
+    class TicketPdfExportError extends Error {
+      code: string;
+      constructor(code: string, message: string) {
+        super(message);
+        this.code = code;
+      }
     }
 
-    const waitForImages = async (container: HTMLElement) => {
-      const images = Array.from(container.querySelectorAll('img'));
-      await Promise.all(images.map((img) => {
-        if (img.complete) return Promise.resolve();
-        return new Promise<void>((resolve) => {
-          img.onload = () => resolve();
-          img.onerror = () => resolve();
-        });
-      }));
+    const mmToPx = (mm: number) => Math.max(1, Math.round(mm * PX_PER_MM));
+    const percentToPx = (total: number, percent: number) => (total * Number(percent || 0)) / 100;
+    const asCssPx = (value: number) => Number(value || 0) * CSS_TO_EXPORT_SCALE;
+
+    const makeCanvas = (width: number, height: number) => {
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, Math.round(width));
+      canvas.height = Math.max(1, Math.round(height));
+      const ctx = canvas.getContext('2d');
+      if (!ctx) throw new TicketPdfExportError('CANVAS_CONTEXT', 'فشل تجهيز Canvas للتصدير');
+      return { canvas, ctx };
+    };
+
+    const loadImage = async (src: string, label: string): Promise<HTMLImageElement> => {
+      const finalSrc = src.startsWith('http') || src.startsWith('data:')
+        ? src
+        : `${window.location.origin}${src}`;
+
+      const tryLoad = (imageSrc: string, crossOrigin: boolean) => new Promise<HTMLImageElement>((resolve, reject) => {
+        const img = new Image();
+        if (crossOrigin) img.crossOrigin = 'anonymous';
+        img.onload = () => resolve(img);
+        img.onerror = () => reject(new Error(`تعذر تحميل ${label}`));
+        img.src = imageSrc;
+      });
+
+      let objectUrl: string | null = null;
+      try {
+        if (!finalSrc.startsWith('data:')) {
+          const response = await fetch(finalSrc, { cache: 'no-store', mode: 'cors' });
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          const blob = await response.blob();
+          objectUrl = URL.createObjectURL(blob);
+          const img = await tryLoad(objectUrl, false);
+          return img;
+        }
+        return await tryLoad(finalSrc, false);
+      } catch {
+        return await tryLoad(finalSrc, true);
+      } finally {
+        if (objectUrl) URL.revokeObjectURL(objectUrl);
+      }
+    };
+
+    const drawRoundedClip = (
+      ctx: CanvasRenderingContext2D,
+      x: number,
+      y: number,
+      w: number,
+      h: number,
+      radius: number
+    ) => {
+      const r = Math.max(0, Math.min(radius, Math.min(w, h) / 2));
+      ctx.beginPath();
+      ctx.moveTo(x + r, y);
+      ctx.arcTo(x + w, y, x + w, y + h, r);
+      ctx.arcTo(x + w, y + h, x, y + h, r);
+      ctx.arcTo(x, y + h, x, y, r);
+      ctx.arcTo(x, y, x + w, y, r);
+      ctx.closePath();
+    };
+
+    const drawImageWithFit = (
+      ctx: CanvasRenderingContext2D,
+      img: HTMLImageElement,
+      x: number,
+      y: number,
+      w: number,
+      h: number,
+      fitMode: 'cover' | 'contain',
+      scale: number,
+      translateXPercent: number,
+      translateYPercent: number
+    ) => {
+      const safeScale = Number.isFinite(scale) && scale > 0 ? scale : 1;
+      const baseRatio = fitMode === 'contain'
+        ? Math.min(w / img.width, h / img.height)
+        : Math.max(w / img.width, h / img.height);
+      const ratio = baseRatio * safeScale;
+      const drawW = img.width * ratio;
+      const drawH = img.height * ratio;
+      const offsetX = ((w - drawW) / 2) + ((translateXPercent || 0) / 100) * w;
+      const offsetY = ((h - drawH) / 2) + ((translateYPercent || 0) / 100) * h;
+      ctx.drawImage(img, x + offsetX, y + offsetY, drawW, drawH);
+    };
+
+    const drawText = (
+      ctx: CanvasRenderingContext2D,
+      {
+        text,
+        x,
+        y,
+        maxWidth,
+        align,
+        color,
+        fontFamily,
+        fontWeight,
+        fontSizePx,
+        lineHeight,
+        wrap
+      }: {
+        text: string;
+        x: number;
+        y: number;
+        maxWidth: number;
+        align: 'left' | 'center';
+        color: string;
+        fontFamily: string;
+        fontWeight: number;
+        fontSizePx: number;
+        lineHeight: number;
+        wrap: boolean;
+      }
+    ) => {
+      const content = String(text || '').trim();
+      if (!content) return;
+
+      ctx.save();
+      ctx.fillStyle = color;
+      ctx.direction = 'ltr';
+      ctx.textBaseline = 'top';
+      ctx.textAlign = align;
+      ctx.font = `${fontWeight} ${Math.max(6, fontSizePx)}px ${fontFamily}`;
+
+      if (!wrap) {
+        ctx.fillText(content, x, y, maxWidth);
+        ctx.restore();
+        return;
+      }
+
+      const words = content.split(/\s+/).filter(Boolean);
+      const lines: string[] = [];
+      let current = '';
+      words.forEach((word) => {
+        const candidate = current ? `${current} ${word}` : word;
+        if (ctx.measureText(candidate).width <= maxWidth || !current) {
+          current = candidate;
+        } else {
+          lines.push(current);
+          current = word;
+        }
+      });
+      if (current) lines.push(current);
+
+      const lh = Math.max(1, lineHeight) * Math.max(6, fontSizePx);
+      lines.forEach((line, index) => {
+        ctx.fillText(line, x, y + (index * lh), maxWidth);
+      });
+      ctx.restore();
+    };
+
+    const getQrCanvas = async () => {
+      let attempts = 0;
+      while (attempts < 5) {
+        const qr = document.getElementById('qr-code-canvas-main') as HTMLCanvasElement | null;
+        if (qr && qr.width > 0 && qr.height > 0) return qr;
+        attempts += 1;
+        await new Promise((resolve) => window.setTimeout(resolve, 80));
+      }
+      throw new TicketPdfExportError('QR_NOT_READY', 'QR غير جاهز حالياً. حاول مرة أخرى بعد ثوانٍ');
+    };
+
+    const composeFrontCanvas = async (): Promise<HTMLCanvasElement> => {
+      const resolvedSeatClass = seatInfo?.seat?.seat_class || attendee.seat_class;
+      const frontSrc = frontTemplateByClass[resolvedSeatClass || 'C'] || frontTemplateByClass.C;
+      const fullName = getDisplayName(attendee);
+      const jobTitle = String(attendee.job_title || '').trim();
+      const resolvedBarcode = seatInfo?.seat?.seat_code || attendee.barcode;
+      const resolvedSeatNumber = seatInfo?.seat?.seat_number ?? attendee.seat_number ?? parseSeatNumberFromSeatCode(resolvedBarcode);
+      const tableOrWave = parseTableOrWaveFromSeatCode(resolvedBarcode, resolvedSeatClass);
+      const qrCanvas = await getQrCanvas();
+      const frontTemplate = await loadImage(frontSrc, 'قالب وش التيكت');
+
+      const width = mmToPx(TICKET_WIDTH_MM);
+      const height = mmToPx(TICKET_HEIGHT_MM);
+      const { canvas, ctx } = makeCanvas(width, height);
+
+      ctx.fillStyle = '#10141c';
+      ctx.fillRect(0, 0, width, height);
+      ctx.drawImage(frontTemplate, 0, 0, width, height);
+
+      const photoX = percentToPx(width, Number(getOverride('photo_x', 50.5)));
+      const photoY = percentToPx(height, Number(getOverride('photo_y', 17.5)));
+      const photoW = percentToPx(width, Number(getOverride('photo_w', 41)));
+      const photoH = percentToPx(
+        height,
+        Number(getOverride('photo_h', Number(getOverride('photo_w', 41)) * TICKET_WIDTH_TO_HEIGHT_RATIO))
+      );
+      const photoLeft = photoX - (photoW / 2);
+      const photoTop = photoY;
+      const radius = asCssPx(18);
+
+      drawRoundedClip(ctx, photoLeft, photoTop, photoW, photoH, radius);
+      ctx.fillStyle = '#10141c';
+      ctx.fill();
+
+      if (attendee.profile_photo_url) {
+        try {
+          const profile = await loadImage(attendee.profile_photo_url, 'الصورة الشخصية');
+          ctx.save();
+          drawRoundedClip(ctx, photoLeft, photoTop, photoW, photoH, radius);
+          ctx.clip();
+          drawImageWithFit(
+            ctx,
+            profile,
+            photoLeft,
+            photoTop,
+            photoW,
+            photoH,
+            Number(getOverride('photo_fit', 0)) === 1 ? 'contain' : 'cover',
+            Number(getOverride('photo_scale', 1)),
+            Number(getOverride('photo_trans_x', 0)),
+            Number(getOverride('photo_trans_y', 0))
+          );
+          ctx.restore();
+        } catch {
+          ctx.save();
+          drawRoundedClip(ctx, photoLeft, photoTop, photoW, photoH, radius);
+          ctx.clip();
+          ctx.fillStyle = 'rgba(255,255,255,0.1)';
+          ctx.fillRect(photoLeft, photoTop, photoW, photoH);
+          ctx.restore();
+        }
+      } else {
+        ctx.save();
+        drawRoundedClip(ctx, photoLeft, photoTop, photoW, photoH, radius);
+        ctx.clip();
+        ctx.fillStyle = 'rgba(255,255,255,0.1)';
+        ctx.fillRect(photoLeft, photoTop, photoW, photoH);
+        ctx.restore();
+      }
+
+      drawText(ctx, {
+        text: fullName,
+        x: percentToPx(width, Number(getOverride('name_x', 50.5))),
+        y: percentToPx(height, Number(getOverride('name_y', 45))),
+        maxWidth: percentToPx(width, Number(getOverride('name_w', 64))),
+        align: 'center',
+        color: '#c39d78',
+        fontFamily: '"TT Runs Trial", sans-serif',
+        fontWeight: 700,
+        fontSizePx: asCssPx(Number(getOverride('name_size', parseFloat(getTicketNameFontSize(fullName))))),
+        lineHeight: Number(getOverride('name_lh', 1)),
+        wrap: Number(getOverride('name_wrap', 0)) === 1
+      });
+
+      drawText(ctx, {
+        text: jobTitle,
+        x: percentToPx(width, Number(getOverride('title_x', 46))),
+        y: percentToPx(height, Number(getOverride('title_y', 49.8))),
+        maxWidth: percentToPx(width, Number(getOverride('title_w', 42))),
+        align: 'left',
+        color: '#e0d3c2',
+        fontFamily: '"TT Runs Trial", sans-serif',
+        fontWeight: 600,
+        fontSizePx: asCssPx(Number(getOverride('title_size', parseFloat(getJobTitleFontSize(jobTitle))))),
+        lineHeight: Number(getOverride('title_lh', 1.2)),
+        wrap: Number(getOverride('title_wrap', 0)) === 1
+      });
+
+      const qrSize = asCssPx(Number(getOverride('qr_size', 62)));
+      const qrPadding = asCssPx(3);
+      const qrCenterX = percentToPx(width, 49.5);
+      const qrTopY = percentToPx(height, Number(getOverride('qr_y', 70.5)));
+      const qrX = qrCenterX - (qrSize / 2);
+      const qrY = qrTopY;
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(qrX - qrPadding, qrY - qrPadding, qrSize + (2 * qrPadding), qrSize + (2 * qrPadding));
+      ctx.drawImage(qrCanvas, qrX, qrY, qrSize, qrSize);
+
+      const seatX = percentToPx(width, Number(getOverride('seat_x', 80)));
+      const seatFont = asCssPx(Number(getOverride('seat_size', 13)));
+      drawText(ctx, {
+        text: String(tableOrWave || ''),
+        x: seatX,
+        y: percentToPx(height, Number(getOverride('seat_y_1', 89.5))),
+        maxWidth: percentToPx(width, 40),
+        align: 'center',
+        color: '#e0d3c2',
+        fontFamily: 'sans-serif',
+        fontWeight: 700,
+        fontSizePx: seatFont,
+        lineHeight: 1,
+        wrap: false
+      });
+      drawText(ctx, {
+        text: String(resolvedSeatNumber ?? '-'),
+        x: seatX,
+        y: percentToPx(height, Number(getOverride('seat_y_2', 93))),
+        maxWidth: percentToPx(width, 40),
+        align: 'center',
+        color: '#e0d3c2',
+        fontFamily: 'sans-serif',
+        fontWeight: 700,
+        fontSizePx: seatFont,
+        lineHeight: 1,
+        wrap: false
+      });
+
+      return canvas;
+    };
+
+    const composeBackCanvas = async (): Promise<HTMLCanvasElement> => {
+      const key = getGovernorateTemplateKey(attendee.governorate);
+      const backSrc = backTemplateByGovernorate[key] || backTemplateByGovernorate.Minya;
+      const backTemplate = await loadImage(backSrc, 'قالب ظهر التيكت');
+      const width = mmToPx(TICKET_WIDTH_MM);
+      const height = mmToPx(TICKET_HEIGHT_MM);
+      const { canvas, ctx } = makeCanvas(width, height);
+      ctx.fillStyle = '#10141c';
+      ctx.fillRect(0, 0, width, height);
+      ctx.drawImage(backTemplate, 0, 0, width, height);
+      return canvas;
     };
 
     try {
-      await waitForImages(frontNode);
-      await waitForImages(backNode);
-      const exportScale = Math.max(3, Math.min(5, window.devicePixelRatio * 2));
-      const frontCanvas = await html2canvas(frontNode, {
-        scale: exportScale,
-        useCORS: true,
-        backgroundColor: '#10141c',
-        logging: false,
-        windowWidth: frontNode.scrollWidth,
-        windowHeight: frontNode.scrollHeight
-      });
-      const backCanvas = await html2canvas(backNode, {
-        scale: exportScale,
-        useCORS: true,
-        backgroundColor: '#10141c',
-        logging: false,
-        windowWidth: backNode.scrollWidth,
-        windowHeight: backNode.scrollHeight
-      });
+      await handleSaveOverrides(true, true);
+      const [frontCanvas, backCanvas] = await Promise.all([composeFrontCanvas(), composeBackCanvas()]);
 
       const pdf = new jsPDF({
         orientation: 'portrait',
@@ -367,21 +657,23 @@ const IDCard: React.FC = () => {
         putOnlyUsedFonts: true
       });
 
-      const frontImg = frontCanvas.toDataURL('image/png');
-      const backImg = backCanvas.toDataURL('image/png');
-      pdf.addImage(frontImg, 'PNG', 0, 0, TICKET_WIDTH_MM, TICKET_HEIGHT_MM, undefined, 'FAST');
+      pdf.addImage(frontCanvas, 'PNG', 0, 0, TICKET_WIDTH_MM, TICKET_HEIGHT_MM, undefined, 'FAST');
       pdf.addPage([TICKET_WIDTH_MM, TICKET_HEIGHT_MM], 'portrait');
-      pdf.addImage(backImg, 'PNG', 0, 0, TICKET_WIDTH_MM, TICKET_HEIGHT_MM, undefined, 'FAST');
+      pdf.addImage(backCanvas, 'PNG', 0, 0, TICKET_WIDTH_MM, TICKET_HEIGHT_MM, undefined, 'FAST');
 
       const baseName = String(attendee.full_name || attendee.id || 'attendee').replace(/[\\/:*?"<>|]/g, '_');
       const seatToken = String(attendee.barcode || `${attendee.seat_class || 'X'}-${attendee.seat_number || '0'}`).replace(/[\\/:*?"<>|]/g, '_');
       pdf.save(`ticket-${seatToken}-${baseName}.pdf`);
       await markPrinted('ticket');
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('Error generating ticket PDF:', error);
-      alert('حدث خطأ أثناء حفظ PDF للتيكت');
+      if (error instanceof TicketPdfExportError) {
+        alert(error.message);
+        return;
+      }
+      alert('تعذر حفظ PDF الآن. تأكد من وجود القوالب والصورة والـ QR ثم حاول مرة أخرى');
     }
-  }, [attendee, handleSaveOverrides, markPrinted]);
+  }, [attendee, backTemplateByGovernorate, frontTemplateByClass, getDisplayName, getGovernorateTemplateKey, getJobTitleFontSize, getOverride, getTicketNameFontSize, handleSaveOverrides, markPrinted, seatInfo, TICKET_HEIGHT_MM, TICKET_WIDTH_MM, TICKET_WIDTH_TO_HEIGHT_RATIO]);
 
   useEffect(() => {
     if (!id || !attendee) return;
@@ -405,11 +697,6 @@ const IDCard: React.FC = () => {
 
   const handleTextEdit = (field: 'full_name_en' | 'job_title', value: string) => {
     setAttendee(prev => (prev ? { ...prev, [field]: value } : prev));
-  };
-
-  const getOverride = (key: string, defaultVal: number | string) => {
-    if (overrides[key] !== undefined) return overrides[key];
-    return defaultVal;
   };
 
   const renderTicketFront = (qrCanvasId?: string) => {
@@ -538,7 +825,7 @@ const IDCard: React.FC = () => {
 
   const renderTicketBack = () => {
     if (!attendee) return null;
-    const key = normalizeGovernorate(attendee.governorate);
+    const key = getGovernorateTemplateKey(attendee.governorate);
     const backSrc = backTemplateByGovernorate[key] || backTemplateByGovernorate.Minya;
     return (
       <div className="ticket-sheet relative overflow-hidden bg-[#0a0a0a]">
@@ -1022,10 +1309,10 @@ const IDCard: React.FC = () => {
               .ticket-sheet { width: ${TICKET_WIDTH_MM}mm !important; height: ${TICKET_HEIGHT_MM}mm !important; border: none !important; border-radius: 0 !important; margin: 0 !important; padding: 0 !important; box-shadow: none !important; }
             `}
           </style>
-          <div ref={ticketFrontPdfRef} className="ticket-print-page" style={{ width: `${TICKET_WIDTH_MM}mm`, height: `${TICKET_HEIGHT_MM}mm`, overflow: 'hidden', margin: 0, padding: 0 }}>
+          <div className="ticket-print-page" style={{ width: `${TICKET_WIDTH_MM}mm`, height: `${TICKET_HEIGHT_MM}mm`, overflow: 'hidden', margin: 0, padding: 0 }}>
             {renderTicketFront('qr-code-canvas-export')}
           </div>
-          <div ref={ticketBackPdfRef} className="ticket-print-page" style={{ width: `${TICKET_WIDTH_MM}mm`, height: `${TICKET_HEIGHT_MM}mm`, overflow: 'hidden', margin: 0, padding: 0 }}>
+          <div className="ticket-print-page" style={{ width: `${TICKET_WIDTH_MM}mm`, height: `${TICKET_HEIGHT_MM}mm`, overflow: 'hidden', margin: 0, padding: 0 }}>
             {renderTicketBack()}
           </div>
         </div>
