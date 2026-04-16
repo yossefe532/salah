@@ -2385,8 +2385,7 @@ export const api = {
           const id = String(attendee?.id || '');
           if (!id) return false;
           if (seatedInHallIds.has(id)) return false;
-          // Keep behavior safe for schemas that may not track seat_number column.
-          return !(attendee?.barcode && String(attendee.barcode).trim() !== '');
+          return true;
         });
         const classStats: any = {
           candidates: unseatedCandidates.length,
@@ -2413,7 +2412,11 @@ export const api = {
         classStats.paid_candidates = paidAttendees.length;
         classStats.unpaid_skipped = Math.max(0, unseatedCandidates.length - paidAttendees.length);
 
-        const initiallyAvailable = allSeats.filter((seat) => !seat.attendee_id && seat.status === 'available');
+        const initiallyAvailable = allSeats.filter(
+          (seat) =>
+            !seat.attendee_id &&
+            ['available', 'vip', 'booked'].includes(String(seat.status || '').toLowerCase())
+        );
         classStats.available_seats = initiallyAvailable.length;
         if (!paidAttendees.length || !initiallyAvailable.length) {
           if (!initiallyAvailable.length && paidAttendees.length > 0) classStats.no_available_seats = paidAttendees.length;
@@ -2509,11 +2512,15 @@ export const api = {
           const groupSize = group.members.length;
           const strictTogether = group.kind === 'companion' && groupSize > 1;
           let pickedSeats = findBlock(availablePool, groupSize);
-          if (!pickedSeats && !strictTogether) {
+          if (!pickedSeats && strictTogether) {
+            // Keep preference for together seating, but do not block all assignments.
+            classStats.groups_blocked_together += 1;
+            pickedSeats = sortSeats(availablePool).slice(0, Math.min(groupSize, availablePool.length));
+          } else if (!pickedSeats && !strictTogether) {
             pickedSeats = sortSeats(availablePool).slice(0, Math.min(groupSize, availablePool.length));
           }
           if (!pickedSeats || pickedSeats.length === 0) {
-            classStats.groups_blocked_together += 1;
+            if (!strictTogether) classStats.groups_blocked_together += 1;
             continue;
           }
 
@@ -2531,7 +2538,7 @@ export const api = {
               .update({ status: 'booked', attendee_id: attendee.id, reserved_by: null, reserved_until: null })
               .eq('event_id', eventId)
               .eq('id', seat.id)
-              .eq('status', 'available')
+              .in('status', ['available', 'vip', 'booked'])
               .is('attendee_id', null)
               .select('id, seat_number, seat_class, seat_code')
               .maybeSingle();
