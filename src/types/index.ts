@@ -84,6 +84,15 @@ export interface Attendee {
   ticket_printed_at?: string | null;
   certificate_printed?: boolean;
   certificate_printed_at?: string | null;
+  seat_change_pending?: boolean;
+  seat_change_last_at?: string | null;
+  last_seat_code?: string | null;
+  seat_change_history?: Array<{
+    at: string;
+    from: string | null;
+    to: string | null;
+    reason?: string;
+  }>;
   job_title?: string;
   sales_verified_at?: string;
   ticket_overrides?: Record<string, any>;

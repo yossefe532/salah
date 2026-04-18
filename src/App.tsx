@@ -19,6 +19,7 @@ import SocialMediaLeads from './pages/SocialMediaLeads';
 import SalesLeads from './pages/SalesLeads';
 import SeatingManagement from './pages/SeatingManagement';
 import PrintReady from './pages/PrintReady';
+import SeatingLogic from './pages/SeatingLogic';
 
 function App() {
   return (
@@ -40,6 +41,7 @@ function App() {
                 <Route path="/import" element={<ImportData />} />
                 <Route path="/finance" element={<Finance />} />
                 <Route path="/seating" element={<SeatingManagement />} />
+                <Route path="/seating/logic" element={<SeatingLogic />} />
               </Route>
 
               <Route element={<ProtectedRoute allowedRoles={['owner', 'data_entry', 'company_admin', 'company_employee']} />}>

@@ -1,4 +1,5 @@
 import { supabase } from './supabase';
+import { areSeatsConsecutive, findConsecutiveBlock, isAdjacentSeat, sortSeatsForPlacement } from './seatingAdjacency';
 
 export { supabase }; // Export supabase client for realtime usage
 
@@ -36,7 +37,11 @@ const ATTENDEE_METADATA_FIELDS = [
   'commission_notes',
   'company_id',
   'notes',
-  'ticket_overrides'
+  'ticket_overrides',
+  'seat_change_pending',
+  'seat_change_last_at',
+  'last_seat_code',
+  'seat_change_history'
 ] as const;
 
 const getMissingAttendeeColumn = (error: any) => {
@@ -174,6 +179,33 @@ const getCertificateIncluded = (payload: any) => {
   if (!hasCustomPrice) return true;
   if (payload?.certificate_included === undefined || payload?.certificate_included === null) return false;
   return Boolean(payload.certificate_included);
+};
+
+const markSeatChanged = async (
+  attendeeId: string,
+  oldSeatCode: string | null | undefined,
+  newSeatCode: string | null | undefined,
+  reason: string
+) => {
+  const fromCode = String(oldSeatCode || '').trim();
+  const toCode = String(newSeatCode || '').trim();
+  if (!attendeeId || !fromCode || !toCode || fromCode === toCode) return;
+
+  const { data: attendee } = await supabase.from('attendees').select('*').eq('id', attendeeId).single();
+  if (!attendee) return;
+  const hydrated = normalizeAttendeePricing(attendee);
+  const now = new Date().toISOString();
+  const currentHistory = Array.isArray(hydrated?.seat_change_history) ? hydrated.seat_change_history : [];
+  const nextHistory = [
+    ...currentHistory.slice(-49),
+    { at: now, from: fromCode, to: toCode, reason: reason || 'seat_update' }
+  ];
+  await updateAttendeeSafely(String(attendeeId), {
+    seat_change_pending: true,
+    seat_change_last_at: now,
+    last_seat_code: toCode,
+    seat_change_history: nextHistory
+  });
 };
 
 const transliterateArabicToEnglish = (input?: string | null) => {
@@ -358,6 +390,181 @@ const getCompanyIdForCreatedRecords = (currentUser: any) => {
   if (!currentUser) return null;
   if (isCompanyScopedRole(currentUser.role)) return currentUser.company_id || null;
   return null;
+};
+
+const SEAT_AVAILABLE_STATUSES = new Set(['available', 'vip']);
+
+const getAdjacentConflictReport = (attendees: any[], seats: any[]) => {
+  const byAttendeeId = new Map((attendees || []).map((a) => [String(a.id), normalizeAttendeePricing(a)]));
+  const seatByAttendeeId = new Map<string, any>();
+  for (const seat of seats || []) {
+    if (!seat?.attendee_id) continue;
+    seatByAttendeeId.set(String(seat.attendee_id), seat);
+  }
+
+  const seen = new Set<string>();
+  const issues: Array<{
+    key: string;
+    attendee_ids: string[];
+    attendee_names: string[];
+    seat_codes: string[];
+    seat_class: string;
+    reason: string;
+  }> = [];
+
+  for (const attendee of attendees || []) {
+    const sourceId = String(attendee?.id || '');
+    if (!sourceId) continue;
+    const sourceSeat = seatByAttendeeId.get(sourceId);
+    if (!sourceSeat) continue;
+
+    const neighbors = Array.isArray(attendee?.preferred_neighbor_ids) ? attendee.preferred_neighbor_ids : [];
+    for (const rawNeighborId of neighbors) {
+      const neighborId = String(rawNeighborId || '');
+      if (!neighborId || neighborId === sourceId) continue;
+      const pairKey = [sourceId, neighborId].sort().join('|');
+      if (seen.has(pairKey)) continue;
+      seen.add(pairKey);
+
+      const neighbor = byAttendeeId.get(neighborId);
+      const neighborSeat = seatByAttendeeId.get(neighborId);
+      if (!neighbor || !neighborSeat) continue;
+      if (!isAdjacentSeat(sourceSeat, neighborSeat)) {
+        issues.push({
+          key: pairKey,
+          attendee_ids: [sourceId, neighborId],
+          attendee_names: [String(attendee?.full_name || sourceId), String(neighbor?.full_name || neighborId)],
+          seat_codes: [String(sourceSeat?.seat_code || '-'), String(neighborSeat?.seat_code || '-')],
+          seat_class: String(sourceSeat?.seat_class || attendee?.seat_class || ''),
+          reason: 'preferred_neighbor_not_adjacent'
+        });
+      }
+    }
+  }
+
+  return issues;
+};
+
+const applySeatAssignment = async (
+  eventId: string,
+  attendeeId: string,
+  seat: any,
+  reason: string
+) => {
+  const attendeeRes = await supabase.from('attendees').select('*').eq('id', attendeeId).single();
+  const attendee = attendeeRes.data;
+  if (!attendee) throw new Error('تعذر تحميل بيانات المشترك أثناء إعادة التسكين');
+  const previousCode = String(attendee?.barcode || '').trim();
+
+  await supabase
+    .from('seats')
+    .update({ status: 'available', attendee_id: null, reserved_by: null, reserved_until: null })
+    .eq('event_id', eventId)
+    .eq('attendee_id', attendeeId)
+    .neq('id', seat.id);
+
+  const claimRes = await supabase
+    .from('seats')
+    .update({ status: 'booked', attendee_id: attendeeId, reserved_by: null, reserved_until: null })
+    .eq('event_id', eventId)
+    .eq('id', seat.id)
+    .select('*')
+    .single();
+  if (claimRes.error || !claimRes.data) throw new Error(claimRes.error?.message || 'فشل حجز المقعد المستهدف');
+
+  const updateRes = await updateAttendeeSafely(String(attendeeId), {
+    seat_number: Number(claimRes.data.seat_number),
+    seat_class: claimRes.data.seat_class,
+    barcode: claimRes.data.seat_code
+  });
+  if (updateRes.error) throw new Error(updateRes.error.message);
+
+  await markSeatChanged(String(attendeeId), previousCode, claimRes.data.seat_code, reason);
+  return claimRes.data;
+};
+
+const solveAdjacencyForGroup = async (
+  eventId: string,
+  attendees: any[],
+  seats: any[],
+  groupAttendeeIds: string[]
+) => {
+  const targetIds = [...new Set((groupAttendeeIds || []).map((id) => String(id || '')).filter(Boolean))];
+  if (targetIds.length < 2) {
+    throw new Error('يلزم اختيار شخصين على الأقل لتطبيق المنطق');
+  }
+
+  const byAttendeeId = new Map((attendees || []).map((a) => [String(a.id), normalizeAttendeePricing(a)]));
+  const seatByAttendeeId = new Map<string, any>();
+  const seatById = new Map<string, any>();
+  for (const seat of seats || []) {
+    seatById.set(String(seat.id), seat);
+    if (seat?.attendee_id) seatByAttendeeId.set(String(seat.attendee_id), seat);
+  }
+
+  const targetSeats = targetIds.map((id) => seatByAttendeeId.get(id)).filter(Boolean);
+  if (targetSeats.length !== targetIds.length) {
+    throw new Error('لا يمكن الحل الآن لأن بعض الأفراد غير مسكنين');
+  }
+  const seatClass = String(targetSeats[0]?.seat_class || '');
+  if (!seatClass || targetSeats.some((s) => String(s?.seat_class || '') !== seatClass)) {
+    throw new Error('لا يمكن تجميع أشخاص من فئات مقاعد مختلفة');
+  }
+
+  const sameClassSeats = sortSeatsForPlacement((seats || []).filter((s) => String(s?.seat_class || '') === seatClass));
+  const freeSeats = sameClassSeats.filter((s) => !s?.attendee_id && SEAT_AVAILABLE_STATUSES.has(String(s?.status || '').toLowerCase()));
+  let targetBlock = findConsecutiveBlock(freeSeats, targetIds.length);
+
+  if (!targetBlock) {
+    const freeSeatIds = new Set(freeSeats.map((s) => String(s.id)));
+    for (const idx in sameClassSeats) {
+      const start = Number(idx);
+      if (start + targetIds.length > sameClassSeats.length) break;
+      const block = sameClassSeats.slice(start, start + targetIds.length);
+      if (!areSeatsConsecutive(block)) continue;
+      const occupiedInBlock = block.filter((s) => s.attendee_id && !targetIds.includes(String(s.attendee_id)));
+      const outsideFreeSeats = freeSeats.filter((s) => !block.some((b) => String(b.id) === String(s.id)));
+      if (occupiedInBlock.length > outsideFreeSeats.length) continue;
+
+      for (let i = 0; i < occupiedInBlock.length; i += 1) {
+        const fromSeat = occupiedInBlock[i];
+        const moveToSeat = outsideFreeSeats[i];
+        if (!fromSeat?.attendee_id || !moveToSeat) continue;
+        await applySeatAssignment(eventId, String(fromSeat.attendee_id), moveToSeat, 'logic_reseat_evict');
+        freeSeatIds.delete(String(moveToSeat.id));
+        freeSeatIds.add(String(fromSeat.id));
+      }
+      targetBlock = block;
+      break;
+    }
+  }
+
+  if (!targetBlock || targetBlock.length < targetIds.length) {
+    throw new Error('لا توجد كتلة متجاورة متاحة حتى بعد المحاولات الذكية');
+  }
+
+  // Ensure block seats are ordered and target attendees are stably ordered by created_at.
+  const sortedBlock = sortSeatsForPlacement(targetBlock);
+  const sortedTargets = [...targetIds].sort((a, b) => {
+    const da = new Date(String(byAttendeeId.get(a)?.created_at || 0)).getTime();
+    const db = new Date(String(byAttendeeId.get(b)?.created_at || 0)).getTime();
+    return da - db;
+  });
+
+  for (let i = 0; i < sortedTargets.length; i += 1) {
+    const attendeeId = sortedTargets[i];
+    const seat = sortedBlock[i];
+    if (!attendeeId || !seat) continue;
+    await applySeatAssignment(eventId, attendeeId, seat, 'logic_reseat_target');
+  }
+
+  return {
+    success: true,
+    assigned: sortedTargets.length,
+    seat_class: seatClass,
+    seat_codes: sortedBlock.map((s) => s.seat_code),
+    attendee_ids: sortedTargets
+  };
 };
 
 const buildSeatCode = (seatClass: 'A' | 'B' | 'C', rowNumber: number, side: 'left' | 'right', tableOrder: number | null, seatNumber: number) => {
@@ -923,6 +1130,43 @@ export const api = {
       const { data, error } = await attendeesQuery;
       if (error) throw new Error(error.message);
       return enrichAttendeesNeighborLabels(data || []);
+    }
+
+    if (endpoint.startsWith('/seating/logic/report')) {
+      const query = endpoint.split('?')[1] || '';
+      const params = new URLSearchParams(query);
+      const eventId = params.get('eventId') || DEFAULT_EVENT_ID;
+      const hallGovernorate = getGovernorateFromEventId(eventId);
+
+      const [seatsRes, attendeesRes] = await Promise.all([
+        supabase
+          .from('seats')
+          .select('id, seat_number, seat_class, seat_code, row_number, table_id, attendee_id, status')
+          .eq('event_id', eventId)
+          .order('row_number', { ascending: true }),
+        applyCompanyScopeToAttendeesQuery(
+          supabase
+            .from('attendees')
+            .select('*')
+            .eq('is_deleted', false)
+            .eq('governorate', hallGovernorate)
+            .in('status', ['registered', 'interested']),
+          currentUser
+        )
+      ]);
+      if (seatsRes.error) throw new Error(seatsRes.error.message);
+      if (attendeesRes.error) throw new Error(attendeesRes.error.message);
+
+      const attendees = enrichAttendeesNeighborLabels(attendeesRes.data || []);
+      const issues = getAdjacentConflictReport(attendees, seatsRes.data || []);
+      return {
+        success: true,
+        event_id: eventId,
+        governorate: hallGovernorate,
+        issues,
+        count: issues.length,
+        updated_at: new Date().toISOString()
+      };
     }
 
     if (endpoint.startsWith('/seating/layout-versions')) {
@@ -1934,6 +2178,8 @@ export const api = {
       }
       if (updateRes.error) throw new Error(updateRes.error.message);
 
+      await markSeatChanged(String(attendeeId), attendee?.barcode, seat?.seat_code, 'manual_assign');
+
       return { success: true };
     }
 
@@ -2234,8 +2480,47 @@ export const api = {
         seat_class: seatA.seat_class,
         barcode: seatA.seat_code
       });
+      await markSeatChanged(String(attendeeAId), attendeeA?.barcode, seatB?.seat_code, 'swap_attendees');
+      await markSeatChanged(String(attendeeBId), attendeeB?.barcode, seatA?.seat_code, 'swap_attendees');
 
       return { success: true };
+    }
+
+    if (endpoint === '/seating/logic/solve') {
+      const eventId = body?.event_id || DEFAULT_EVENT_ID;
+      const groupIdsRaw = Array.isArray(body?.attendee_ids) ? body.attendee_ids : [];
+      const groupIds = groupIdsRaw.map((id: any) => String(id || '')).filter(Boolean);
+      if (groupIds.length < 2) throw new Error('يلزم إرسال attendee_ids (شخصين على الأقل)');
+
+      const hallGovernorate = getGovernorateFromEventId(eventId);
+      const [seatsRes, attendeesRes] = await Promise.all([
+        supabase
+          .from('seats')
+          .select('id, seat_number, seat_class, seat_code, row_number, table_id, attendee_id, status')
+          .eq('event_id', eventId),
+        applyCompanyScopeToAttendeesQuery(
+          supabase
+            .from('attendees')
+            .select('*')
+            .eq('is_deleted', false)
+            .eq('governorate', hallGovernorate)
+            .in('status', ['registered', 'interested']),
+          currentUser
+        )
+      ]);
+      if (seatsRes.error) throw new Error(seatsRes.error.message);
+      if (attendeesRes.error) throw new Error(attendeesRes.error.message);
+
+      const result = await solveAdjacencyForGroup(
+        eventId,
+        attendeesRes.data || [],
+        seatsRes.data || [],
+        groupIds
+      );
+      return {
+        ...result,
+        message: 'تم تنفيذ إعادة التسكين المنطقي بنجاح'
+      };
     }
 
     if (endpoint === '/seating/auto-assign-all') {
@@ -3320,6 +3605,7 @@ export const api = {
       const payload: any = documentType === 'ticket'
         ? { ticket_printed: true, ticket_printed_at: now }
         : { certificate_printed: true, certificate_printed_at: now };
+      payload.seat_change_pending = false;
          
       // Instead of overwriting fields with oldRecordRaw, we ONLY update the print status.
       // This prevents the race condition where `mark-printed` overwrites the recent `patch` save.

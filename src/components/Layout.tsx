@@ -17,7 +17,8 @@ import {
   MessageSquareText,
   PhoneCall,
   Armchair,
-  Printer
+  Printer,
+  Sparkles
 } from 'lucide-react';
 
 const Layout: React.FC = () => {
@@ -111,6 +112,12 @@ const Layout: React.FC = () => {
       name: 'إدارة المقاعد',
       path: '/seating',
       icon: <Armchair className="w-5 h-5" />,
+      roles: ['owner']
+    },
+    {
+      name: 'منطقيات التسكين',
+      path: '/seating/logic',
+      icon: <Sparkles className="w-5 h-5" />,
       roles: ['owner']
     },
     {

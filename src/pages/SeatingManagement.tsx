@@ -24,6 +24,9 @@ type AttendeeLite = {
   preferred_neighbor_ids?: string[];
   seat_number?: number | null;
   barcode?: string | null;
+  profile_photo_url?: string | null;
+  seat_change_pending?: boolean;
+  seat_change_last_at?: string | null;
 };
 
 type LayoutVersionLite = {
@@ -389,8 +392,12 @@ const SeatingManagement: React.FC = () => {
   const [classFilter, setClassFilter] = useState<'A' | 'B' | 'C'>('A');
   const [waitingListSearch, setWaitingListSearch] = useState('');
   const [waitingPaymentFilter, setWaitingPaymentFilter] = useState<'all' | 'paid' | 'unpaid_or_zero'>('all');
+  const [photoStatusFilter, setPhotoStatusFilter] = useState<'all' | 'ready' | 'not_ready'>('all');
   const [autoSeatPaidMode, setAutoSeatPaidMode] = useState<'any_paid' | 'fully_paid'>('any_paid');
   const [autoSeatClassFilter, setAutoSeatClassFilter] = useState<'all' | 'A' | 'B' | 'C'>('all');
+  const [seatSearchQuery, setSeatSearchQuery] = useState('');
+  const [focusAttendeeId, setFocusAttendeeId] = useState('');
+  const [targetNeighborId, setTargetNeighborId] = useState('');
   const [editModeState, setEditModeState] = useState<EditModeState>({
     action: null,
     addType: 'table',
@@ -864,6 +871,47 @@ const SeatingManagement: React.FC = () => {
   const selectedSeat = useMemo(() => mapSeats.find((s) => s.id === selectedSeatId) || null, [mapSeats, selectedSeatId]);
   const selectedSeatAttendee = useMemo(() => attendees.find((a) => a.id === selectedSeat?.attendee_id) || null, [attendees, selectedSeat?.attendee_id]);
   const isAttendeeSeated = useCallback((attendeeId: string) => payload.seats.some((s) => s.attendee_id === attendeeId), [payload.seats]);
+  const filteredByPhotoStatus = useCallback((attendee: AttendeeLite) => {
+    if (photoStatusFilter === 'all') return true;
+    const hasPhoto = Boolean(String(attendee.profile_photo_url || '').trim());
+    return photoStatusFilter === 'ready' ? hasPhoto : !hasPhoto;
+  }, [photoStatusFilter]);
+  const seatedByAttendeeId = useMemo(() => {
+    const m = new Map<string, Seat>();
+    for (const s of mapSeats) {
+      if (s.attendee_id) m.set(String(s.attendee_id), s);
+    }
+    return m;
+  }, [mapSeats]);
+  const searchableAttendees = useMemo(() => {
+    const q = seatSearchQuery.trim().toLowerCase();
+    if (!q) return [];
+    return attendees
+      .filter((a) =>
+        String(a.full_name || '').toLowerCase().includes(q)
+        || String(a.id || '').toLowerCase().includes(q)
+        || String(a.phone || a.phone_primary || '').toLowerCase().includes(q))
+      .slice(0, 12);
+  }, [attendees, seatSearchQuery]);
+  const focusAttendee = useMemo(() => attendees.find((a) => a.id === focusAttendeeId) || null, [attendees, focusAttendeeId]);
+  const focusSeat = useMemo(() => (focusAttendeeId ? seatedByAttendeeId.get(focusAttendeeId) || null : null), [focusAttendeeId, seatedByAttendeeId]);
+  const focusNeighbors = useMemo(() => {
+    if (!focusSeat) return [] as Array<{ id: string; full_name: string; seat_code: string }>;
+    const seatClass = focusSeat.seat_class;
+    const row = Number(focusSeat.row_number || 0);
+    const num = Number(focusSeat.seat_number || 0);
+    return mapSeats
+      .filter((s) =>
+        s.id !== focusSeat.id
+        && s.attendee_id
+        && s.seat_class === seatClass
+        && Number(s.row_number || 0) === row
+        && Math.abs(Number(s.seat_number || 0) - num) === 1)
+      .map((s) => {
+        const person = attendees.find((a) => a.id === s.attendee_id);
+        return { id: String(s.attendee_id), full_name: String(person?.full_name || s.attendee_id), seat_code: String(s.seat_code || '-') };
+      });
+  }, [attendees, focusSeat, mapSeats]);
 
   const findLinkedNeighbor = useCallback((attendeeId: string) => {
     const current = attendees.find((a) => a.id === attendeeId);
@@ -1011,6 +1059,24 @@ const SeatingManagement: React.FC = () => {
       alert(lines.join('\n'));
     } catch (e: any) {
       setError(e.message || 'فشل التسكين التلقائي');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const solveFocusedPair = async () => {
+    if (!focusAttendeeId || !targetNeighborId) return;
+    try {
+      setLoading(true);
+      setError(null);
+      await api.post('/seating/logic/solve', {
+        event_id: eventId,
+        attendee_ids: [focusAttendeeId, targetNeighborId]
+      });
+      await Promise.all([loadMap(), loadAttendees()]);
+      alert('تم تنفيذ الحل المنطقي بنجاح');
+    } catch (e: any) {
+      setError(e.message || 'تعذر تنفيذ الحل المنطقي');
     } finally {
       setLoading(false);
     }
@@ -2402,6 +2468,64 @@ const SeatingManagement: React.FC = () => {
             </div>
           </div>
 
+          <div className="rounded-xl border border-slate-800 bg-slate-900 p-4 space-y-3">
+            <h2 className="text-sm font-bold">بحث منطقي في التسكين</h2>
+            <input
+              type="text"
+              value={seatSearchQuery}
+              onChange={(e) => setSeatSearchQuery(e.target.value)}
+              placeholder="ابحث بالاسم أو ID أو الهاتف"
+              className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded text-xs text-white"
+            />
+            {seatSearchQuery.trim() && (
+              <div className="max-h-36 overflow-auto space-y-1 custom-scrollbar">
+                {searchableAttendees.map((a) => (
+                  <button
+                    key={a.id}
+                    onClick={() => {
+                      setFocusAttendeeId(a.id);
+                      setTargetNeighborId('');
+                    }}
+                    className={`w-full text-right px-2 py-1.5 rounded border text-xs ${focusAttendeeId === a.id ? 'border-indigo-500 bg-indigo-600/20 text-indigo-200' : 'border-slate-700 bg-slate-800 hover:bg-slate-700'}`}
+                  >
+                    {a.full_name} <span className="text-slate-400">({a.id.slice(0, 8)})</span>
+                  </button>
+                ))}
+                {searchableAttendees.length === 0 && (
+                  <div className="text-[11px] text-slate-500 text-center py-2">لا توجد نتائج</div>
+                )}
+              </div>
+            )}
+            {focusAttendee && (
+              <div className="rounded-md border border-slate-700 bg-slate-800/50 p-2 space-y-2">
+                <div className="text-xs text-slate-200 font-bold">{focusAttendee.full_name}</div>
+                <div className="text-[11px] text-slate-400">المقعد الحالي: {focusSeat?.seat_code || 'غير مسكن'}</div>
+                <div className="text-[11px] text-slate-300">
+                  الجيران الحاليون: {focusNeighbors.length ? focusNeighbors.map((n) => `${n.full_name} (${n.seat_code})`).join(' | ') : 'لا يوجد'}
+                </div>
+                <select
+                  value={targetNeighborId}
+                  onChange={(e) => setTargetNeighborId(e.target.value)}
+                  className="w-full rounded px-2 py-1.5 text-xs bg-slate-900 border border-slate-700"
+                >
+                  <option value="">اجعله يجلس بجانب...</option>
+                  {attendees
+                    .filter((a) => a.id !== focusAttendee.id && a.seat_class === focusAttendee.seat_class)
+                    .map((a) => (
+                      <option key={a.id} value={a.id}>{a.full_name}</option>
+                    ))}
+                </select>
+                <button
+                  onClick={solveFocusedPair}
+                  disabled={!targetNeighborId || loading}
+                  className="w-full rounded-md bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-xs font-bold py-2"
+                >
+                  تنفيذ إعادة تسكين منطقية
+                </button>
+              </div>
+            )}
+          </div>
+
           <div className="rounded-xl border border-slate-800 bg-slate-900 p-4 flex flex-col max-h-[500px]">
              <h2 className="text-sm font-bold mb-3 flex justify-between items-center">
                 <span>قائمة الانتظار</span>
@@ -2410,7 +2534,7 @@ const SeatingManagement: React.FC = () => {
                      if (mapSeats.some(s => s.attendee_id === a.id)) return false;
                      if (waitingPaymentFilter === 'paid') return !isUnpaidOrZeroDeposit(a);
                      if (waitingPaymentFilter === 'unpaid_or_zero') return isUnpaidOrZeroDeposit(a);
-                     return true;
+                     return filteredByPhotoStatus(a);
                    }).length}
                 </span>
              </h2>
@@ -2444,6 +2568,26 @@ const SeatingManagement: React.FC = () => {
                   غير دافعين / عربون صفري
                 </button>
              </div>
+             <div className="mb-3 flex flex-wrap gap-1.5">
+               <button
+                 onClick={() => setPhotoStatusFilter('all')}
+                 className={`px-2 py-1 text-[10px] rounded border transition ${photoStatusFilter === 'all' ? 'bg-indigo-600 border-indigo-500 text-white' : 'bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700'}`}
+               >
+                 كل الصور
+               </button>
+               <button
+                 onClick={() => setPhotoStatusFilter('ready')}
+                 className={`px-2 py-1 text-[10px] rounded border transition ${photoStatusFilter === 'ready' ? 'bg-emerald-600 border-emerald-500 text-white' : 'bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700'}`}
+               >
+                 جاهز للطباعة
+               </button>
+               <button
+                 onClick={() => setPhotoStatusFilter('not_ready')}
+                 className={`px-2 py-1 text-[10px] rounded border transition ${photoStatusFilter === 'not_ready' ? 'bg-amber-600 border-amber-500 text-white' : 'bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700'}`}
+               >
+                 غير جاهز للطباعة
+               </button>
+             </div>
 
              <div className="overflow-y-auto pr-1 flex flex-col gap-4 flex-1 custom-scrollbar">
                 {['A', 'B', 'C'].map(cls => {
@@ -2454,10 +2598,11 @@ const SeatingManagement: React.FC = () => {
                         waitingPaymentFilter === 'all' ||
                         (waitingPaymentFilter === 'paid' && !isUnpaidOrZeroDeposit(a)) ||
                         (waitingPaymentFilter === 'unpaid_or_zero' && isUnpaidOrZeroDeposit(a))
-                      ) &&
+                      ) && filteredByPhotoStatus(a) &&
                       (waitingListSearch === '' || 
                        (a.full_name || '').toLowerCase().includes(waitingListSearch.toLowerCase()) || 
-                       (a.phone || a.phone_primary || '').includes(waitingListSearch))
+                       (a.phone || a.phone_primary || '').includes(waitingListSearch) ||
+                       String(a.id || '').toLowerCase().includes(waitingListSearch.toLowerCase()))
                    );
                    
                    if (classAttendees.length === 0 && waitingListSearch !== '') return null;
@@ -2488,6 +2633,12 @@ const SeatingManagement: React.FC = () => {
                                     <div className={`text-[10px] ${isUnpaidOrZeroDeposit(a) ? 'text-amber-300' : 'text-emerald-300'}`}>
                                       {isUnpaidOrZeroDeposit(a) ? 'غير دافع / عربون صفري' : 'دافع'}
                                     </div>
+                                    <div className={`text-[10px] ${a.profile_photo_url ? 'text-emerald-300' : 'text-amber-300'}`}>
+                                      {a.profile_photo_url ? 'جاهز للطباعة' : 'غير جاهز للطباعة'}
+                                    </div>
+                                    {a.seat_change_pending && (
+                                      <div className="text-[10px] text-yellow-300">تم تغيير المقعد مؤخراً</div>
+                                    )}
                                     {!!a.preferred_neighbor_name && (
                                       <div className="text-[10px] text-indigo-300 truncate">
                                         بجوار: {a.preferred_neighbor_name}
@@ -2507,7 +2658,7 @@ const SeatingManagement: React.FC = () => {
                   if (mapSeats.some(s => s.attendee_id === a.id)) return false;
                   if (waitingPaymentFilter === 'paid') return !isUnpaidOrZeroDeposit(a);
                   if (waitingPaymentFilter === 'unpaid_or_zero') return isUnpaidOrZeroDeposit(a);
-                  return true;
+                  return filteredByPhotoStatus(a);
                 }).length === 0 && (
                    <div className="text-xs text-slate-500 text-center py-4">لا يوجد مشتركون في قائمة الانتظار</div>
                 )}
