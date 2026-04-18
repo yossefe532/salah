@@ -1074,7 +1074,7 @@ export const api = {
         error = fallback.error;
       }
       if (error) throw new Error(error.message);
-      if (liteMode) return data || [];
+      if (liteMode) return (data || []).map(normalizeAttendeePricing);
       return enrichAttendeesNeighborLabels(data || []);
     }
 
