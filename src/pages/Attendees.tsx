@@ -502,7 +502,7 @@ const Attendees: React.FC = () => {
                         صافي: {Math.max(0, Number(attendee.payment_amount || 0) - Number(attendee.commission_amount || 0)).toLocaleString()} ج.م
                       </div>
                       <div className="text-xs text-blue-700 mt-1">
-                        السعر الأساسي: {Number(attendee.base_ticket_price || attendee.ticket_price_override || (attendee.seat_class === 'A' ? 2000 : attendee.seat_class === 'B' ? 1700 : 1500)).toLocaleString()} ج.م
+                        السعر الأساسي: {Number(attendee.ticket_price_override || attendee.base_ticket_price || (attendee.seat_class === 'A' ? 2000 : attendee.seat_class === 'B' ? 1700 : 1500)).toLocaleString()} ج.م
                       </div>
                       <div className="text-xs mt-1">
                         {attendee.certificate_included ? (

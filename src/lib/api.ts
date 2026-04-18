@@ -160,11 +160,11 @@ const getEffectiveTicketPrice = (seatClass: string, override?: number | null) =>
 };
 
 const getBaseTicketPrice = (payload: any) => {
-  if (payload?.base_ticket_price !== undefined && payload?.base_ticket_price !== null && Number(payload.base_ticket_price) > 0) {
-    return Number(payload.base_ticket_price);
-  }
   if (payload?.ticket_price_override !== undefined && payload?.ticket_price_override !== null && Number(payload.ticket_price_override) > 0) {
     return Number(payload.ticket_price_override);
+  }
+  if (payload?.base_ticket_price !== undefined && payload?.base_ticket_price !== null && Number(payload.base_ticket_price) > 0) {
+    return Number(payload.base_ticket_price);
   }
   return SEAT_PRICES[payload?.seat_class] || 0;
 };
@@ -272,7 +272,7 @@ const normalizeAttendeePricing = (attendee: any) => {
   const existingBase = Number(hydrated.base_ticket_price || 0);
   const payment = Number(hydrated.payment_amount || 0);
 
-  let base = existingBase > 0 ? existingBase : (override > 0 ? override : classDefault);
+  let base = override > 0 ? override : (existingBase > 0 ? existingBase : classDefault);
   if (base === classDefault && (!existingBase && !override) && hydrated.payment_type === 'full' && payment > 0 && payment < classDefault) {
     base = payment;
   }
@@ -2862,7 +2862,7 @@ export const api = {
       const paidAmount = Number(body.payment_amount || 0);
       if (paidAmount <= 0) throw new Error('يجب تسجيل قيمة العربون');
 
-      const totalPrice = Number(oldRecord.base_ticket_price || getEffectiveTicketPrice(oldRecord.seat_class, oldRecord.ticket_price_override));
+      const totalPrice = getBaseTicketPrice(oldRecord);
       const remainingAmount = Math.max(0, totalPrice - paidAmount);
       const commissionSocial = 70;
       const resolvedSeat = await resolveSeat({
@@ -2952,7 +2952,7 @@ export const api = {
       const paidAmount = Number(body.payment_amount || 0);
       if (paidAmount <= 0) throw new Error('يجب تسجيل دفع عربون أو دفع كامل');
 
-      const totalPrice = Number(oldRecord.base_ticket_price || getEffectiveTicketPrice(oldRecord.seat_class, oldRecord.ticket_price_override));
+      const totalPrice = getBaseTicketPrice(oldRecord);
       const remainingAmount = Math.max(0, totalPrice - paidAmount);
       const totalCommission = 100;
       const socialShare = 50;

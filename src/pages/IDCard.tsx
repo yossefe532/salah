@@ -18,6 +18,7 @@ const IDCard: React.FC = () => {
   const TICKET_HEIGHT_MM = 140;
   const TICKET_WIDTH_TO_HEIGHT_RATIO = TICKET_WIDTH_MM / TICKET_HEIGHT_MM;
   const TEMPLATE_VERSION = '20260416_v2';
+  const CLASS_OVERRIDES_STORAGE_KEY = 'idcard_ticket_overrides_by_class_v1';
   const [attendee, setAttendee] = useState<Attendee | null>(null);
   const [seatInfo, setSeatInfo] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -31,18 +32,56 @@ const IDCard: React.FC = () => {
   const ticketPrintRef = useRef<HTMLDivElement>(null);
   const certificatePrintRef = useRef<HTMLDivElement>(null);
 
+  const normalizeSeatClass = useCallback((value?: string | null) => {
+    const cls = String(value || '').trim().toUpperCase();
+    if (cls === 'A' || cls === 'B' || cls === 'C') return cls;
+    return null;
+  }, []);
+
+  const getResolvedSeatClass = useCallback((person?: Attendee | null, seat?: any) => {
+    return normalizeSeatClass(seat?.seat_class || person?.seat_class);
+  }, [normalizeSeatClass]);
+
+  const readClassOverridesMap = useCallback((): Record<string, Record<string, any>> => {
+    if (typeof window === 'undefined') return {};
+    try {
+      const raw = window.localStorage.getItem(CLASS_OVERRIDES_STORAGE_KEY);
+      if (!raw) return {};
+      const parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed !== 'object') return {};
+      return parsed as Record<string, Record<string, any>>;
+    } catch (error) {
+      console.error('Failed to read class overrides map:', error);
+      return {};
+    }
+  }, [CLASS_OVERRIDES_STORAGE_KEY]);
+
+  const getClassOverridesPreset = useCallback((seatClass?: string | null) => {
+    const cls = normalizeSeatClass(seatClass);
+    if (!cls) return {};
+    const map = readClassOverridesMap();
+    const preset = map[cls];
+    if (!preset || typeof preset !== 'object') return {};
+    return preset;
+  }, [normalizeSeatClass, readClassOverridesMap]);
+
+  const persistClassOverridesPreset = useCallback((seatClass: string | null | undefined, nextOverrides: Record<string, any>) => {
+    const cls = normalizeSeatClass(seatClass);
+    if (!cls || typeof window === 'undefined') return;
+    try {
+      const map = readClassOverridesMap();
+      map[cls] = { ...(nextOverrides || {}) };
+      window.localStorage.setItem(CLASS_OVERRIDES_STORAGE_KEY, JSON.stringify(map));
+    } catch (error) {
+      console.error('Failed to persist class overrides preset:', error);
+    }
+  }, [CLASS_OVERRIDES_STORAGE_KEY, normalizeSeatClass, readClassOverridesMap]);
+
   const fetchAttendee = useCallback(async (attendeeId: string) => {
     try {
         const data = await api.get(`/attendees/${attendeeId}`);
         setAttendee(data);
         const initialOverrides = data.ticket_overrides || {};
-        setOverrides(initialOverrides);
-        lastSavedPayloadRef.current = JSON.stringify({
-          ticket_overrides: initialOverrides,
-          full_name_en: data.full_name_en,
-          job_title: data.job_title,
-          profile_photo_url: data.profile_photo_url
-        });
       try {
         const primaryHall = `${normalizeGovernorate(data.governorate).toUpperCase()}-2026-MAIN`;
         const halls = [primaryHall, 'MINYA-2026-MAIN', 'ASYUT-2026-MAIN', 'SOHAG-2026-MAIN', 'QENA-2026-MAIN'];
@@ -61,15 +100,47 @@ const IDCard: React.FC = () => {
         }
         if (seat) {
           setSeatInfo({ seat, table });
+          let attendeeForEditor = data;
           if (seat.seat_code !== data.barcode || Number(seat.seat_number) !== Number(data.seat_number || 0)) {
             const synced = { ...data, barcode: seat.seat_code, seat_number: Number(seat.seat_number), seat_class: seat.seat_class };
             setAttendee(synced as any);
+            attendeeForEditor = synced as Attendee;
           }
+          const resolvedClass = getResolvedSeatClass(attendeeForEditor, seat);
+          const classPreset = getClassOverridesPreset(resolvedClass);
+          const mergedOverrides = { ...classPreset, ...initialOverrides };
+          setOverrides(mergedOverrides);
+          lastSavedPayloadRef.current = JSON.stringify({
+            ticket_overrides: mergedOverrides,
+            full_name_en: attendeeForEditor.full_name_en,
+            job_title: attendeeForEditor.job_title,
+            profile_photo_url: attendeeForEditor.profile_photo_url
+          });
         } else {
           setSeatInfo(null);
+          const resolvedClass = getResolvedSeatClass(data, null);
+          const classPreset = getClassOverridesPreset(resolvedClass);
+          const mergedOverrides = { ...classPreset, ...initialOverrides };
+          setOverrides(mergedOverrides);
+          lastSavedPayloadRef.current = JSON.stringify({
+            ticket_overrides: mergedOverrides,
+            full_name_en: data.full_name_en,
+            job_title: data.job_title,
+            profile_photo_url: data.profile_photo_url
+          });
         }
       } catch (e) {
         console.error(e);
+        const resolvedClass = getResolvedSeatClass(data, null);
+        const classPreset = getClassOverridesPreset(resolvedClass);
+        const mergedOverrides = { ...classPreset, ...initialOverrides };
+        setOverrides(mergedOverrides);
+        lastSavedPayloadRef.current = JSON.stringify({
+          ticket_overrides: mergedOverrides,
+          full_name_en: data.full_name_en,
+          job_title: data.job_title,
+          profile_photo_url: data.profile_photo_url
+        });
       }
     } catch (error) {
       console.error('Error fetching attendee:', error);
@@ -78,7 +149,7 @@ const IDCard: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [navigate]);
+  }, [getClassOverridesPreset, getResolvedSeatClass, navigate]);
 
   useEffect(() => {
     if (id) {
@@ -295,6 +366,8 @@ const IDCard: React.FC = () => {
     setSavingOverrides(true);
     try {
       await api.patch(`/attendees/${id}`, payload);
+      const currentSeatClass = getResolvedSeatClass(attendee, seatInfo?.seat);
+      persistClassOverridesPreset(currentSeatClass, overrides);
       lastSavedPayloadRef.current = serializedPayload;
       if (silent !== true) {
         alert('تم حفظ الإعدادات والبيانات بنجاح');
@@ -308,12 +381,19 @@ const IDCard: React.FC = () => {
     } finally {
       setSavingOverrides(false);
     }
-  }, [attendee, buildSavePayload, id]);
+  }, [attendee, buildSavePayload, getResolvedSeatClass, id, overrides, persistClassOverridesPreset, seatInfo?.seat]);
 
   const getOverride = useCallback((key: string, defaultVal: number | string) => {
     if (overrides[key] !== undefined) return overrides[key];
     return defaultVal;
   }, [overrides]);
+
+  useEffect(() => {
+    if (!attendee) return;
+    const currentSeatClass = getResolvedSeatClass(attendee, seatInfo?.seat);
+    if (!currentSeatClass) return;
+    persistClassOverridesPreset(currentSeatClass, overrides);
+  }, [attendee, getResolvedSeatClass, overrides, persistClassOverridesPreset, seatInfo?.seat]);
 
   const handleDownloadTicketPdf = useCallback(async () => {
     if (!attendee) return;
