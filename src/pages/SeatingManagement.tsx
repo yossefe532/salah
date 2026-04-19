@@ -2306,17 +2306,18 @@ const SeatingManagement: React.FC = () => {
                   const meta = parseElementMeta(el);
                   
                   const isSelected = selectedGroup.includes(el.id) || selectedElement?.id === el.id;
-                  const baseClasses = `absolute flex items-center justify-center transition-all ${mainMode === 'edit' ? (editModeState.action === 'move' ? 'cursor-move' : 'cursor-pointer') : ''} ${isSelected ? 'outline outline-2 outline-orange-500 outline-dashed outline-offset-2 z-[60]' : 'z-0'}`;
+                  const baseClasses = `absolute flex items-center justify-center transition-all ${mainMode === 'edit' ? (editModeState.action === 'move' ? 'cursor-move' : 'cursor-pointer') : ''} ${isSelected ? 'outline outline-2 outline-orange-500 outline-dashed outline-offset-2 z-[80]' : 'z-[40]'}`;
                   
                   if (el.type === 'aisle' || meta.shape === 'line') {
                        const geo = getElementLineGeometryPx(el);
+                       const hitHeight = Math.max(geo.lineWidthPx, 16);
                        return (
                           <div 
                               key={el.id} 
                               className={`${baseClasses} bg-white/40 rounded-full hover:bg-white/60`} 
                               style={{
-                                  left: geo.startXPx, top: geo.startYPx,
-                                  width: geo.lengthPx, height: geo.lineWidthPx, transform: `rotate(${geo.angleDeg}deg)`, transformOrigin: '0 50%'
+                                  left: geo.startXPx, top: geo.startYPx - hitHeight / 2,
+                                  width: geo.lengthPx, height: hitHeight, transform: `rotate(${geo.angleDeg}deg)`, transformOrigin: '0 50%'
                               }} 
                               onMouseDown={(e) => {
                                  e.preventDefault();
@@ -2330,7 +2331,11 @@ const SeatingManagement: React.FC = () => {
                                    setSelectedElement({ id: el.id, type: 'element' });
                                  }
                                  else if (mainMode === 'edit' && editModeState.action === 'move') { e.stopPropagation(); startDrag(el, 'element', e.clientX, e.clientY, e.currentTarget, e); }
-                                 else if (mainMode === 'edit' && editModeState.action === 'delete') { e.stopPropagation(); handleDeleteElement(el.id, 'element'); }
+                                 else if (mainMode === 'edit' && editModeState.action === 'delete') {
+                                   e.stopPropagation();
+                                   setSelectedGroup([el.id]);
+                                   setSelectedElement({ id: el.id, type: 'element' });
+                                 }
                               }}
                               title={meta.label || 'ممر'}
                           >
@@ -2368,7 +2373,8 @@ const SeatingManagement: React.FC = () => {
                               startDrag(el, 'element', e.clientX, e.clientY, e.currentTarget, e);
                            } else if (mainMode === 'edit' && editModeState.action === 'delete') {
                               e.stopPropagation();
-                              handleDeleteElement(el.id, 'element');
+                              setSelectedGroup([el.id]);
+                              setSelectedElement({ id: el.id, type: 'element' });
                            }
                         }}
                         className={`${baseClasses} ${shapeClasses}`}
