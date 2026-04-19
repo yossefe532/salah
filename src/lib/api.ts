@@ -1285,39 +1285,7 @@ export const api = {
       const barcodeMatch = endpoint.match(/barcode=eq\.([^&]+)/);
       const idMatch = endpoint.match(/\/attendees\/([^\/?]+)/);
       
-      const attendeeListColumns = [
-        'id',
-        'full_name',
-        'full_name_en',
-        'phone_primary',
-        'phone_secondary',
-        'email_primary',
-        'governorate',
-        'seat_class',
-        'seat_number',
-        'barcode',
-        'status',
-        'payment_type',
-        'payment_amount',
-        'remaining_amount',
-        'commission_amount',
-        'ticket_price_override',
-        'base_ticket_price',
-        'certificate_included',
-        'attendance_status',
-        'sales_channel',
-        'sales_source_name',
-        'preferred_neighbor_name',
-        'preferred_neighbor_ids',
-        'ticket_printed',
-        'certificate_printed',
-        'qr_code',
-        'notes',
-        'created_at',
-        'updated_at',
-        'is_deleted',
-        'warnings'
-      ];
+      const attendeeListColumns = ['*'];
 
       if (idMatch) {
         const scoped = applyCompanyScopeToAttendeesQuery(
@@ -1341,7 +1309,7 @@ export const api = {
       }
 
       let scoped = applyCompanyScopeToAttendeesQuery(
-        supabase.from('attendees').select((liteMode ? attendeeListColumns : attendeeListColumns).join(',')),
+        supabase.from('attendees').select('*'),
         currentUser
       );
       scoped = showTrash ? scoped.eq('is_deleted', true) : applyActiveAttendeesFilter(scoped);
