@@ -191,7 +191,8 @@ const EditAttendee: React.FC = () => {
   const commissionAmount = Number(watch('commission_amount') || 0);
   const netTicketAmount = Math.max(0, paymentAmount - commissionAmount);
   const ticketPriceOverride = watch('ticket_price_override') as number | undefined;
-  const isCustomPrice = !!(ticketPriceOverride && user?.role === 'owner' && Number(ticketPriceOverride) > 0);
+  const hasTicketOverride = ticketPriceOverride !== undefined && ticketPriceOverride !== null && !Number.isNaN(Number(ticketPriceOverride));
+  const isCustomPrice = !!(user?.role === 'owner' && hasTicketOverride && Number(ticketPriceOverride) >= 0);
   const currentGovCapacity = (GOVERNORATE_CAPACITIES[governorate] as any)?.[seatClass] || 0;
   const effectiveSeatPrice = isCustomPrice ? Number(ticketPriceOverride) : SEAT_PRICES[seatClass as keyof typeof SEAT_PRICES];
 
@@ -236,7 +237,7 @@ const EditAttendee: React.FC = () => {
           sales_source_name: data.sales_source_name || '',
           commission_amount: data.commission_amount || 0,
           commission_notes: data.commission_notes || '',
-          ticket_price_override: data.ticket_price_override || undefined,
+          ticket_price_override: data.ticket_price_override ?? undefined,
           certificate_included: data.certificate_included ?? true,
           preferred_neighbor_name: data.preferred_neighbor_name || '',
         });
@@ -271,7 +272,7 @@ const EditAttendee: React.FC = () => {
         setValue('seat_number', undefined);
         return;
       }
-      const response = await api.get('/attendees');
+      const response = await api.get('/attendees?lite=1');
       const attendees = Array.isArray(response) ? response : [];
       const occupied = attendees
         .filter((a: any) => a.governorate === governorate && a.seat_class === seatClass && a.status === 'registered' && !a.is_deleted && a.id !== id)
@@ -304,12 +305,9 @@ const EditAttendee: React.FC = () => {
          };
       }));
 
-      if (selectedSeatNumber && occupied.includes(Number(selectedSeatNumber)) && Number(selectedSeatNumber) !== Number(attendees.find((a: any) => a.id === id)?.seat_number)) {
-        setValue('seat_number', undefined);
-      }
     };
     loadSeats();
-  }, [governorate, id, seatClass, selectedSeatNumber, setValue, status]);
+  }, [governorate, id, seatClass, setValue, status]);
 
   useEffect(() => {
     register('preferred_neighbor_name');
@@ -318,7 +316,7 @@ const EditAttendee: React.FC = () => {
 
   useEffect(() => {
     const loadAttendeesOptions = async () => {
-      const response = await api.get('/attendees');
+      const response = await api.get('/attendees?lite=1');
       setAttendeesOptions(Array.isArray(response) ? response : []);
     };
     loadAttendeesOptions();
@@ -350,9 +348,15 @@ const EditAttendee: React.FC = () => {
     try {
       const newAttendeeId = crypto.randomUUID();
       const safeCommission = Math.max(0, Math.min(Number(data.commission_amount || 0), Number(data.payment_amount || 0)));
-      const baseTicketPrice = isCustomPrice ? Number(data.ticket_price_override) : SEAT_PRICES[data.seat_class];
-      const certificateIncluded = isCustomPrice ? !!data.certificate_included : true;
+      const hasSubmittedOverride = data.ticket_price_override !== undefined
+        && data.ticket_price_override !== null
+        && !Number.isNaN(Number(data.ticket_price_override));
+      const baseTicketPrice = hasSubmittedOverride ? Number(data.ticket_price_override) : SEAT_PRICES[data.seat_class];
+      const certificateIncluded = hasSubmittedOverride ? !!data.certificate_included : true;
       const fullNameEnFinal = String(data.full_name_en || '').trim() || transliterateArabicToEnglish(data.full_name);
+      const normalizedPaymentAmount = data.status === 'registered'
+        ? (data.payment_type === 'full' ? baseTicketPrice : Number(data.payment_amount || 0))
+        : 0;
       
       let finalSeatNumber = data.status === 'registered' && data.seat_number ? Number(data.seat_number) : null;
       let finalBarcode = null;
@@ -368,7 +372,7 @@ const EditAttendee: React.FC = () => {
           ...data,
           full_name_en: fullNameEnFinal,
           payment_type: data.status === 'registered' ? data.payment_type : 'deposit',
-          payment_amount: data.status === 'registered' ? Number(data.payment_amount) : 0,
+          payment_amount: normalizedPaymentAmount,
           sales_channel: data.sales_channel,
           seat_number: finalSeatNumber,
           barcode: finalBarcode || null,
@@ -381,7 +385,7 @@ const EditAttendee: React.FC = () => {
             .join('، ') || null,
           sales_source_name: data.sales_source_name || null,
           commission_amount: data.status === 'registered'
-            ? Math.max(0, Math.min(Number(data.commission_amount || 0), Number(data.payment_amount || 0)))
+            ? Math.max(0, Math.min(Number(data.commission_amount || 0), normalizedPaymentAmount))
             : 0,
           commission_notes: data.commission_notes || null,
           phone_secondary: data.phone_secondary || null,
@@ -391,7 +395,7 @@ const EditAttendee: React.FC = () => {
           facebook_link: data.facebook_link || null,
           
           remaining_amount: (data.status === 'registered') 
-            ? Math.max(0, baseTicketPrice - (Number(data.payment_amount) || 0))
+            ? Math.max(0, baseTicketPrice - normalizedPaymentAmount)
             : baseTicketPrice,
           
           updated_at: new Date().toISOString(),
@@ -407,7 +411,13 @@ const EditAttendee: React.FC = () => {
       
       // Validation: Check if the selected barcode is taken by another user
       if (updatedAttendee.barcode && updatedAttendee.barcode !== (window as any)._originalBarcode) {
-         const { data: conflictUser } = await api.get(`/attendees?barcode=eq.${updatedAttendee.barcode}`).then((res: any) => ({ data: Array.isArray(res) ? res[0] : null })).catch(() => ({ data: null }));
+         const response = await api.get('/attendees?lite=1').catch(() => []);
+         const allAttendees = Array.isArray(response) ? response : [];
+         const conflictUser = allAttendees.find((a: any) =>
+           String(a?.barcode || '').trim() === String(updatedAttendee.barcode).trim()
+           && String(a?.id || '') !== String(id)
+           && !Boolean(a?.is_deleted)
+         );
            
          if (conflictUser && conflictUser.id !== id) {
              throw new Error(`المقعد محجوز مسبقاً لمشترك آخر (${conflictUser.full_name}). يرجى اختيار مقعد مختلف.`);

@@ -242,6 +242,264 @@ const Attendees: React.FC = () => {
     absent: filteredAttendees.filter(a => !a.attendance_status).length
   };
 
+  const isCustomZeroPrice = (attendee: Attendee) => {
+    if (attendee.ticket_price_override === undefined || attendee.ticket_price_override === null) return false;
+    const v = Number(attendee.ticket_price_override);
+    return !Number.isNaN(v) && v === 0;
+  };
+
+  // المطلوب: فصل غير الدافعين/العربون الصفري في قائمة مستقلة، مع اعتبار السعر المخصص 0 ضمن الدافعين.
+  const paidAttendees = filteredAttendees.filter((attendee) => {
+    const paidAmount = Number(attendee.payment_amount || 0);
+    return paidAmount > 0 || isCustomZeroPrice(attendee);
+  });
+
+  const unpaidOrZeroDepositAttendees = filteredAttendees.filter((attendee) => {
+    const paidAmount = Number(attendee.payment_amount || 0);
+    return paidAmount <= 0 && !isCustomZeroPrice(attendee);
+  });
+
+  const renderAttendeesTable = (rows: Attendee[]) => (
+    <div className="overflow-x-auto">
+      <table className="min-w-full divide-y divide-gray-200 text-right">
+        <thead className="bg-gray-50">
+          <tr>
+            <th scope="col" className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider">
+              الاسم / معلومات الاتصال
+            </th>
+            <th scope="col" className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider">
+              التذكرة
+            </th>
+            <th scope="col" className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider">
+              المدفوعات
+            </th>
+            <th scope="col" className="px-6 py-4 text-xs font-bold text-center text-gray-500 uppercase tracking-wider">
+              حالة الحضور
+            </th>
+            <th scope="col" className="px-6 py-4 text-xs font-bold text-center text-gray-500 uppercase tracking-wider">
+              إجراءات
+            </th>
+          </tr>
+        </thead>
+        <tbody className="bg-white divide-y divide-gray-200">
+          {rows.map((attendee) => (
+            <tr key={attendee.id} className={`hover:bg-gray-50 transition-colors ${attendee.attendance_status ? 'bg-green-50/30' : ''}`}>
+              <td className="px-6 py-4">
+                <div className="flex items-center">
+                  <div>
+                    <div className="text-base font-bold text-gray-900 flex flex-col gap-1">
+                      <span className="flex flex-wrap items-center gap-2">
+                        {attendee.full_name}
+                        {attendee.preferred_neighbor_name && (
+                          <span className="text-xs px-2 py-0.5 rounded bg-indigo-50 text-indigo-700 border border-indigo-200">
+                            يريد الجلوس بجوار: {attendee.preferred_neighbor_name}
+                          </span>
+                        )}
+                      </span>
+                      <span className="text-xs text-gray-500 font-mono" dir="ltr">{attendee.full_name_en}</span>
+                    </div>
+                    <div className="mt-1 flex flex-wrap items-center gap-2">
+                      <span className={`text-[11px] px-2 py-0.5 rounded border ${attendee.ticket_printed ? 'bg-green-100 text-green-700 border-green-200' : 'bg-gray-100 text-gray-600 border-gray-200'}`}>
+                        التيكت: {attendee.ticket_printed ? 'اتطبع' : 'لسه'}
+                      </span>
+                      <span className={`text-[11px] px-2 py-0.5 rounded border ${attendee.certificate_printed ? 'bg-green-100 text-green-700 border-green-200' : 'bg-gray-100 text-gray-600 border-gray-200'}`}>
+                        الشهادة: {attendee.certificate_printed ? 'اتطبعت' : 'لسه'}
+                      </span>
+                      {attendee.profile_photo_url && (
+                        <span className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded border bg-indigo-50 text-indigo-700 border-indigo-200 font-bold" title="صورة العميل موجودة - جاهز للطباعة">
+                          <ImageIcon className="w-3 h-3" />
+                          جاهز للطباعة
+                        </span>
+                      )}
+                    </div>
+                    {attendee.full_name_en && (
+                      <div className="text-xs text-gray-500 mt-0.5">{attendee.full_name_en}</div>
+                    )}
+                    <div className="text-sm text-gray-500 mt-1 font-mono flex items-center gap-2">
+                      {attendee.phone_primary}
+                      <div className="flex gap-1 mr-2">
+                        <a
+                          href={`https://wa.me/20${attendee.phone_primary}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="p-1 bg-green-100 text-green-600 rounded-full hover:bg-green-200"
+                          title="WhatsApp"
+                        >
+                          <MessageCircle className="h-3 w-3" />
+                        </a>
+                        <a
+                          href={`tel:${attendee.phone_primary}`}
+                          className="p-1 bg-blue-100 text-blue-600 rounded-full hover:bg-blue-200"
+                          title="اتصال"
+                        >
+                          <Phone className="h-3 w-3" />
+                        </a>
+                      </div>
+                    </div>
+                    <div className="text-xs text-gray-400 mt-0.5">{attendee.governorate}</div>
+                    <div className="mt-1.5 grid grid-cols-1 gap-1">
+                      <div className="text-[11px] text-gray-500">
+                        <span className="font-semibold text-gray-600">تاريخ الإنشاء:</span> {formatDateTime(attendee.created_at)}
+                      </div>
+                      <div className="text-[11px] text-gray-500">
+                        <span className="font-semibold text-gray-600">آخر تعديل:</span> {formatDateTime(attendee.updated_at)}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </td>
+              <td className="px-6 py-4 whitespace-nowrap">
+                <span className={`px-3 py-1 inline-flex text-xs leading-5 font-bold rounded-full shadow-sm
+                  ${attendee.seat_class === 'A' ? 'bg-purple-100 text-purple-800 border border-purple-200' :
+                    attendee.seat_class === 'B' ? 'bg-blue-100 text-blue-800 border border-blue-200' :
+                    'bg-teal-100 text-teal-800 border border-teal-200'}`}>
+                  فئة {attendee.seat_class}
+                </span>
+              </td>
+              <td className="px-6 py-4 whitespace-nowrap">
+                <div className="text-sm font-medium text-gray-900">
+                  {attendee.payment_amount} ج.م
+                  {Number(attendee.payment_amount) === 0 && attendee.payment_type === 'deposit' && !isCustomZeroPrice(attendee) && (
+                    <span className="mr-2 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-yellow-100 text-yellow-800">
+                      عربون صفري
+                    </span>
+                  )}
+                  {isCustomZeroPrice(attendee) && (
+                    <span className="mr-2 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-emerald-100 text-emerald-800">
+                      سعر مخصص 0
+                    </span>
+                  )}
+                </div>
+                <div className="text-xs text-amber-600 mt-1">
+                  عمولة: {Number(attendee.commission_amount || 0).toLocaleString()} ج.م
+                </div>
+                <div className="text-xs text-indigo-600 mt-1">
+                  صافي: {Math.max(0, Number(attendee.payment_amount || 0) - Number(attendee.commission_amount || 0)).toLocaleString()} ج.م
+                </div>
+                <div className="text-xs text-blue-700 mt-1">
+                  السعر الأساسي: {Number((attendee.ticket_price_override ?? attendee.base_ticket_price ?? (attendee.seat_class === 'A' ? 2000 : attendee.seat_class === 'B' ? 1700 : 1500))).toLocaleString()} ج.م
+                </div>
+                <div className="text-xs mt-1">
+                  {attendee.certificate_included ? (
+                    <span className="inline-flex items-center px-2 py-0.5 rounded bg-green-100 text-green-700 border border-green-200">بشهادة</span>
+                  ) : (
+                    <span className="inline-flex items-center px-2 py-0.5 rounded bg-gray-100 text-gray-600 border border-gray-200">بدون شهادة</span>
+                  )}
+                </div>
+                <div className="text-xs text-gray-500 mt-1">
+                  المصدر: {attendee.sales_source_name || (attendee.sales_channel === 'direct' ? 'مباشر' : attendee.sales_channel === 'sales_team' ? 'تيم سيلز' : attendee.sales_channel === 'external_partner' ? 'شريك خارجي' : attendee.sales_channel === 'sponsor_referral' ? 'ترشيح راعي' : 'مباشر')}
+                </div>
+                <div className={`text-xs font-bold mt-1 ${attendee.remaining_amount > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                  {attendee.remaining_amount > 0 ? `متبقي: ${attendee.remaining_amount}` : 'خالص'}
+                </div>
+              </td>
+              <td className="px-6 py-4 whitespace-nowrap text-center">
+                {attendee.attendance_status ? (
+                  <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-bold bg-green-100 text-green-800 border border-green-200 shadow-sm">
+                    <CheckCircle className="w-4 h-4 ml-2" />
+                    حاضر
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-gray-100 text-gray-600 border border-gray-200">
+                    <XCircle className="w-4 h-4 ml-2" />
+                    لم يحضر
+                  </span>
+                )}
+              </td>
+              <td className="px-6 py-4 whitespace-nowrap text-center text-sm font-medium">
+                <div className="flex items-center justify-center space-x-2 space-x-reverse">
+                  {viewMode === 'active' ? (
+                    <>
+                      <button
+                        onClick={() => handleToggleAttendance(attendee.id, !!attendee.attendance_status)}
+                        className={`p-2 rounded-full transition-colors shadow-sm ${
+                          attendee.attendance_status
+                            ? 'bg-red-50 text-red-600 hover:bg-red-100 border border-red-200'
+                            : 'bg-green-50 text-green-600 hover:bg-green-100 border border-green-200'
+                        }`}
+                        title={attendee.attendance_status ? "إلغاء الحضور" : "تسجيل حضور"}
+                      >
+                        {attendee.attendance_status ? <UserX className="h-5 w-5" /> : <UserCheck className="h-5 w-5" />}
+                      </button>
+
+                      <Link
+                        to={`/attendees/${attendee.id}/id-card`}
+                        className="p-2 bg-indigo-50 text-indigo-600 hover:bg-indigo-100 rounded-full border border-indigo-200 transition-colors shadow-sm"
+                        title="معاينة التيكت"
+                      >
+                        <Ticket className="h-5 w-5" />
+                      </Link>
+
+                      <Link
+                        to={`/attendees/${attendee.id}/id-card?template=certificate`}
+                        className="p-2 bg-emerald-50 text-emerald-600 hover:bg-emerald-100 rounded-full border border-emerald-200 transition-colors shadow-sm"
+                        title="معاينة الشهادة"
+                      >
+                        <FileBadge2 className="h-5 w-5" />
+                      </Link>
+
+                      <Link
+                        to={`/attendees/${attendee.id}/id-card?template=back`}
+                        className="p-2 bg-slate-50 text-slate-600 hover:bg-slate-100 rounded-full border border-slate-200 transition-colors shadow-sm"
+                        title="معاينة ظهر التيكت"
+                      >
+                        <Eye className="h-5 w-5" />
+                      </Link>
+
+                      <Link
+                        to={`/attendees/${attendee.id}/edit`}
+                        className="p-2 bg-yellow-50 text-yellow-600 hover:bg-yellow-100 rounded-full border border-yellow-200 transition-colors shadow-sm"
+                        title="تعديل"
+                      >
+                        <Edit2 className="h-5 w-5" />
+                      </Link>
+
+                      <button
+                        onClick={() => setDownloadingQr(attendee)}
+                        className="p-2 bg-purple-50 text-purple-600 hover:bg-purple-100 rounded-full border border-purple-200 transition-colors shadow-sm"
+                        title="تحميل QR Code كـ PDF"
+                      >
+                        <QrCode className="h-5 w-5" />
+                      </button>
+
+                      {user?.role === 'owner' && (
+                        <button
+                          onClick={() => handleSoftDelete(attendee.id)}
+                          className="p-2 bg-red-50 text-red-600 hover:bg-red-100 rounded-full border border-red-200 transition-colors shadow-sm"
+                          title="نقل للمهملات"
+                        >
+                          <Trash2 className="h-5 w-5" />
+                        </button>
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      <button
+                        onClick={() => handleRestore(attendee.id)}
+                        className="p-2 bg-green-50 text-green-600 hover:bg-green-100 rounded-full border border-green-200 transition-colors shadow-sm"
+                        title="استعادة"
+                      >
+                        <RefreshCcw className="h-5 w-5" />
+                      </button>
+                      <button
+                        onClick={() => handlePermanentDelete(attendee.id)}
+                        disabled
+                        className="p-2 bg-gray-300 text-gray-600 rounded-full border border-gray-300 cursor-not-allowed transition-colors shadow-sm"
+                        title="الحذف النهائي معطل لحماية البيانات"
+                      >
+                        <XCircle className="h-5 w-5" />
+                      </button>
+                    </>
+                  )}
+                </div>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+
   return (
     <div className="space-y-6" dir="rtl">
       <div className="sm:flex sm:items-center sm:justify-between bg-white p-4 rounded-lg shadow-sm border border-gray-100">
@@ -377,256 +635,47 @@ const Attendees: React.FC = () => {
       </div>
 
       {/* Table */}
-      <div className="bg-white shadow-lg rounded-lg overflow-hidden border border-gray-100">
-        {loading ? (
+      {loading ? (
+        <div className="bg-white shadow-lg rounded-lg overflow-hidden border border-gray-100">
           <div className="text-center py-12">
             <div className="inline-block animate-spin rounded-full h-10 w-10 border-4 border-indigo-600 border-t-transparent"></div>
             <p className="mt-4 text-gray-600 font-medium">جاري تحميل البيانات...</p>
           </div>
-        ) : filteredAttendees.length === 0 ? (
+        </div>
+      ) : filteredAttendees.length === 0 ? (
+        <div className="bg-white shadow-lg rounded-lg overflow-hidden border border-gray-100">
           <div className="text-center py-16 bg-gray-50">
             <UserX className="mx-auto h-12 w-12 text-gray-300" />
             <p className="mt-2 text-lg text-gray-500">لا توجد نتائج مطابقة للبحث.</p>
           </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200 text-right">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th scope="col" className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider">
-                    الاسم / معلومات الاتصال
-                  </th>
-                  <th scope="col" className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider">
-                    التذكرة
-                  </th>
-                  <th scope="col" className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider">
-                    المدفوعات
-                  </th>
-                  <th scope="col" className="px-6 py-4 text-xs font-bold text-center text-gray-500 uppercase tracking-wider">
-                    حالة الحضور
-                  </th>
-                  <th scope="col" className="px-6 py-4 text-xs font-bold text-center text-gray-500 uppercase tracking-wider">
-                    إجراءات
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {filteredAttendees.map((attendee) => (
-                  <tr key={attendee.id} className={`hover:bg-gray-50 transition-colors ${attendee.attendance_status ? 'bg-green-50/30' : ''}`}>
-                    <td className="px-6 py-4">
-                      <div className="flex items-center">
-                        <div>
-                          <div className="text-base font-bold text-gray-900 flex flex-col gap-1">
-                            <span className="flex flex-wrap items-center gap-2">
-                              {attendee.full_name}
-                              {attendee.preferred_neighbor_name && (
-                                <span className="text-xs px-2 py-0.5 rounded bg-indigo-50 text-indigo-700 border border-indigo-200">
-                                  يريد الجلوس بجوار: {attendee.preferred_neighbor_name}
-                                </span>
-                              )}
-                            </span>
-                            <span className="text-xs text-gray-500 font-mono" dir="ltr">{attendee.full_name_en}</span>
-                          </div>
-                          <div className="mt-1 flex flex-wrap items-center gap-2">
-                            <span className={`text-[11px] px-2 py-0.5 rounded border ${attendee.ticket_printed ? 'bg-green-100 text-green-700 border-green-200' : 'bg-gray-100 text-gray-600 border-gray-200'}`}>
-                              التيكت: {attendee.ticket_printed ? 'اتطبع' : 'لسه'}
-                            </span>
-                            <span className={`text-[11px] px-2 py-0.5 rounded border ${attendee.certificate_printed ? 'bg-green-100 text-green-700 border-green-200' : 'bg-gray-100 text-gray-600 border-gray-200'}`}>
-                              الشهادة: {attendee.certificate_printed ? 'اتطبعت' : 'لسه'}
-                            </span>
-                            {attendee.profile_photo_url && (
-                                <span className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded border bg-indigo-50 text-indigo-700 border-indigo-200 font-bold" title="صورة العميل موجودة - جاهز للطباعة">
-                                    <ImageIcon className="w-3 h-3" />
-                                    جاهز للطباعة
-                                </span>
-                            )}
-                          </div>
-                          {attendee.full_name_en && (
-                            <div className="text-xs text-gray-500 mt-0.5">{attendee.full_name_en}</div>
-                          )}
-                          <div className="text-sm text-gray-500 mt-1 font-mono flex items-center gap-2">
-                             {attendee.phone_primary}
-                             {/* Communication Buttons */}
-                             <div className="flex gap-1 mr-2">
-                                <a 
-                                    href={`https://wa.me/20${attendee.phone_primary}`} 
-                                    target="_blank" 
-                                    rel="noreferrer"
-                                    className="p-1 bg-green-100 text-green-600 rounded-full hover:bg-green-200"
-                                    title="WhatsApp"
-                                >
-                                    <MessageCircle className="h-3 w-3" />
-                                </a>
-                                <a 
-                                    href={`tel:${attendee.phone_primary}`}
-                                    className="p-1 bg-blue-100 text-blue-600 rounded-full hover:bg-blue-200"
-                                    title="اتصال"
-                                >
-                                    <Phone className="h-3 w-3" />
-                                </a>
-                             </div>
-                          </div>
-                          <div className="text-xs text-gray-400 mt-0.5">{attendee.governorate}</div>
-                          <div className="mt-1.5 grid grid-cols-1 gap-1">
-                            <div className="text-[11px] text-gray-500">
-                              <span className="font-semibold text-gray-600">تاريخ الإنشاء:</span> {formatDateTime(attendee.created_at)}
-                            </div>
-                            <div className="text-[11px] text-gray-500">
-                              <span className="font-semibold text-gray-600">آخر تعديل:</span> {formatDateTime(attendee.updated_at)}
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                       <span className={`px-3 py-1 inline-flex text-xs leading-5 font-bold rounded-full shadow-sm
-                        ${attendee.seat_class === 'A' ? 'bg-purple-100 text-purple-800 border border-purple-200' : 
-                          attendee.seat_class === 'B' ? 'bg-blue-100 text-blue-800 border border-blue-200' : 
-                          'bg-teal-100 text-teal-800 border border-teal-200'}`}>
-                        فئة {attendee.seat_class}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm font-medium text-gray-900">
-                        {attendee.payment_amount} ج.م
-                        {Number(attendee.payment_amount) === 0 && attendee.payment_type === 'deposit' && (
-                            <span className="mr-2 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-yellow-100 text-yellow-800">
-                                عربون صفري
-                            </span>
-                        )}
-                      </div>
-                      <div className="text-xs text-amber-600 mt-1">
-                        عمولة: {Number(attendee.commission_amount || 0).toLocaleString()} ج.م
-                      </div>
-                      <div className="text-xs text-indigo-600 mt-1">
-                        صافي: {Math.max(0, Number(attendee.payment_amount || 0) - Number(attendee.commission_amount || 0)).toLocaleString()} ج.م
-                      </div>
-                      <div className="text-xs text-blue-700 mt-1">
-                        السعر الأساسي: {Number(attendee.ticket_price_override || attendee.base_ticket_price || (attendee.seat_class === 'A' ? 2000 : attendee.seat_class === 'B' ? 1700 : 1500)).toLocaleString()} ج.م
-                      </div>
-                      <div className="text-xs mt-1">
-                        {attendee.certificate_included ? (
-                          <span className="inline-flex items-center px-2 py-0.5 rounded bg-green-100 text-green-700 border border-green-200">بشهادة</span>
-                        ) : (
-                          <span className="inline-flex items-center px-2 py-0.5 rounded bg-gray-100 text-gray-600 border border-gray-200">بدون شهادة</span>
-                        )}
-                      </div>
-                          <div className="text-xs text-gray-500 mt-1">
-                            المصدر: {attendee.sales_source_name || (attendee.sales_channel === 'direct' ? 'مباشر' : attendee.sales_channel === 'sales_team' ? 'تيم سيلز' : attendee.sales_channel === 'external_partner' ? 'شريك خارجي' : attendee.sales_channel === 'sponsor_referral' ? 'ترشيح راعي' : 'مباشر')}
-                          </div>
-                      <div className={`text-xs font-bold mt-1 ${attendee.remaining_amount > 0 ? 'text-red-600' : 'text-green-600'}`}>
-                        {attendee.remaining_amount > 0 ? `متبقي: ${attendee.remaining_amount}` : 'خالص'}
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-center">
-                      {attendee.attendance_status ? (
-                        <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-bold bg-green-100 text-green-800 border border-green-200 shadow-sm">
-                          <CheckCircle className="w-4 h-4 ml-2" />
-                          حاضر
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-gray-100 text-gray-600 border border-gray-200">
-                          <XCircle className="w-4 h-4 ml-2" />
-                          لم يحضر
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-center text-sm font-medium">
-                      <div className="flex items-center justify-center space-x-2 space-x-reverse">
-                        {viewMode === 'active' ? (
-                          <>
-                            <button
-                              onClick={() => handleToggleAttendance(attendee.id, !!attendee.attendance_status)}
-                              className={`p-2 rounded-full transition-colors shadow-sm ${
-                                attendee.attendance_status 
-                                  ? 'bg-red-50 text-red-600 hover:bg-red-100 border border-red-200' 
-                                  : 'bg-green-50 text-green-600 hover:bg-green-100 border border-green-200'
-                              }`}
-                              title={attendee.attendance_status ? "إلغاء الحضور" : "تسجيل حضور"}
-                            >
-                              {attendee.attendance_status ? <UserX className="h-5 w-5" /> : <UserCheck className="h-5 w-5" />}
-                            </button>
-                            
-                            <Link 
-                              to={`/attendees/${attendee.id}/id-card`} 
-                              className="p-2 bg-indigo-50 text-indigo-600 hover:bg-indigo-100 rounded-full border border-indigo-200 transition-colors shadow-sm"
-                              title="معاينة التيكت"
-                            >
-                              <Ticket className="h-5 w-5" />
-                            </Link>
-
-                            <Link 
-                              to={`/attendees/${attendee.id}/id-card?template=certificate`} 
-                              className="p-2 bg-emerald-50 text-emerald-600 hover:bg-emerald-100 rounded-full border border-emerald-200 transition-colors shadow-sm"
-                              title="معاينة الشهادة"
-                            >
-                              <FileBadge2 className="h-5 w-5" />
-                            </Link>
-
-                            <Link 
-                              to={`/attendees/${attendee.id}/id-card?template=back`} 
-                              className="p-2 bg-slate-50 text-slate-600 hover:bg-slate-100 rounded-full border border-slate-200 transition-colors shadow-sm"
-                              title="معاينة ظهر التيكت"
-                            >
-                              <Eye className="h-5 w-5" />
-                            </Link>
-
-                            <Link 
-                              to={`/attendees/${attendee.id}/edit`} 
-                              className="p-2 bg-yellow-50 text-yellow-600 hover:bg-yellow-100 rounded-full border border-yellow-200 transition-colors shadow-sm"
-                              title="تعديل"
-                            >
-                              <Edit2 className="h-5 w-5" />
-                            </Link>
-
-                            <button
-                              onClick={() => setDownloadingQr(attendee)}
-                              className="p-2 bg-purple-50 text-purple-600 hover:bg-purple-100 rounded-full border border-purple-200 transition-colors shadow-sm"
-                              title="تحميل QR Code كـ PDF"
-                            >
-                              <QrCode className="h-5 w-5" />
-                            </button>
-
-                            {/* Only Owner can delete */}
-                            {user?.role === 'owner' && (
-                              <button
-                                onClick={() => handleSoftDelete(attendee.id)}
-                                className="p-2 bg-red-50 text-red-600 hover:bg-red-100 rounded-full border border-red-200 transition-colors shadow-sm"
-                                title="نقل للمهملات"
-                              >
-                                <Trash2 className="h-5 w-5" />
-                              </button>
-                            )}
-                          </>
-                        ) : (
-                          // Trash Mode Actions
-                          <>
-                            <button
-                              onClick={() => handleRestore(attendee.id)}
-                              className="p-2 bg-green-50 text-green-600 hover:bg-green-100 rounded-full border border-green-200 transition-colors shadow-sm"
-                              title="استعادة"
-                            >
-                              <RefreshCcw className="h-5 w-5" />
-                            </button>
-                            <button
-                              onClick={() => handlePermanentDelete(attendee.id)}
-                              disabled
-                              className="p-2 bg-gray-300 text-gray-600 rounded-full border border-gray-300 cursor-not-allowed transition-colors shadow-sm"
-                              title="الحذف النهائي معطل لحماية البيانات"
-                            >
-                              <XCircle className="h-5 w-5" />
-                            </button>
-                          </>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+        </div>
+      ) : viewMode === 'active' ? (
+        <div className="space-y-4">
+          <div className="bg-white shadow-lg rounded-lg overflow-hidden border border-emerald-200">
+            <div className="px-4 py-3 bg-emerald-50 border-b border-emerald-200 flex items-center justify-between">
+              <h2 className="text-sm font-bold text-emerald-800">قائمة الدافعين</h2>
+              <span className="text-xs font-bold px-2 py-1 rounded bg-emerald-100 text-emerald-800">{paidAttendees.length}</span>
+            </div>
+            {paidAttendees.length === 0 ? (
+              <div className="p-6 text-sm text-gray-500">لا يوجد عملاء دافعين في النتائج الحالية.</div>
+            ) : renderAttendeesTable(paidAttendees)}
           </div>
-        )}
-      </div>
+
+          <div className="bg-white shadow-lg rounded-lg overflow-hidden border border-amber-200">
+            <div className="px-4 py-3 bg-amber-50 border-b border-amber-200 flex items-center justify-between">
+              <h2 className="text-sm font-bold text-amber-800">غير دافعين / عربون صفري</h2>
+              <span className="text-xs font-bold px-2 py-1 rounded bg-amber-100 text-amber-800">{unpaidOrZeroDepositAttendees.length}</span>
+            </div>
+            {unpaidOrZeroDepositAttendees.length === 0 ? (
+              <div className="p-6 text-sm text-gray-500">لا يوجد عملاء غير دافعين في النتائج الحالية.</div>
+            ) : renderAttendeesTable(unpaidOrZeroDepositAttendees)}
+          </div>
+        </div>
+      ) : (
+        <div className="bg-white shadow-lg rounded-lg overflow-hidden border border-gray-100">
+          {renderAttendeesTable(filteredAttendees)}
+        </div>
+      )}
 
       {/* Hidden QR Code Canvas for downloading */}
       {downloadingQr && (
