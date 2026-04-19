@@ -397,6 +397,8 @@ const applyCompanyScopeToAttendeesQuery = (query: any, currentUser: any) => {
   return query;
 };
 
+const applyActiveAttendeesFilter = (query: any) => query.not('is_deleted', 'is', true);
+
 const getCompanyIdForCreatedRecords = (currentUser: any) => {
   if (!currentUser) return null;
   if (isCompanyScopedRole(currentUser.role)) return currentUser.company_id || null;
@@ -936,8 +938,8 @@ const resolveSeat = async (
     .select('id, seat_number')
     .eq('governorate', gov)
     .eq('seat_class', payload.seat_class)
-    .eq('status', 'registered')
-    .eq('is_deleted', false);
+    .eq('status', 'registered');
+  query = applyActiveAttendeesFilter(query);
 
   if (excludeId) query = query.neq('id', excludeId);
   const { data, error } = await query;
@@ -1134,8 +1136,8 @@ export const api = {
         .from('attendees')
         .select('*')
         .in('status', ['registered', 'interested']) // Show both for seating just in case
-        .eq('is_deleted', false)
         .order('created_at', { ascending: true });
+      attendeesQuery = applyActiveAttendeesFilter(attendeesQuery);
       if (govOrFilter) attendeesQuery = attendeesQuery.or(govOrFilter);
       if (seatClass) attendeesQuery = attendeesQuery.eq('seat_class', seatClass);
       const { data, error } = await attendeesQuery;
@@ -1159,7 +1161,6 @@ export const api = {
           supabase
             .from('attendees')
             .select('*')
-            .eq('is_deleted', false)
             .eq('governorate', hallGovernorate)
             .in('status', ['registered', 'interested']),
           currentUser
@@ -1220,11 +1221,11 @@ export const api = {
       if (!userId) return { underReview: [], completedMine: [] };
 
       const underReviewQuery = applyCompanyScopeToAttendeesQuery(
-        supabase.from('attendees').select('*').eq('lead_status', 'under_review').eq('is_deleted', false),
+        applyActiveAttendeesFilter(supabase.from('attendees').select('*').eq('lead_status', 'under_review')),
         currentUser
       ).order('created_at', { ascending: false });
       const completedMineQuery = applyCompanyScopeToAttendeesQuery(
-        supabase.from('attendees').select('*').eq('lead_status', 'sales_completed').eq('sales_user_id', userId).eq('is_deleted', false),
+        applyActiveAttendeesFilter(supabase.from('attendees').select('*').eq('lead_status', 'sales_completed').eq('sales_user_id', userId)),
         currentUser
       ).order('sales_verified_at', { ascending: false });
       let [{ data: underReview, error: underReviewError }, { data: completedMine, error: completedMineError }] = await Promise.all([underReviewQuery, completedMineQuery]);
@@ -1234,14 +1235,14 @@ export const api = {
             .from('attendees')
             .select('*')
             .eq('lead_status', 'under_review')
-            .eq('is_deleted', false)
+            .or('is_deleted.eq.false,is_deleted.is.null')
             .order('created_at', { ascending: false }),
           supabase
             .from('attendees')
             .select('*')
             .eq('lead_status', 'sales_completed')
             .eq('sales_user_id', userId)
-            .eq('is_deleted', false)
+            .or('is_deleted.eq.false,is_deleted.is.null')
             .order('sales_verified_at', { ascending: false })
         ]);
         underReview = legacyUnder.data;
@@ -1277,7 +1278,7 @@ export const api = {
         if (error) throw new Error(error.message);
         const normalized = normalizeAttendeePricing(data);
         const related = await applyCompanyScopeToAttendeesQuery(
-          supabase.from('attendees').select('id, full_name, warnings, is_deleted').eq('is_deleted', false),
+          applyActiveAttendeesFilter(supabase.from('attendees').select('id, full_name, warnings, is_deleted')),
           currentUser
         );
         const { data: relatedAttendees } = await related;
@@ -1285,9 +1286,10 @@ export const api = {
       }
 
       let scoped = applyCompanyScopeToAttendeesQuery(
-        supabase.from('attendees').select('*').eq('is_deleted', showTrash),
+        supabase.from('attendees').select('*'),
         currentUser
       );
+      scoped = showTrash ? scoped.eq('is_deleted', true) : applyActiveAttendeesFilter(scoped);
 
       const governorate = params.get('governorate');
       const seatClass = params.get('seat_class');
@@ -1320,15 +1322,23 @@ export const api = {
       }
       let { data, error } = await scoped.order('created_at', { ascending: false });
       if (error && isMissingColumnError(error, 'company_id')) {
-        const fallback = await supabase
+        const fallbackBase = supabase
           .from('attendees')
-          .select('*')
-          .eq('is_deleted', showTrash)
-          .order('created_at', { ascending: false });
+          .select('*');
+        const fallback = showTrash
+          ? await fallbackBase.eq('is_deleted', true).order('created_at', { ascending: false })
+          : await fallbackBase.or('is_deleted.eq.false,is_deleted.is.null').order('created_at', { ascending: false });
         data = fallback.data;
         error = fallback.error;
       }
       if (error) throw new Error(error.message);
+      if (!showTrash && (!data || data.length === 0)) {
+        // Safety fallback: if scoped/filtered query returns nothing unexpectedly, try raw active rows.
+        const raw = await supabase.from('attendees').select('*').order('created_at', { ascending: false });
+        if (!raw.error && Array.isArray(raw.data) && raw.data.length > 0) {
+          data = raw.data;
+        }
+      }
       if (liteMode) return (data || []).map(normalizeAttendeePricing);
       return enrichAttendeesNeighborLabels(data || []);
     }
@@ -1357,7 +1367,7 @@ export const api = {
           .from('attendees')
           .select('id, full_name, created_at, payment_amount, company_id, created_by')
           .gte('created_at', sinceIso)
-          .eq('is_deleted', false)
+          .or('is_deleted.eq.false,is_deleted.is.null')
       ]);
       return (companies || []).map((company: any) => {
         const items = (attendees || []).filter((a: any) => a.company_id === company.id);
