@@ -91,10 +91,21 @@ const Finance: React.FC = () => {
   }, [loadData]);
 
   const metrics = useMemo(() => {
+    const isCustomZeroPrice = (a: Attendee) => {
+      if (a.ticket_price_override === undefined || a.ticket_price_override === null) return false;
+      const v = Number(a.ticket_price_override);
+      return !Number.isNaN(v) && v === 0;
+    };
     const ticketCollected = attendees.reduce((sum, attendee) => sum + toNumber(attendee.payment_amount), 0);
     const ticketCommission = attendees.reduce((sum, attendee) => sum + toNumber(attendee.commission_amount), 0);
     const ticketNet = Math.max(0, ticketCollected - ticketCommission);
     const ticketReceivable = attendees.reduce((sum, attendee) => sum + toNumber(attendee.remaining_amount), 0);
+    const ticketReceivableConfirmed = attendees
+      .filter((a) => toNumber(a.payment_amount) > 0 || isCustomZeroPrice(a))
+      .reduce((sum, attendee) => sum + toNumber(attendee.remaining_amount), 0);
+    const ticketReceivableUnconfirmed = attendees
+      .filter((a) => toNumber(a.payment_amount) <= 0 && !isCustomZeroPrice(a))
+      .reduce((sum, attendee) => sum + toNumber(attendee.remaining_amount), 0);
     const sponsorContractTotal = contracts.reduce((sum, contract) => sum + toNumber(contract.contract_amount), 0);
     const sponsorPaid = contracts.reduce((sum, contract) => sum + toNumber(contract.paid_amount), 0);
     const sponsorReceivable = Math.max(0, sponsorContractTotal - sponsorPaid);
@@ -115,6 +126,8 @@ const Finance: React.FC = () => {
       ticketCommission,
       ticketNet,
       ticketReceivable,
+      ticketReceivableConfirmed,
+      ticketReceivableUnconfirmed,
       sponsorContractTotal,
       sponsorPaid,
       sponsorReceivable,
@@ -345,6 +358,14 @@ const Finance: React.FC = () => {
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4">
           <p className="text-sm text-gray-500 dark:text-gray-400">إجمالي المديونيات لنا</p>
           <p className="text-xl font-bold text-orange-600">{metrics.totalReceivable.toLocaleString()} ج.م</p>
+        </div>
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4">
+          <p className="text-sm text-gray-500 dark:text-gray-400">مستحقات مؤكدة من الدافعين</p>
+          <p className="text-xl font-bold text-emerald-600">{metrics.ticketReceivableConfirmed.toLocaleString()} ج.م</p>
+        </div>
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4">
+          <p className="text-sm text-gray-500 dark:text-gray-400">مستحقات غير مؤكدة (عربون صفري/غير دافعين)</p>
+          <p className="text-xl font-bold text-amber-600">{metrics.ticketReceivableUnconfirmed.toLocaleString()} ج.م</p>
         </div>
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4">
           <p className="text-sm text-gray-500 dark:text-gray-400">إجمالي حقوقنا</p>

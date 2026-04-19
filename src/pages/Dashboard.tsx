@@ -14,6 +14,8 @@ const Dashboard: React.FC = () => {
     checkedIn: 0,
     totalRevenue: 0,
     remainingRevenue: 0,
+    confirmedReceivable: 0,
+    unconfirmedReceivable: 0,
     commissionTotal: 0,
     netTicketRevenue: 0,
     expenseTotal: 0,
@@ -40,10 +42,21 @@ const Dashboard: React.FC = () => {
       const { data: sponsorContractsData } = await supabase.from('sponsor_contracts').select('contract_amount, paid_amount');
 
       if (attendees) {
+        const isCustomZeroPrice = (a: Attendee) => {
+          if (a.ticket_price_override === undefined || a.ticket_price_override === null) return false;
+          const v = Number(a.ticket_price_override);
+          return !Number.isNaN(v) && v === 0;
+        };
         const totalAttendees = attendees.length;
         const checkedIn = attendees.filter(a => a.attendance_status).length;
         const totalRevenue = attendees.reduce((sum, a) => sum + (Number(a.payment_amount) || 0), 0);
         const remainingRevenue = attendees.reduce((sum, a) => sum + (Number(a.remaining_amount) || 0), 0);
+        const confirmedReceivable = attendees
+          .filter((a) => (Number(a.payment_amount || 0) > 0) || isCustomZeroPrice(a))
+          .reduce((sum, a) => sum + (Number(a.remaining_amount) || 0), 0);
+        const unconfirmedReceivable = attendees
+          .filter((a) => Number(a.payment_amount || 0) <= 0 && !isCustomZeroPrice(a))
+          .reduce((sum, a) => sum + (Number(a.remaining_amount) || 0), 0);
         const commissionTotal = attendees.reduce((sum, a) => sum + (Number(a.commission_amount) || 0), 0);
         const netTicketRevenue = Math.max(0, totalRevenue - commissionTotal);
         const expenseTotal = (expensesData || []).reduce((sum, row: any) => sum + (Number(row.amount) || 0), 0);
@@ -97,6 +110,8 @@ const Dashboard: React.FC = () => {
           checkedIn,
           totalRevenue,
           remainingRevenue,
+          confirmedReceivable,
+          unconfirmedReceivable,
           commissionTotal,
           netTicketRevenue,
           expenseTotal,
@@ -229,12 +244,29 @@ const Dashboard: React.FC = () => {
           <div className="p-5">
             <div className="flex items-center">
               <div className="flex-shrink-0">
-                <AlertTriangle className="h-6 w-6 text-red-400" />
+                <AlertTriangle className="h-6 w-6 text-emerald-500" />
               </div>
               <div className="mr-5 w-0 flex-1">
                 <dl>
-                  <dt className="text-sm font-medium text-gray-500 dark:text-gray-400 truncate">المبالغ المتبقية</dt>
-                  <dd className="text-lg font-medium text-gray-900 dark:text-white">{stats.remainingRevenue.toLocaleString()} ج.م</dd>
+                  <dt className="text-sm font-medium text-gray-500 dark:text-gray-400 truncate">مستحقات مؤكدة (دافعين)</dt>
+                  <dd className="text-lg font-medium text-gray-900 dark:text-white">{stats.confirmedReceivable.toLocaleString()} ج.م</dd>
+                </dl>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-white dark:bg-gray-800 overflow-hidden shadow rounded-lg transition-colors">
+          <div className="p-5">
+            <div className="flex items-center">
+              <div className="flex-shrink-0">
+                <AlertTriangle className="h-6 w-6 text-amber-500" />
+              </div>
+              <div className="mr-5 w-0 flex-1">
+                <dl>
+                  <dt className="text-sm font-medium text-gray-500 dark:text-gray-400 truncate">مستحقات غير مؤكدة (غير دافعين)</dt>
+                  <dd className="text-lg font-medium text-gray-900 dark:text-white">{stats.unconfirmedReceivable.toLocaleString()} ج.م</dd>
+                  <dd className="text-xs text-gray-500">إجمالي المتبقي: {stats.remainingRevenue.toLocaleString()} ج.م</dd>
                 </dl>
               </div>
             </div>
