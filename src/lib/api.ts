@@ -419,6 +419,12 @@ const applyCompanyScopeToAttendeesQuery = (query: any, currentUser: any) => {
 };
 
 const applyActiveAttendeesFilter = (query: any) => query.not('is_deleted', 'is', true);
+const sortByCreatedAtDesc = <T extends { created_at?: string | null }>(rows: T[]) =>
+  [...(rows || [])].sort((a, b) => {
+    const ta = new Date(String(a?.created_at || 0)).getTime();
+    const tb = new Date(String(b?.created_at || 0)).getTime();
+    return tb - ta;
+  });
 
 const getCompanyIdForCreatedRecords = (currentUser: any) => {
   if (!currentUser) return null;
@@ -1285,7 +1291,34 @@ export const api = {
       const barcodeMatch = endpoint.match(/barcode=eq\.([^&]+)/);
       const idMatch = endpoint.match(/\/attendees\/([^\/?]+)/);
       
-      const attendeeListColumns = ['*'];
+      const attendeeListColumns = [
+        'id',
+        'full_name',
+        'phone_primary',
+        'phone_secondary',
+        'email_primary',
+        'email_secondary',
+        'facebook_link',
+        'governorate',
+        'seat_class',
+        'payment_type',
+        'payment_amount',
+        'remaining_amount',
+        'status',
+        'qr_code',
+        'barcode',
+        'attendance_status',
+        'checked_in_at',
+        'checked_in_by',
+        'created_by',
+        'created_at',
+        'updated_at',
+        'is_deleted',
+        'university',
+        'faculty',
+        'year',
+        'notes'
+      ];
 
       if (idMatch) {
         const scoped = applyCompanyScopeToAttendeesQuery(
@@ -1301,7 +1334,7 @@ export const api = {
         if (error) throw new Error(error.message);
         const normalized = normalizeAttendeePricing(data);
         const related = await applyCompanyScopeToAttendeesQuery(
-          applyActiveAttendeesFilter(supabase.from('attendees').select('id, full_name, warnings, is_deleted')),
+          applyActiveAttendeesFilter(supabase.from('attendees').select('id, full_name, is_deleted')),
           currentUser
         );
         const { data: relatedAttendees } = await related;
@@ -1309,7 +1342,7 @@ export const api = {
       }
 
       let scoped = applyCompanyScopeToAttendeesQuery(
-        supabase.from('attendees').select('*'),
+        supabase.from('attendees').select(attendeeListColumns.join(',')),
         currentUser
       );
       scoped = showTrash ? scoped.eq('is_deleted', true) : applyActiveAttendeesFilter(scoped);
@@ -1362,7 +1395,7 @@ export const api = {
         if (attendance === 'absent') q = q.or('attendance_status.is.false,attendance_status.is.null');
         if (safeSearch) q = q.or(`full_name.ilike.%${safeSearch}%,phone_primary.ilike.%${safeSearch}%,phone_secondary.ilike.%${safeSearch}%`);
         if (barcodeMatch) q = q.eq('barcode', barcodeMatch[1]);
-        return q.order('created_at', { ascending: false });
+        return q;
       };
 
       const initialResult = await runAttendeesSelectWithSchemaFallback(buildScopedQuery, attendeeListColumns);
@@ -1383,7 +1416,7 @@ export const api = {
           if (attendance === 'absent') fallbackQuery = fallbackQuery.or('attendance_status.is.false,attendance_status.is.null');
           if (safeSearch) fallbackQuery = fallbackQuery.or(`full_name.ilike.%${safeSearch}%,phone_primary.ilike.%${safeSearch}%,phone_secondary.ilike.%${safeSearch}%`);
           if (barcodeMatch) fallbackQuery = fallbackQuery.eq('barcode', barcodeMatch[1]);
-          return fallbackQuery.order('created_at', { ascending: false });
+          return fallbackQuery;
         }, attendeeListColumns);
         data = fallbackResult.data;
         error = fallbackResult.error;
@@ -1395,16 +1428,16 @@ export const api = {
           (selectClause) => supabase
             .from('attendees')
             .select(selectClause)
-            .not('is_deleted', 'is', true)
-            .order('created_at', { ascending: false }),
+            .not('is_deleted', 'is', true),
           attendeeListColumns
         );
         if (!raw.error && Array.isArray(raw.data) && raw.data.length > 0) {
           data = raw.data;
         }
       }
-      if (liteMode) return (data || []).map(normalizeAttendeePricing);
-      return enrichAttendeesNeighborLabels(data || []);
+      const sorted = sortByCreatedAtDesc(Array.isArray(data) ? data : []);
+      if (liteMode) return sorted.map(normalizeAttendeePricing);
+      return enrichAttendeesNeighborLabels(sorted);
     }
 
     if (endpoint.startsWith('/companies')) {
