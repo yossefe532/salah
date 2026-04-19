@@ -513,7 +513,7 @@ const SeatingManagement: React.FC = () => {
   const [assignmentModal, setAssignmentModal] = useState<{isOpen: boolean, seat: Seat | null, isTableModal: boolean, tableId: string | null}>({isOpen: false, seat: null, isTableModal: false, tableId: null});
   const [zoomLevel, setZoomLevel] = useState(1);
   const [isMapFullscreen, setIsMapFullscreen] = useState(false);
-  const [editTableModal, setEditTableModal] = useState<{isOpen: boolean, tableId: string, currentName: string, currentClass: string, currentCount: number}>({isOpen: false, tableId: '', currentName: '', currentClass: 'A', currentCount: 12});
+  const [editTableModal, setEditTableModal] = useState<{isOpen: boolean, tableId: string, currentName: string, currentClass: string, currentCount: number, currentOrientation: 'horizontal' | 'vertical'}>({isOpen: false, tableId: '', currentName: '', currentClass: 'A', currentCount: 12, currentOrientation: 'horizontal'});
 
   const [drawState, setDrawState] = useState<{
     active: boolean;
@@ -567,6 +567,7 @@ const SeatingManagement: React.FC = () => {
   const dragStateRef = useRef<any>(null);
   const layoutDraftRef = useRef<Record<string, any>>({});
   const lastAppliedDragKeyRef = useRef<string>('');
+  const lastMouseCanvasRef = useRef<{ x: number; y: number } | null>(null);
 
   useEffect(() => { dragStateRef.current = dragState; }, [dragState]);
   useEffect(() => { layoutDraftRef.current = layoutDraft; }, [layoutDraft]);
@@ -609,18 +610,31 @@ const SeatingManagement: React.FC = () => {
   }, [payload.seats, layoutDraft]);
 
   const mapElements = useMemo(() => {
-      const baseEls = (payload.layout_elements || []).filter(el => {
-         const draft = layoutDraft[el.id] as any;
-         return !draft?.is_deleted;
-      });
+      const baseEls = (payload.layout_elements || [])
+        .filter((el) => {
+          const draft = layoutDraft[el.id] as any;
+          return !draft?.is_deleted;
+        })
+        .map((el) => {
+          const patch = layoutDraft[el.id] as any;
+          if (!patch || patch.is_new) return el;
+          return {
+            ...el,
+            position_x: patch.position_x !== undefined ? Number(patch.position_x) : Number(el.position_x || 0),
+            position_y: patch.position_y !== undefined ? Number(patch.position_y) : Number(el.position_y || 0),
+            width: patch.width !== undefined ? Number(patch.width) : Number(el.width || 8),
+            height: patch.height !== undefined ? Number(patch.height) : Number(el.height || 4),
+            name: patch.name !== undefined ? patch.name : el.name
+          };
+        });
       const newEls = Object.entries(layoutDraft)
-          .filter(([_, v]) => (v as any).is_new && ['element', 'stage', 'aisle', 'blocked'].includes((v as any).type))
-          .map(([id, v]: any) => ({
-              id,
-              ...v,
-              event_id: eventId,
-              governorate
-          }));
+        .filter(([_, v]) => (v as any).is_new && ['element', 'stage', 'aisle', 'blocked'].includes((v as any).type))
+        .map(([id, v]: any) => ({
+          id,
+          ...v,
+          event_id: eventId,
+          governorate
+        }));
       return [...baseEls, ...newEls];
   }, [payload.layout_elements, layoutDraft]);
 
@@ -647,7 +661,8 @@ const SeatingManagement: React.FC = () => {
   const validateLayoutElements = useCallback((elements: any[]) => {
     const active = (elements || []).filter((e) => !((e as any)?.is_deleted));
     const stageCount = active.filter((e) => String(e?.type) === 'stage').length;
-    if (stageCount > 1) return 'مسموح بمسرح واحد فقط داخل القاعة.';
+    const baseStageCount = (payload.layout_elements || []).filter((e) => String((e as any)?.type) === 'stage').length;
+    if (stageCount > 1 && stageCount > baseStageCount) return 'مسموح بمسرح واحد فقط داخل القاعة.';
 
     for (const el of active) {
       const meta = parseElementMeta(el);
@@ -667,7 +682,7 @@ const SeatingManagement: React.FC = () => {
       }
     }
     return null;
-  }, []);
+  }, [payload.layout_elements]);
 
   const tableBoxes = useMemo(() => {
     const seatsByTable = new Map<string, Seat[]>();
@@ -701,6 +716,16 @@ const SeatingManagement: React.FC = () => {
     }
     return boxes;
   }, [mapSeats]);
+
+  const getTableOrientation = useCallback((tableId: string): 'horizontal' | 'vertical' => {
+    const seats = mapSeats.filter((s) => s.table_id === tableId);
+    if (!seats.length) return 'horizontal';
+    const xs = seats.map((s) => Number((layoutDraft[s.id] as any)?.position_x ?? s.position_x ?? 0) * 8);
+    const ys = seats.map((s) => Number((layoutDraft[s.id] as any)?.position_y ?? s.position_y ?? 0) * 4);
+    const width = Math.max(...xs) - Math.min(...xs);
+    const height = Math.max(...ys) - Math.min(...ys);
+    return height > width ? 'vertical' : 'horizontal';
+  }, [mapSeats, layoutDraft]);
 
   const getItemType = useCallback((id: string): 'table' | 'element' | 'seat' => {
     if (tableBoxes.some(t => t.id === id) || payload.tables.some(t => t.id === id)) return 'table';
@@ -821,8 +846,8 @@ const SeatingManagement: React.FC = () => {
                    const isElement = mapElements?.find(el => el.id === id);
                    if (isElement) return { id, type: 'element', x: patch && !patch.is_new ? patch.position_x : Number(isElement.position_x || 0), y: patch && !patch.is_new ? patch.position_y : Number(isElement.position_y || 0), width: isElement.width, height: isElement.height, name: isElement.name, elType: isElement.type };
                    
-                   const isSeat = mapSeats.find(s => s.id === id);
-                   if (isSeat) return { id, type: 'seat', x: patch && !patch.is_new ? patch.position_x : Number(isSeat.position_x || 0), y: patch && !patch.is_new ? patch.position_y : Number(isSeat.position_y || 0), seat_class: isSeat.seat_class, table_id: isSeat.table_id };
+                  const isSeat = mapSeats.find(s => s.id === id);
+                  if (isSeat) return { id, type: 'seat', x: patch && !patch.is_new ? patch.position_x : Number(isSeat.position_x || 0), y: patch && !patch.is_new ? patch.position_y : Number(isSeat.position_y || 0), seat_class: isSeat.seat_class, table_id: isSeat.table_id, wave_number: isSeat.wave_number };
                    
                    return null;
                }).filter(Boolean);
@@ -844,32 +869,107 @@ const SeatingManagement: React.FC = () => {
            const nextDraft = { ...layoutDraft };
            const newSelection: string[] = [];
            
-           // Paste roughly in the center of the view, offset by 10 units
-           const pasteCx = 50; 
-           const pasteCy = 50;
+           // Paste exactly near current mouse position on canvas (fallback: visible center).
+           const container = document.getElementById('seating-canvas-container');
+           let pasteCx = lastMouseCanvasRef.current?.x;
+           let pasteCy = lastMouseCanvasRef.current?.y;
+           if (pasteCx === undefined || pasteCy === undefined) {
+             if (container) {
+               const centerPxX = container.scrollLeft + container.clientWidth / 2;
+               const centerPxY = container.scrollTop + container.clientHeight / 2;
+               pasteCx = centerPxX / zoomLevel / 8;
+               pasteCy = centerPxY / zoomLevel / 4;
+             } else {
+               pasteCx = 50;
+               pasteCy = 50;
+             }
+           }
+           const govPrefix = eventId.split('-')[0] || 'MINYA';
+           const allTableOrders = new Set<number>();
+           [...payload.tables, ...tableBoxes.map((b) => ({ id: b.id }))].forEach((t: any) => {
+             const part = String(t?.id || '').split('-T')[1];
+             const n = Number(String(part).split('-')[0]);
+             if (Number.isFinite(n) && n > 0) allTableOrders.add(n);
+           });
+           Object.entries(layoutDraft).forEach(([id, patch]) => {
+             const p: any = patch;
+             if (p?.type !== 'table' || p?.is_deleted) return;
+             const part = String(id || '').split('-T')[1];
+             const n = Number(String(part).split('-')[0]);
+             if (Number.isFinite(n) && n > 0) allTableOrders.add(n);
+           });
+           let nextTableOrder = allTableOrders.size ? Math.max(...Array.from(allTableOrders)) + 1 : 1;
+
+           const extractWaveNo = (val: any) => {
+             const m = String(val || '').match(/(\d+)/);
+             return m ? Number(m[1]) : null;
+           };
+           const allWaveNos = new Set<number>();
+           mapSeats.forEach((s) => {
+             const n = extractWaveNo((s as any).wave_number);
+             if (n && Number.isFinite(n)) allWaveNos.add(n);
+           });
+           Object.values(layoutDraft).forEach((patch: any) => {
+             const n = extractWaveNo(patch?.wave_number);
+             if (n && Number.isFinite(n)) allWaveNos.add(n);
+           });
+           let nextWaveNo = allWaveNos.size ? Math.max(...Array.from(allWaveNos)) + 1 : 1;
+           const waveLabelMap = new Map<string, string>();
            
            copiedGroup.forEach((item, index) => {
-               const newId = `local-${item.type}-${timestamp}-${index}`;
-               const px = pasteCx + item.dx + 5; // Slight offset so it doesn't perfectly overlap
-               const py = pasteCy + item.dy + 5;
+               let newId = `local-${item.type}-${timestamp}-${index}`;
+               const px = (pasteCx as number) + item.dx;
+               const py = (pasteCy as number) + item.dy;
                
                if (item.type === 'element') {
                    nextDraft[newId] = { is_new: true, type: item.elType, position_x: px, position_y: py, width: item.width, height: item.height, name: item.name } as any;
                    newSelection.push(newId);
                } else if (item.type === 'seat' && !item.table_id) { // Only paste free seats, table seats are pasted via table
-                   nextDraft[newId] = { is_new: true, type: 'seat', position_x: px, position_y: py, seat_class: item.seat_class, seat_number: index + 1, seat_code: `C-COPY-S${index+1}` } as any;
+                   let nextWaveLabel: string | null = null;
+                   if (item.wave_number) {
+                     const key = String(item.wave_number);
+                     if (!waveLabelMap.has(key)) {
+                       waveLabelMap.set(key, `W${nextWaveNo}`);
+                       nextWaveNo += 1;
+                     }
+                     nextWaveLabel = waveLabelMap.get(key) || null;
+                   }
+                   const seatNo = Number(item.seat_number || index + 1);
+                   nextDraft[newId] = {
+                     is_new: true,
+                     type: 'seat',
+                     position_x: px,
+                     position_y: py,
+                     seat_class: item.seat_class,
+                     wave_number: nextWaveLabel,
+                     seat_number: seatNo,
+                     seat_code: `${item.seat_class || 'C'}-${nextWaveLabel || 'COPY'}-S${seatNo}`
+                   } as any;
                    newSelection.push(newId);
                } else if (item.type === 'table') {
                    // To paste a table, we need to recreate its seats
                    const originalSeats = mapSeats.filter(s => s.table_id === item.id);
+                   const tableClass = originalSeats[0]?.seat_class || 'A';
+                   newId = `${govPrefix}-${tableClass}-T${nextTableOrder}`;
+                   nextTableOrder += 1;
                    originalSeats.forEach((s, sIdx) => {
-                       const sId = `${newId}-S${sIdx+1}`;
+                       const seatNo = Number(s.seat_number || (sIdx + 1));
+                       const sId = `${newId}-S${seatNo}`;
                        const sPatch = layoutDraft[s.id] as any;
                        const sx = sPatch && !sPatch.is_new ? sPatch.position_x : Number(s.position_x || 0);
                        const sy = sPatch && !sPatch.is_new ? sPatch.position_y : Number(s.position_y || 0);
                        const sDx = sx - item.x;
                        const sDy = sy - item.y;
-                       nextDraft[sId] = { is_new: true, type: 'seat', position_x: px + sDx, position_y: py + sDy, seat_class: s.seat_class, seat_number: sIdx + 1, seat_code: `COPY-T-S${sIdx+1}`, table_id: newId } as any;
+                       nextDraft[sId] = {
+                         is_new: true,
+                         type: 'seat',
+                         position_x: px + sDx,
+                         position_y: py + sDy,
+                         seat_class: s.seat_class,
+                         seat_number: seatNo,
+                         seat_code: `${tableClass}-T${nextTableOrder - 1}-S${seatNo}`,
+                         table_id: newId
+                       } as any;
                    });
                    newSelection.push(newId); // Select the table
                }
@@ -883,7 +983,7 @@ const SeatingManagement: React.FC = () => {
      
      window.addEventListener('keydown', handleKeyDown);
      return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [mainMode, selectedGroup, selectedElement, layoutDraft, copiedGroup, payload, tableBoxes, history, historyIndex, mapSeats, mapElements]);
+  }, [mainMode, selectedGroup, selectedElement, layoutDraft, copiedGroup, payload, tableBoxes, history, historyIndex, mapSeats, mapElements, zoomLevel]);
 
 
   const loadMap = async () => {
@@ -1477,7 +1577,10 @@ const SeatingManagement: React.FC = () => {
             id,
             type: anyVal.type,
             position_x: anyVal.position_x,
-            position_y: anyVal.position_y
+            position_y: anyVal.position_y,
+            width: anyVal.width,
+            height: anyVal.height,
+            name: anyVal.name
           });
         }
       }
@@ -1716,6 +1819,14 @@ const SeatingManagement: React.FC = () => {
   }, [zoomLevel]);
 
   const onCanvasMove = (clientX: number, clientY: number) => {
+    const trackingContainer = document.getElementById('seating-canvas-inner');
+    const trackingRect = trackingContainer?.getBoundingClientRect();
+    if (trackingRect) {
+      const px = clientX - trackingRect.left;
+      const py = clientY - trackingRect.top;
+      lastMouseCanvasRef.current = { x: px / zoomLevel / 8, y: py / zoomLevel / 4 };
+    }
+
     if (drawState?.active) {
         const container = document.getElementById('seating-canvas-inner');
         const rect = container?.getBoundingClientRect();
@@ -2272,7 +2383,8 @@ const SeatingManagement: React.FC = () => {
                                    tableId: id, 
                                    currentName,
                                    currentClass: currentTable?.seat_class || 'A',
-                                   currentCount: currentTable?.seats_count || 12
+                                  currentCount: currentTable?.seats_count || 12,
+                                  currentOrientation: getTableOrientation(id)
                                 });
                              }
                           }}
@@ -2530,7 +2642,7 @@ const SeatingManagement: React.FC = () => {
 
               {/* Edit Table Modal */}
               {editTableModal.isOpen && (
-                 <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setEditTableModal({isOpen: false, tableId: '', currentName: '', currentClass: 'A', currentCount: 12})}>
+                 <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setEditTableModal({isOpen: false, tableId: '', currentName: '', currentClass: 'A', currentCount: 12, currentOrientation: 'horizontal'})}>
                     <div className="bg-slate-900 border border-slate-700 rounded-xl w-full max-w-sm p-6 flex flex-col gap-4 shadow-2xl" onClick={e => e.stopPropagation()}>
                        <h3 className="text-lg font-bold text-white">تعديل تفاصيل الترابيزة</h3>
                        
@@ -2584,10 +2696,11 @@ const SeatingManagement: React.FC = () => {
                                     table_id: editTableModal.tableId, 
                                     name: editTableModal.currentName,
                                     seat_class: editTableModal.currentClass,
-                                    chairs_count: editTableModal.currentCount
+                                   chairs_count: editTableModal.currentCount,
+                                   orientation: editTableModal.currentOrientation
                                  });
                                  await loadMap();
-                                 setEditTableModal({isOpen: false, tableId: '', currentName: '', currentClass: 'A', currentCount: 12});
+                                setEditTableModal({isOpen: false, tableId: '', currentName: '', currentClass: 'A', currentCount: 12, currentOrientation: 'horizontal'});
                               } catch(e: any) {
                                  alert(e.message || 'فشل تعديل الترابيزة');
                               } finally {
@@ -2599,7 +2712,7 @@ const SeatingManagement: React.FC = () => {
                            حفظ التعديلات
                          </button>
                          <button 
-                           onClick={() => setEditTableModal({isOpen: false, tableId: '', currentName: '', currentClass: 'A', currentCount: 12})}
+                          onClick={() => setEditTableModal({isOpen: false, tableId: '', currentName: '', currentClass: 'A', currentCount: 12, currentOrientation: 'horizontal'})}
                            className="flex-1 py-2 bg-slate-800 text-white rounded-lg hover:bg-slate-700 transition"
                          >
                            إلغاء
@@ -2716,6 +2829,15 @@ const SeatingManagement: React.FC = () => {
                         onChange={(e) => setElementControls((p) => (p ? { ...p, width: Number(e.target.value) } : p))}
                         className="w-full px-2 py-1.5 bg-slate-800 border border-slate-700 rounded text-xs text-white"
                       />
+                      <label className="text-sm text-slate-300">اتجاه الترابيزة</label>
+                      <select
+                        value={editTableModal.currentOrientation}
+                        onChange={e => setEditTableModal(p => ({...p, currentOrientation: e.target.value as 'horizontal' | 'vertical'}))}
+                        className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white"
+                      >
+                        <option value="horizontal">أفقي</option>
+                        <option value="vertical">رأسي</option>
+                      </select>
                     </div>
                     <div>
                       <label className="text-[11px] text-slate-400">الارتفاع</label>

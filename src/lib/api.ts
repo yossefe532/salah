@@ -158,14 +158,18 @@ const getSeatCapacity = (governorate?: string, seatClass?: string) => {
 };
 
 const getEffectiveTicketPrice = (seatClass: string, override?: number | null) => {
-  if (override && !Number.isNaN(Number(override)) && Number(override) > 0) {
+  if (override !== undefined && override !== null && !Number.isNaN(Number(override)) && Number(override) >= 0) {
     return Number(override);
   }
   return SEAT_PRICES[seatClass] || 0;
 };
 
 const getBaseTicketPrice = (payload: any) => {
-  if (payload?.ticket_price_override !== undefined && payload?.ticket_price_override !== null && Number(payload.ticket_price_override) > 0) {
+  const hasOverride = payload?.ticket_price_override !== undefined
+    && payload?.ticket_price_override !== null
+    && payload?.ticket_price_override !== ''
+    && !Number.isNaN(Number(payload.ticket_price_override));
+  if (hasOverride) {
     return Number(payload.ticket_price_override);
   }
   if (payload?.base_ticket_price !== undefined && payload?.base_ticket_price !== null && Number(payload.base_ticket_price) > 0) {
@@ -175,7 +179,10 @@ const getBaseTicketPrice = (payload: any) => {
 };
 
 const getCertificateIncluded = (payload: any) => {
-  const hasCustomPrice = payload?.ticket_price_override !== undefined && payload?.ticket_price_override !== null && Number(payload.ticket_price_override) > 0;
+  const hasCustomPrice = payload?.ticket_price_override !== undefined
+    && payload?.ticket_price_override !== null
+    && payload?.ticket_price_override !== ''
+    && !Number.isNaN(Number(payload.ticket_price_override));
   if (!hasCustomPrice) return true;
   if (payload?.certificate_included === undefined || payload?.certificate_included === null) return false;
   return Boolean(payload.certificate_included);
@@ -300,17 +307,21 @@ const normalizeAttendeePricing = (attendee: any) => {
   if (!attendee) return attendee;
   const hydrated = applyAttendeeMeta(attendee);
   const classDefault = SEAT_PRICES[hydrated.seat_class] || 0;
-  const override = Number(hydrated.ticket_price_override || 0);
+  const hasOverride = hydrated.ticket_price_override !== undefined
+    && hydrated.ticket_price_override !== null
+    && hydrated.ticket_price_override !== ''
+    && !Number.isNaN(Number(hydrated.ticket_price_override));
+  const override = hasOverride ? Number(hydrated.ticket_price_override) : 0;
   const existingBase = Number(hydrated.base_ticket_price || 0);
   const payment = Number(hydrated.payment_amount || 0);
 
-  let base = override > 0 ? override : (existingBase > 0 ? existingBase : classDefault);
-  if (base === classDefault && (!existingBase && !override) && hydrated.payment_type === 'full' && payment > 0 && payment < classDefault) {
+  let base = hasOverride ? override : (existingBase > 0 ? existingBase : classDefault);
+  if (base === classDefault && (!existingBase && !hasOverride) && hydrated.payment_type === 'full' && payment > 0 && payment < classDefault) {
     base = payment;
   }
 
   const remaining = Math.max(0, base - payment);
-  const hasCustom = override > 0 || (base > 0 && base !== classDefault);
+  const hasCustom = hasOverride || (base >= 0 && base !== classDefault);
   const certificate = hasCustom
     ? (hydrated.certificate_included === undefined || hydrated.certificate_included === null ? false : Boolean(hydrated.certificate_included))
     : true;
@@ -1449,6 +1460,7 @@ export const api = {
       const newClass = body?.seat_class;
       const requestedCount = Number(body?.chairs_count);
       const newCount = Number.isFinite(requestedCount) ? Math.max(1, Math.floor(requestedCount)) : 1;
+      const orientation: 'horizontal' | 'vertical' = body?.orientation === 'vertical' ? 'vertical' : 'horizontal';
       
       const { data: table } = await supabase.from('seat_tables').select('*').eq('id', tableId).single();
       if (!table) throw new Error('Table not found');
@@ -1484,6 +1496,43 @@ export const api = {
         if (updateTableError) throw new Error(updateTableError.message);
       }
       
+      const reflowSeatsSymmetric = (seatsList: any[], countForLayout: number) => {
+         if (!seatsList.length) return;
+         const xs = existingSeats.map(s => Number(s.position_x || 0));
+         const ys = existingSeats.map(s => Number(s.position_y || 0));
+         const minX = existingSeats.length > 0 ? Math.min(...xs) : 50;
+         const maxX = existingSeats.length > 0 ? Math.max(...xs) : 50;
+         const minY = existingSeats.length > 0 ? Math.min(...ys) : 50;
+         const maxY = existingSeats.length > 0 ? Math.max(...ys) : 50;
+         const cx = (minX + maxX) / 2;
+         const cy = (minY + maxY) / 2;
+         const primaryCount = Math.ceil(countForLayout / 2);
+         const secondaryCount = Math.floor(countForLayout / 2);
+
+         for (let i = 0; i < seatsList.length; i++) {
+           const s = seatsList[i];
+           const inPrimary = i < primaryCount;
+           const laneCount = inPrimary ? primaryCount : secondaryCount;
+           const lanePos = inPrimary ? i : i - primaryCount;
+
+           if (orientation === 'vertical') {
+             const colHeight = (laneCount - 1) * 2.8;
+             const colStartY = cy - (colHeight / 2);
+             const newY = colStartY + lanePos * 2.8;
+             const newX = cx + (inPrimary ? -2.8 : 2.8);
+             s.position_x = newX;
+             s.position_y = newY;
+           } else {
+             const rowWidth = (laneCount - 1) * 3.5;
+             const rowStartX = cx - (rowWidth / 2);
+             const newX = rowStartX + lanePos * 3.5;
+             const newY = minY + (inPrimary ? 0 : 5);
+             s.position_x = newX;
+             s.position_y = newY;
+           }
+         }
+      };
+
       if (newCount !== currentCount) {
          let finalSeatsList: any[] = [];
          const seatsToInsert: any[] = [];
@@ -1532,35 +1581,10 @@ export const api = {
          // Sort final list by seat_number
          finalSeatsList.sort((a, b) => Number(a.seat_number) - Number(b.seat_number));
 
-         // Calculate symmetric positions
-         const xs = existingSeats.map(s => Number(s.position_x || 0));
-         const ys = existingSeats.map(s => Number(s.position_y || 0));
-         const minX = existingSeats.length > 0 ? Math.min(...xs) : 50;
-         const maxX = existingSeats.length > 0 ? Math.max(...xs) : 50;
-         const minY = existingSeats.length > 0 ? Math.min(...ys) : 50;
-         const cx = (minX + maxX) / 2;
-         const by = minY;
-         
-         const topCount = Math.ceil(newCount / 2);
-         const bottomCount = Math.floor(newCount / 2);
+         reflowSeatsSymmetric(finalSeatsList, newCount);
 
          for (let i = 0; i < finalSeatsList.length; i++) {
              const s = finalSeatsList[i];
-             const isTop = i < topCount;
-             const rowCount = isTop ? topCount : bottomCount;
-             const posInRow = isTop ? i : i - topCount;
-             
-             // Center each row symmetrically based on its count
-             const rowWidth = (rowCount - 1) * 3.5;
-             const rowStartX = cx - (rowWidth / 2);
-             
-             const newX = rowStartX + posInRow * 3.5;
-             const newY = by + (isTop ? 0 : 5);
-
-             s.position_x = newX;
-             s.position_y = newY;
-
-
              if (!s.isNew) {
                  const newSeatCode = buildSeatCode(newClass as any, table.row_number, 'left', tableOrder, s.seat_number).replace(`T${tableOrder}`, `T${newName}`);
                  const newSeatId = `${nextTableId}-S${s.seat_number}`;
@@ -1570,8 +1594,8 @@ export const api = {
                     table_id: nextTableId,
                     seat_class: newClass,
                     seat_code: newSeatCode,
-                    position_x: newX,
-                    position_y: newY
+                    position_x: Number(s.position_x || 0),
+                    position_y: Number(s.position_y || 0)
                  });
              }
          }
@@ -1610,14 +1634,18 @@ export const api = {
 
       } else {
          // Count didn't change, just update metadata if needed
-         for (const s of existingSeats) {
+         const stableSeats = [...existingSeats].sort((a, b) => Number(a.seat_number) - Number(b.seat_number));
+         reflowSeatsSymmetric(stableSeats, stableSeats.length);
+         for (const s of stableSeats) {
             const newSeatCode = buildSeatCode(newClass as any, table.row_number, 'left', tableOrder, s.seat_number).replace(`T${tableOrder}`, `T${newName}`);
             const newSeatId = `${nextTableId}-S${s.seat_number}`;
             const { error: updateSeatError } = await supabase.from('seats').update({
                id: newSeatId,
                table_id: nextTableId,
                seat_class: newClass,
-               seat_code: newSeatCode
+               seat_code: newSeatCode,
+               position_x: Number(s.position_x || 0),
+               position_y: Number(s.position_y || 0)
             }).eq('id', s.id);
             if (updateSeatError) throw new Error(updateSeatError.message);
          }
@@ -2015,7 +2043,18 @@ export const api = {
 
       for (const item of updates) {
         if (['element', 'stage', 'aisle', 'blocked'].includes(item.type)) {
-           await supabase.from('layout_elements').update({ position_x: Number(item.position_x ?? 0), position_y: Number(item.position_y ?? 0) }).eq('event_id', eventId).eq('id', item.id);
+           const nextElementPayload: any = {
+             position_x: Number(item.position_x ?? 0),
+             position_y: Number(item.position_y ?? 0)
+           };
+           if (item.width !== undefined) nextElementPayload.width = Number(item.width ?? 8);
+           if (item.height !== undefined) nextElementPayload.height = Number(item.height ?? 4);
+           if (item.name !== undefined) nextElementPayload.name = item.name ?? null;
+           await supabase
+             .from('layout_elements')
+             .update(nextElementPayload)
+             .eq('event_id', eventId)
+             .eq('id', item.id);
         } else if (item.type === 'seat') {
            await supabase.from('seats').update({ position_x: Number(item.position_x ?? 0), position_y: Number(item.position_y ?? 0) }).eq('event_id', eventId).eq('id', item.id);
         }
@@ -3009,7 +3048,7 @@ export const api = {
       // Restrict custom price to owners only
       if (body.created_by) {
         const { data: creator } = await supabase.from('users').select('id, role').eq('id', body.created_by).single();
-        if (creator && creator.role === 'social_media' && body.ticket_price_override) {
+        if (creator && creator.role === 'social_media' && body.ticket_price_override !== undefined && body.ticket_price_override !== null && body.ticket_price_override !== '') {
           throw new Error('السعر المخصص للتذكرة مسموح للمالك فقط');
         }
       }
@@ -3140,7 +3179,7 @@ export const api = {
       if (oldRecord.lead_status !== 'under_review') throw new Error('هذا العميل تم التعامل معه مسبقًا');
 
       // Social cannot set custom ticket price
-      if (body.ticket_price_override) {
+      if (body.ticket_price_override !== undefined && body.ticket_price_override !== null && body.ticket_price_override !== '') {
         throw new Error('السعر المخصص للتذكرة مسموح للمالك فقط');
       }
 
