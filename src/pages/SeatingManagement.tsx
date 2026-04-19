@@ -49,6 +49,74 @@ const statusLabel: Record<string, string> = {
   vip: 'VIP'
 };
 
+const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
+
+const parseElementMeta = (element: any) => {
+  const fallback = {
+    label: element?.name || '',
+    shape: element?.type === 'aisle' ? 'line' : 'rect',
+    startX: Number(element?.position_x || 0),
+    startY: Number(element?.position_y || 0),
+    endX: Number((element?.position_x || 0) + (element?.width || 8)),
+    endY: Number((element?.position_y || 0) + (element?.height || 0)),
+    lineWidth: 14
+  };
+  try {
+    if (element?.name && String(element.name).startsWith('{')) {
+      const parsed = JSON.parse(String(element.name));
+      return {
+        ...fallback,
+        ...parsed,
+        lineWidth: clamp(Number(parsed?.lineWidth || fallback.lineWidth), 6, 120)
+      };
+    }
+  } catch {
+    // Keep fallback
+  }
+  return fallback;
+};
+
+const getElementLineGeometryPx = (element: any) => {
+  const meta = parseElementMeta(element);
+  const originX = Math.min(Number(meta.startX || 0), Number(meta.endX || 0));
+  const originY = Math.min(Number(meta.startY || 0), Number(meta.endY || 0));
+  const deltaX = (Number(element?.position_x || 0) - originX) * 8;
+  const deltaY = (Number(element?.position_y || 0) - originY) * 4;
+  const startXPx = Number(meta.startX || 0) * 8 + deltaX;
+  const startYPx = Number(meta.startY || 0) * 4 + deltaY;
+  const endXPx = Number(meta.endX || 0) * 8 + deltaX;
+  const endYPx = Number(meta.endY || 0) * 4 + deltaY;
+  const lineWidthPx = clamp(Number(meta.lineWidth || 14), 6, 120);
+  return {
+    meta,
+    startXPx,
+    startYPx,
+    endXPx,
+    endYPx,
+    lineWidthPx,
+    lengthPx: Math.hypot(endXPx - startXPx, endYPx - startYPx),
+    angleDeg: Math.atan2(endYPx - startYPx, endXPx - startXPx) * 180 / Math.PI
+  };
+};
+
+const getElementBoundsPx = (element: any) => {
+  const meta = parseElementMeta(element);
+  const isLine = element?.type === 'aisle' || meta.shape === 'line';
+  if (isLine) {
+    const geo = getElementLineGeometryPx(element);
+    const minX = Math.min(geo.startXPx, geo.endXPx) - geo.lineWidthPx / 2;
+    const maxX = Math.max(geo.startXPx, geo.endXPx) + geo.lineWidthPx / 2;
+    const minY = Math.min(geo.startYPx, geo.endYPx) - geo.lineWidthPx / 2;
+    const maxY = Math.max(geo.startYPx, geo.endYPx) + geo.lineWidthPx / 2;
+    return { left: minX, top: minY, right: maxX, bottom: maxY };
+  }
+  const x = Number(element?.position_x || 0) * 8;
+  const y = Number(element?.position_y || 0) * 4;
+  const w = Number(element?.width || 8) * 8;
+  const h = Number(element?.height || 4) * 4;
+  return { left: x, top: y, right: x + w, bottom: y + h };
+};
+
 const SeatNode = React.memo(({ seat, selected, mode, onSeatClick, onSeatDoubleClick, onDragStart, inGroup }: any) => {
   return (
     <button
@@ -61,10 +129,11 @@ const SeatNode = React.memo(({ seat, selected, mode, onSeatClick, onSeatDoubleCl
          onSeatDoubleClick(seat);
       }}
       onMouseDown={(e) => {
+         e.preventDefault();
          e.stopPropagation();
          onDragStart(seat, 'seat', e.clientX, e.clientY, e.currentTarget, e);
       }}
-      className={`absolute text-[8px] w-6 h-6 rounded-full border flex flex-col items-center justify-center text-white ${selected ? 'bg-blue-600 ring-2 ring-blue-300 scale-110 z-10' : (statusColor[seat.status] || 'bg-slate-500')} ${mode === 'edit' ? 'cursor-move' : ''} ${inGroup ? 'outline outline-2 outline-orange-500 outline-dashed outline-offset-2 z-20' : 'border-white/20'}`}
+      className={`absolute select-none text-[8px] w-6 h-6 rounded-full border flex flex-col items-center justify-center text-white ${selected ? 'bg-blue-600 ring-2 ring-blue-300 scale-110 z-10' : (statusColor[seat.status] || 'bg-slate-500')} ${mode === 'edit' ? 'cursor-move' : ''} ${inGroup ? 'outline outline-2 outline-orange-500 outline-dashed outline-offset-2 z-20' : 'border-white/20'}`}
       style={{
         left: `${Number(seat.position_x || 0) * 8}px`,
         top: `${Number(seat.position_y || 0) * 4}px`
@@ -92,10 +161,11 @@ const TableNode = React.memo(({ box, selected, mode, onDoubleClick, onDragStart,
          onDoubleClick(box.id, box.id.split('-T')[1]);
       }}
       onMouseDown={(e) => {
+         e.preventDefault();
          e.stopPropagation();
          onDragStart(box, 'table', e.clientX, e.clientY, e.currentTarget, e);
       }}
-      className={`absolute border-2 ${selected ? 'border-red-500 bg-red-500/40' : 'border-indigo-400 bg-indigo-600/30'} rounded-lg flex flex-col items-center justify-center ${mode === 'edit' ? 'cursor-move' : 'cursor-pointer hover:bg-indigo-500/50'} ${inGroup ? 'outline outline-2 outline-orange-500 outline-dashed outline-offset-4 z-20' : ''} transition-colors`}
+      className={`absolute select-none border-2 ${selected ? 'border-red-500 bg-red-500/40' : 'border-indigo-400 bg-indigo-600/30'} rounded-lg flex flex-col items-center justify-center ${mode === 'edit' ? 'cursor-move' : 'cursor-pointer hover:bg-indigo-500/50'} ${inGroup ? 'outline outline-2 outline-orange-500 outline-dashed outline-offset-4 z-20' : ''} transition-colors`}
         style={{ left: box.x, top: box.y, width: box.w, height: box.h }}
         title={box.id}
       >
@@ -464,7 +534,17 @@ const SeatingManagement: React.FC = () => {
     shape: string;
     count: number;
     seatClass: string;
-  }>({ isOpen: false, type: '', startX: 0, startY: 0, endX: 0, endY: 0, name: '', shape: 'rect', count: 10, seatClass: 'C' });
+    aisleWidth: number;
+  }>({ isOpen: false, type: '', startX: 0, startY: 0, endX: 0, endY: 0, name: '', shape: 'rect', count: 10, seatClass: 'C', aisleWidth: 18 });
+  const [elementControls, setElementControls] = useState<{
+    id: string;
+    elementType: string;
+    label: string;
+    shape: string;
+    width: number;
+    height: number;
+    lineWidth: number;
+  } | null>(null);
 
   const commitDraftHistory = useCallback((nextDraft: Record<string, any>) => {
     const base = history.slice(0, historyIndex + 1);
@@ -543,6 +623,51 @@ const SeatingManagement: React.FC = () => {
           }));
       return [...baseEls, ...newEls];
   }, [payload.layout_elements, layoutDraft]);
+
+  const mergeElementsFromDraft = useCallback((draft: Record<string, any>) => {
+    const baseEls = (payload.layout_elements || []).filter((el) => !(draft?.[el.id] as any)?.is_deleted);
+    const mergedBase = baseEls.map((el) => {
+      const patch = draft?.[el.id] as any;
+      if (!patch || patch.is_new) return el;
+      return {
+        ...el,
+        position_x: patch.position_x !== undefined ? Number(patch.position_x) : Number(el.position_x || 0),
+        position_y: patch.position_y !== undefined ? Number(patch.position_y) : Number(el.position_y || 0),
+        width: patch.width !== undefined ? Number(patch.width) : Number(el.width || 8),
+        height: patch.height !== undefined ? Number(patch.height) : Number(el.height || 4),
+        name: patch.name !== undefined ? patch.name : el.name
+      } as any;
+    });
+    const newEls = Object.entries(draft || {})
+      .filter(([_, v]) => (v as any)?.is_new && ['element', 'stage', 'aisle', 'blocked'].includes((v as any)?.type))
+      .map(([id, v]: any) => ({ id, ...v }));
+    return [...mergedBase, ...newEls];
+  }, [payload.layout_elements]);
+
+  const validateLayoutElements = useCallback((elements: any[]) => {
+    const active = (elements || []).filter((e) => !((e as any)?.is_deleted));
+    const stageCount = active.filter((e) => String(e?.type) === 'stage').length;
+    if (stageCount > 1) return 'مسموح بمسرح واحد فقط داخل القاعة.';
+
+    for (const el of active) {
+      const meta = parseElementMeta(el);
+      if ((el.type === 'aisle' || meta.shape === 'line') && (meta.lineWidth < 6 || meta.lineWidth > 120)) {
+        return 'عرض الممر يجب أن يكون بين 6 و 120.';
+      }
+    }
+
+    const boxes = active.map((el) => ({ id: String(el.id), type: String(el.type), box: getElementBoundsPx(el) }));
+    for (let i = 0; i < boxes.length; i += 1) {
+      for (let j = i + 1; j < boxes.length; j += 1) {
+        const a = boxes[i];
+        const b = boxes[j];
+        const overlap = !(a.box.right <= b.box.left || b.box.right <= a.box.left || a.box.bottom <= b.box.top || b.box.bottom <= a.box.top);
+        if (!overlap) continue;
+        return `يوجد تداخل بين العناصر (${a.type}) و(${b.type}). حرّك أحدهما أو عدل الأبعاد.`;
+      }
+    }
+    return null;
+  }, []);
 
   const tableBoxes = useMemo(() => {
     const seatsByTable = new Map<string, Seat[]>();
@@ -913,6 +1038,59 @@ const SeatingManagement: React.FC = () => {
       });
   }, [attendees, focusSeat, mapSeats]);
 
+  useEffect(() => {
+    if (!selectedElement || selectedElement.type !== 'element') {
+      setElementControls(null);
+      return;
+    }
+    const el = mapElements?.find((x) => x.id === selectedElement.id);
+    if (!el) {
+      setElementControls(null);
+      return;
+    }
+    const meta = parseElementMeta(el);
+    setElementControls({
+      id: String(el.id),
+      elementType: String(el.type || 'element'),
+      label: String(meta.label || ''),
+      shape: String(meta.shape || 'rect'),
+      width: Number(el.width || 8),
+      height: Number(el.height || 4),
+      lineWidth: clamp(Number(meta.lineWidth || 14), 6, 120)
+    });
+  }, [selectedElement, mapElements]);
+
+  const applyElementControls = useCallback(() => {
+    if (!elementControls) return;
+    const target = mapElements?.find((x) => x.id === elementControls.id);
+    if (!target) return;
+    const nextDraft = { ...layoutDraft };
+    const meta = parseElementMeta(target);
+    const nextMeta = {
+      ...meta,
+      label: elementControls.label,
+      shape: elementControls.elementType === 'aisle' ? 'line' : elementControls.shape,
+      lineWidth: clamp(Number(elementControls.lineWidth || 14), 6, 120)
+    };
+    nextDraft[elementControls.id] = {
+      ...(nextDraft[elementControls.id] || {}),
+      type: target.type,
+      position_x: Number(nextDraft[elementControls.id]?.position_x ?? target.position_x ?? 0),
+      position_y: Number(nextDraft[elementControls.id]?.position_y ?? target.position_y ?? 0),
+      width: clamp(Number(elementControls.width || target.width || 8), 1, 400),
+      height: clamp(Number(elementControls.height || target.height || 4), 1, 400),
+      name: JSON.stringify(nextMeta)
+    };
+    const candidateElements = mergeElementsFromDraft(nextDraft);
+    const validationError = validateLayoutElements(candidateElements);
+    if (validationError) {
+      setError(validationError);
+      return;
+    }
+    setLayoutDraft(nextDraft);
+    commitDraftHistory(nextDraft);
+  }, [elementControls, mapElements, layoutDraft, mergeElementsFromDraft, validateLayoutElements, commitDraftHistory]);
+
   const findLinkedNeighbor = useCallback((attendeeId: string) => {
     const current = attendees.find((a) => a.id === attendeeId);
     if (!current) return null;
@@ -1278,6 +1456,11 @@ const SeatingManagement: React.FC = () => {
     setLoading(true);
     setError(null);
     try {
+      const candidateElements = mergeElementsFromDraft(layoutDraft);
+      const validationError = validateLayoutElements(candidateElements);
+      if (validationError) {
+        throw new Error(validationError);
+      }
       const updates = [];
       const deletions = [];
       const inserts: any = { seats: [], elements: [] };
@@ -1483,6 +1666,7 @@ const SeatingManagement: React.FC = () => {
 
   const handleCanvasMouseDown = (e: React.MouseEvent) => {
      if (mainMode !== 'edit') return;
+     e.preventDefault();
      const isBgClick = e.target === e.currentTarget || (e.target as HTMLElement).id === 'seating-canvas-inner' || (e.target as HTMLElement).classList.contains('bg-grid');
      
      if (isBgClick) {
@@ -2001,11 +2185,10 @@ const SeatingManagement: React.FC = () => {
             <div className="text-xs text-slate-400">سحب وإفلات في مود التعديل لتغيير المكان</div>
           </div>
           <div className="rounded-lg border border-slate-800 bg-slate-950 p-2">
-            <div className="h-12 rounded-md border border-indigo-800 bg-indigo-900/30 text-center font-bold flex items-center justify-center mb-3">STAGE / المسرح</div>
             <div id="seating-canvas-container" className="relative rounded-md border border-slate-800 overflow-auto" style={{ height: isMapFullscreen ? 'calc(100vh - 170px)' : 600 }}>
               <div
                 id="seating-canvas-inner"
-                className="relative min-w-[1600px] min-h-[1200px]"
+                className="relative min-w-[1600px] min-h-[1200px] select-none"
                 onMouseMove={(e) => onCanvasMove(e.clientX, e.clientY)}
                 onMouseDown={handleCanvasMouseDown}
                 onMouseUp={endDrag}
@@ -2013,6 +2196,8 @@ const SeatingManagement: React.FC = () => {
                 style={{
                   transform: `scale(${zoomLevel})`,
                   transformOrigin: 'top right',
+                  userSelect: 'none',
+                  WebkitUserSelect: 'none',
                   backgroundImage:
                     'linear-gradient(to right, rgba(148,163,184,0.08) 1px, transparent 1px), linear-gradient(to bottom, rgba(148,163,184,0.08) 1px, transparent 1px)',
                   backgroundSize: '24px 24px'
@@ -2036,7 +2221,7 @@ const SeatingManagement: React.FC = () => {
                            y1={drawState.startY / zoomLevel} 
                            x2={drawState.endX / zoomLevel} 
                            y2={drawState.endY / zoomLevel} 
-                           stroke="#f8fafc" strokeWidth="6" 
+                           stroke="#f8fafc" strokeWidth={drawModal.aisleWidth} 
                        />
                    </svg>
               )}
@@ -2118,28 +2303,30 @@ const SeatingManagement: React.FC = () => {
                   const y = draft ? draft.position_y * 4 : Number(el.position_y || 0) * 4;
                   const w = Number(el.width || 8) * 8;
                   const h = Number(el.height || 4) * 4;
-                  
-                  let meta = { label: el.name || '', shape: 'rect', startX: 0, startY: 0, endX: 0, endY: 0 };
-                  try { if (el.name && el.name.startsWith('{')) meta = JSON.parse(el.name); } catch(e) {}
+                  const meta = parseElementMeta(el);
                   
                   const isSelected = selectedGroup.includes(el.id) || selectedElement?.id === el.id;
                   const baseClasses = `absolute flex items-center justify-center transition-all ${mainMode === 'edit' ? (editModeState.action === 'move' ? 'cursor-move' : 'cursor-pointer') : ''} ${isSelected ? 'outline outline-2 outline-orange-500 outline-dashed outline-offset-2 z-[60]' : 'z-0'}`;
                   
                   if (el.type === 'aisle' || meta.shape === 'line') {
-                       const length = Math.hypot((meta.endX - meta.startX)*8, (meta.endY - meta.startY)*4);
-                       const angle = Math.atan2((meta.endY - meta.startY)*4, (meta.endX - meta.startX)*8) * 180 / Math.PI;
+                       const geo = getElementLineGeometryPx(el);
                        return (
                           <div 
                               key={el.id} 
                               className={`${baseClasses} bg-white/40 rounded-full hover:bg-white/60`} 
                               style={{
-                                  left: (meta.startX || 0) * 8, top: (meta.startY || 0) * 4,
-                                  width: length, height: 6, transform: `rotate(${angle}deg)`, transformOrigin: '0 0'
+                                  left: geo.startXPx, top: geo.startYPx,
+                                  width: geo.lengthPx, height: geo.lineWidthPx, transform: `rotate(${geo.angleDeg}deg)`, transformOrigin: '0 50%'
                               }} 
                               onMouseDown={(e) => {
+                                 e.preventDefault();
                                  if (mainMode === 'edit' && (e.ctrlKey || e.metaKey || e.shiftKey)) {
                                    e.stopPropagation();
                                    setSelectedGroup(prev => prev.includes(el.id) ? prev.filter(x => x !== el.id) : [...prev, el.id]);
+                                   setSelectedElement({ id: el.id, type: 'element' });
+                                 }
+                                 else if (mainMode === 'edit' && editModeState.action === 'edit_details') {
+                                   e.stopPropagation();
                                    setSelectedElement({ id: el.id, type: 'element' });
                                  }
                                  else if (mainMode === 'edit' && editModeState.action === 'move') { e.stopPropagation(); startDrag(el, 'element', e.clientX, e.clientY, e.currentTarget, e); }
@@ -2147,7 +2334,7 @@ const SeatingManagement: React.FC = () => {
                               }}
                               title={meta.label || 'ممر'}
                           >
-                              {meta.label && <span className="absolute -top-6 text-white/50 text-xs whitespace-nowrap pointer-events-none drop-shadow-md" style={{transform: `rotate(${-angle}deg)`}}>{meta.label}</span>}
+                              {meta.label && <span className="absolute -top-6 text-white/50 text-xs whitespace-nowrap pointer-events-none drop-shadow-md" style={{transform: `rotate(${-geo.angleDeg}deg)`}}>{meta.label}</span>}
                           </div>
                        );
                   }
@@ -2168,9 +2355,13 @@ const SeatingManagement: React.FC = () => {
                      <div 
                         key={el.id}
                         onMouseDown={(e) => {
+                           e.preventDefault();
                            if (mainMode === 'edit' && (e.ctrlKey || e.metaKey || e.shiftKey)) {
                               e.stopPropagation();
                               setSelectedGroup(prev => prev.includes(el.id) ? prev.filter(x => x !== el.id) : [...prev, el.id]);
+                              setSelectedElement({ id: el.id, type: 'element' });
+                           } else if (mainMode === 'edit' && editModeState.action === 'edit_details') {
+                              e.stopPropagation();
                               setSelectedElement({ id: el.id, type: 'element' });
                            } else if (mainMode === 'edit' && editModeState.action === 'move') {
                               e.stopPropagation();
@@ -2240,6 +2431,22 @@ const SeatingManagement: React.FC = () => {
                           </>
                        )}
 
+                       {drawModal.type === 'aisle' && (
+                         <>
+                           <label className="text-sm text-slate-300">عرض الممر</label>
+                           <input
+                             type="range"
+                             min={6}
+                             max={120}
+                             step={1}
+                             value={drawModal.aisleWidth}
+                             onChange={(e) => setDrawModal((p) => ({ ...p, aisleWidth: Number(e.target.value) }))}
+                             className="w-full"
+                           />
+                           <div className="text-xs text-slate-400">العرض الحالي: {drawModal.aisleWidth}px</div>
+                         </>
+                       )}
+
                        <div className="flex gap-2 mt-4">
                          <button 
                            onClick={async () => {
@@ -2273,7 +2480,15 @@ const SeatingManagement: React.FC = () => {
                                       const py = Math.min(drawModal.startY, drawModal.endY);
                                       const w = Math.abs(drawModal.endX - drawModal.startX);
                                       const h = Math.abs(drawModal.endY - drawModal.startY);
-                                      const meta = JSON.stringify({ label: drawModal.name, shape: drawModal.type === 'aisle' ? 'line' : drawModal.shape, startX: drawModal.startX, startY: drawModal.startY, endX: drawModal.endX, endY: drawModal.endY });
+                                      const meta = JSON.stringify({
+                                        label: drawModal.name,
+                                        shape: drawModal.type === 'aisle' ? 'line' : drawModal.shape,
+                                        startX: drawModal.startX,
+                                        startY: drawModal.startY,
+                                        endX: drawModal.endX,
+                                        endY: drawModal.endY,
+                                        lineWidth: drawModal.type === 'aisle' ? clamp(Number(drawModal.aisleWidth || 18), 6, 120) : undefined
+                                      });
                                       
                                       const newId = `local-element-${timestamp}`;
                                       nextDraft[newId] = {
@@ -2287,6 +2502,11 @@ const SeatingManagement: React.FC = () => {
                                       };
                                   }
                                   
+                                  const candidateElements = mergeElementsFromDraft(nextDraft);
+                                  const validationError = validateLayoutElements(candidateElements);
+                                  if (validationError) {
+                                    throw new Error(validationError);
+                                  }
                                   setLayoutDraft(nextDraft as any);
                                   commitDraftHistory(nextDraft as any);
                                   setDrawModal(p => ({...p, isOpen: false}));
@@ -2448,9 +2668,6 @@ const SeatingManagement: React.FC = () => {
               <div className="absolute top-[430px] left-4 text-xs text-indigo-200 bg-indigo-900/40 border border-indigo-700/50 px-2 py-1 rounded pointer-events-none">CLASS C</div>
               <div className="absolute top-10 left-6 text-[11px] text-slate-300 pointer-events-none">LEFT SECTION</div>
               <div className="absolute top-10 right-6 text-[11px] text-slate-300 pointer-events-none">RIGHT SECTION</div>
-              <div className="absolute top-0 bottom-0 left-1/2 -translate-x-1/2 w-7 bg-white/10 border-x border-white/20 pointer-events-none" />
-              <div className="absolute top-16 left-8 w-5 h-20 bg-white/20 rounded pointer-events-none" />
-              <div className="absolute top-16 right-8 w-5 h-20 bg-white/20 rounded pointer-events-none" />
               </div>
             </div>
           </div>
@@ -2467,6 +2684,69 @@ const SeatingManagement: React.FC = () => {
               <div className="flex items-center gap-2"><span className="w-3 h-3 rounded-full bg-blue-600" /> Selected</div>
             </div>
           </div>
+
+          {mainMode === 'edit' && editModeState.action === 'edit_details' && (
+            <div className="rounded-xl border border-indigo-800 bg-indigo-950/20 p-4 space-y-3">
+              <h2 className="text-sm font-bold text-indigo-200">تحكم المسرح/الممر</h2>
+              {!elementControls ? (
+                <div className="text-xs text-slate-400">اختر مسرحًا أو ممرًا من الخريطة لعرض أدوات التحكم.</div>
+              ) : (
+                <>
+                  <div className="text-xs text-slate-300">النوع: {elementControls.elementType === 'stage' ? 'مسرح' : elementControls.elementType === 'aisle' ? 'ممر' : elementControls.elementType}</div>
+                  <input
+                    value={elementControls.label}
+                    onChange={(e) => setElementControls((p) => (p ? { ...p, label: e.target.value } : p))}
+                    placeholder="اسم العنصر"
+                    className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded text-xs text-white"
+                  />
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="text-[11px] text-slate-400">العرض</label>
+                      <input
+                        type="number"
+                        min={1}
+                        max={400}
+                        value={elementControls.width}
+                        onChange={(e) => setElementControls((p) => (p ? { ...p, width: Number(e.target.value) } : p))}
+                        className="w-full px-2 py-1.5 bg-slate-800 border border-slate-700 rounded text-xs text-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[11px] text-slate-400">الارتفاع</label>
+                      <input
+                        type="number"
+                        min={1}
+                        max={400}
+                        value={elementControls.height}
+                        onChange={(e) => setElementControls((p) => (p ? { ...p, height: Number(e.target.value) } : p))}
+                        className="w-full px-2 py-1.5 bg-slate-800 border border-slate-700 rounded text-xs text-white"
+                      />
+                    </div>
+                  </div>
+                  {(elementControls.elementType === 'aisle' || elementControls.shape === 'line') && (
+                    <div>
+                      <label className="text-[11px] text-slate-400">عرض الممر: {Math.round(elementControls.lineWidth)}px</label>
+                      <input
+                        type="range"
+                        min={6}
+                        max={120}
+                        step={1}
+                        value={elementControls.lineWidth}
+                        onChange={(e) => setElementControls((p) => (p ? { ...p, lineWidth: Number(e.target.value) } : p))}
+                        className="w-full"
+                      />
+                    </div>
+                  )}
+                  <button
+                    onClick={applyElementControls}
+                    className="w-full rounded-md bg-indigo-600 hover:bg-indigo-500 text-xs font-bold py-2"
+                  >
+                    حفظ تعديل العنصر
+                  </button>
+                </>
+              )}
+            </div>
+          )}
 
           <div className="rounded-xl border border-slate-800 bg-slate-900 p-4 space-y-3">
             <h2 className="text-sm font-bold">بحث منطقي في التسكين</h2>
