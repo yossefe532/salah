@@ -34,8 +34,8 @@ const Dashboard: React.FC = () => {
 
   const fetchStats = useCallback(async () => {
     try {
-      const attendees: Attendee[] = await api.get('/attendees');
-      const companyDaily = await api.get('/company-daily-report');
+      const attendees: Attendee[] = await api.get('/attendees?lite=1').catch(() => []);
+      const companyDaily = await api.get('/company-daily-report').catch(() => []);
       // Fetch Activity Logs
       const { data: logs } = await supabase.from('activity_logs').select('*').order('created_at', { ascending: false }).limit(10);
       const { data: expensesData } = await supabase.from('expenses').select('amount');

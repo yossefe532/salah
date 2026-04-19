@@ -1,6 +1,6 @@
 import React, { useCallback, useMemo, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { supabase } from '../lib/api';
+import { api, supabase } from '../lib/api';
 import { Attendee, Expense, ExpenseCategory, Sponsor, SponsorContract, SponsorPayment, User } from '../types';
 import { Loader2 } from 'lucide-react';
 
@@ -55,9 +55,8 @@ const Finance: React.FC = () => {
       setLoading(true);
       setError(null);
 
-      const { data: attendeesData, error: attendeesErr } = await supabase.from('attendees').select('*').eq('is_deleted', false);
-      if (attendeesErr) throw attendeesErr;
-      setAttendees((attendeesData || []) as Attendee[]);
+      const attendeesData = await api.get('/attendees?lite=1').catch(() => []);
+      setAttendees((Array.isArray(attendeesData) ? attendeesData : []) as Attendee[]);
 
       const { data: expensesData, error: expensesErr } = await supabase.from('expenses').select('*, expense_categories(*)').order('expense_date', { ascending: false });
       setExpenses(isMissingTableError(expensesErr) ? [] : ((expensesData || []) as Expense[]));

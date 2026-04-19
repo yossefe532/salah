@@ -51,6 +51,27 @@ const getMissingAttendeeColumn = (error: any) => {
   return match[2] || match[4] || match[6] || match[8] || null;
 };
 
+const runAttendeesSelectWithSchemaFallback = async (
+  buildQuery: (selectClause: string) => any,
+  desiredColumns: string[]
+) => {
+  let columns = [...desiredColumns];
+  let attempts = 0;
+
+  while (columns.length > 0 && attempts <= desiredColumns.length) {
+    const { data, error } = await buildQuery(columns.join(','));
+    const missingColumn = getMissingAttendeeColumn(error);
+    if (error && missingColumn && columns.includes(missingColumn)) {
+      columns = columns.filter((column) => column !== missingColumn);
+      attempts += 1;
+      continue;
+    }
+    return { data, error, columns };
+  }
+
+  return { data: [], error: null, columns: [] as string[] };
+};
+
 const normalizeWarningsArray = (warnings: any) => Array.isArray(warnings)
   ? warnings.filter((item) => typeof item === 'string')
   : [];
@@ -1264,6 +1285,40 @@ export const api = {
       const barcodeMatch = endpoint.match(/barcode=eq\.([^&]+)/);
       const idMatch = endpoint.match(/\/attendees\/([^\/?]+)/);
       
+      const attendeeListColumns = [
+        'id',
+        'full_name',
+        'full_name_en',
+        'phone_primary',
+        'phone_secondary',
+        'email_primary',
+        'governorate',
+        'seat_class',
+        'seat_number',
+        'barcode',
+        'status',
+        'payment_type',
+        'payment_amount',
+        'remaining_amount',
+        'commission_amount',
+        'ticket_price_override',
+        'base_ticket_price',
+        'certificate_included',
+        'attendance_status',
+        'sales_channel',
+        'sales_source_name',
+        'preferred_neighbor_name',
+        'preferred_neighbor_ids',
+        'ticket_printed',
+        'certificate_printed',
+        'qr_code',
+        'notes',
+        'created_at',
+        'updated_at',
+        'is_deleted',
+        'warnings'
+      ];
+
       if (idMatch) {
         const scoped = applyCompanyScopeToAttendeesQuery(
           supabase.from('attendees').select('*').eq('id', idMatch[1]),
@@ -1286,7 +1341,7 @@ export const api = {
       }
 
       let scoped = applyCompanyScopeToAttendeesQuery(
-        supabase.from('attendees').select('*'),
+        supabase.from('attendees').select((liteMode ? attendeeListColumns : attendeeListColumns).join(',')),
         currentUser
       );
       scoped = showTrash ? scoped.eq('is_deleted', true) : applyActiveAttendeesFilter(scoped);
@@ -1297,6 +1352,7 @@ export const api = {
       const paymentType = params.get('payment_type');
       const attendance = params.get('attendance');
       const q = params.get('q');
+      const safeSearch = q ? String(q).replace(/,/g, '').trim() : '';
 
       if (governorate) scoped = scoped.eq('governorate', governorate);
       if (seatClass) scoped = scoped.eq('seat_class', seatClass);
@@ -1320,21 +1376,61 @@ export const api = {
       if (barcodeMatch) {
          scoped = scoped.eq('barcode', barcodeMatch[1]);
       }
-      let { data, error } = await scoped.order('created_at', { ascending: false });
+      const buildScopedQuery = (selectClause: string) => {
+        let q = applyCompanyScopeToAttendeesQuery(
+          supabase.from('attendees').select(selectClause),
+          currentUser
+        );
+        q = showTrash ? q.eq('is_deleted', true) : applyActiveAttendeesFilter(q);
+        if (governorate) q = q.eq('governorate', governorate);
+        if (seatClass) q = q.eq('seat_class', seatClass);
+        if (status) q = q.eq('status', status);
+        if (paymentType === 'full' || paymentType === 'deposit') {
+          q = q.eq('payment_type', paymentType);
+        } else if (paymentType === 'zero_deposit') {
+          q = q.eq('payment_type', 'deposit').eq('payment_amount', 0);
+        }
+        if (attendance === 'present') q = q.eq('attendance_status', true);
+        if (attendance === 'absent') q = q.or('attendance_status.is.false,attendance_status.is.null');
+        if (safeSearch) q = q.or(`full_name.ilike.%${safeSearch}%,phone_primary.ilike.%${safeSearch}%,phone_secondary.ilike.%${safeSearch}%`);
+        if (barcodeMatch) q = q.eq('barcode', barcodeMatch[1]);
+        return q.order('created_at', { ascending: false });
+      };
+
+      const initialResult = await runAttendeesSelectWithSchemaFallback(buildScopedQuery, attendeeListColumns);
+      let { data, error } = initialResult;
       if (error && isMissingColumnError(error, 'company_id')) {
-        const fallbackBase = supabase
-          .from('attendees')
-          .select('*');
-        const fallback = showTrash
-          ? await fallbackBase.eq('is_deleted', true).order('created_at', { ascending: false })
-          : await fallbackBase.or('is_deleted.eq.false,is_deleted.is.null').order('created_at', { ascending: false });
-        data = fallback.data;
-        error = fallback.error;
+        const fallbackResult = await runAttendeesSelectWithSchemaFallback((selectClause) => {
+          let fallbackQuery = supabase.from('attendees').select(selectClause);
+          fallbackQuery = showTrash ? fallbackQuery.eq('is_deleted', true) : applyActiveAttendeesFilter(fallbackQuery);
+          if (governorate) fallbackQuery = fallbackQuery.eq('governorate', governorate);
+          if (seatClass) fallbackQuery = fallbackQuery.eq('seat_class', seatClass);
+          if (status) fallbackQuery = fallbackQuery.eq('status', status);
+          if (paymentType === 'full' || paymentType === 'deposit') {
+            fallbackQuery = fallbackQuery.eq('payment_type', paymentType);
+          } else if (paymentType === 'zero_deposit') {
+            fallbackQuery = fallbackQuery.eq('payment_type', 'deposit').eq('payment_amount', 0);
+          }
+          if (attendance === 'present') fallbackQuery = fallbackQuery.eq('attendance_status', true);
+          if (attendance === 'absent') fallbackQuery = fallbackQuery.or('attendance_status.is.false,attendance_status.is.null');
+          if (safeSearch) fallbackQuery = fallbackQuery.or(`full_name.ilike.%${safeSearch}%,phone_primary.ilike.%${safeSearch}%,phone_secondary.ilike.%${safeSearch}%`);
+          if (barcodeMatch) fallbackQuery = fallbackQuery.eq('barcode', barcodeMatch[1]);
+          return fallbackQuery.order('created_at', { ascending: false });
+        }, attendeeListColumns);
+        data = fallbackResult.data;
+        error = fallbackResult.error;
       }
       if (error) throw new Error(error.message);
       if (!showTrash && (!data || data.length === 0)) {
         // Safety fallback: if scoped/filtered query returns nothing unexpectedly, try raw active rows.
-        const raw = await supabase.from('attendees').select('*').order('created_at', { ascending: false });
+        const raw = await runAttendeesSelectWithSchemaFallback(
+          (selectClause) => supabase
+            .from('attendees')
+            .select(selectClause)
+            .not('is_deleted', 'is', true)
+            .order('created_at', { ascending: false }),
+          attendeeListColumns
+        );
         if (!raw.error && Array.isArray(raw.data) && raw.data.length > 0) {
           data = raw.data;
         }
@@ -1361,16 +1457,23 @@ export const api = {
       const since = new Date();
       since.setHours(0, 0, 0, 0);
       const sinceIso = since.toISOString();
-      const [{ data: companies }, { data: attendees }] = await Promise.all([
+      const [{ data: companies }, attendeesResult] = await Promise.all([
         supabase.from('companies').select('id, name').order('name', { ascending: true }),
-        supabase
-          .from('attendees')
-          .select('id, full_name, created_at, payment_amount, company_id, created_by')
-          .gte('created_at', sinceIso)
-          .or('is_deleted.eq.false,is_deleted.is.null')
+        runAttendeesSelectWithSchemaFallback(
+          (selectClause) => supabase
+            .from('attendees')
+            .select(selectClause)
+            .gte('created_at', sinceIso)
+            .not('is_deleted', 'is', true),
+          ['id', 'full_name', 'created_at', 'payment_amount', 'company_id', 'created_by']
+        )
       ]);
+      const attendees = Array.isArray(attendeesResult.data) ? attendeesResult.data : [];
+      if (attendeesResult.error && !getMissingAttendeeColumn(attendeesResult.error)) {
+        throw new Error(attendeesResult.error.message);
+      }
       return (companies || []).map((company: any) => {
-        const items = (attendees || []).filter((a: any) => a.company_id === company.id);
+        const items = (attendees || []).filter((a: any) => a.company_id && a.company_id === company.id);
         return {
           company_id: company.id,
           company_name: company.name,
