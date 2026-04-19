@@ -51,6 +51,8 @@ const statusLabel: Record<string, string> = {
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 
+const getLocalDraftKey = (eventId: string) => `seating-layout-draft:${eventId}`;
+
 const parseElementMeta = (element: any) => {
   const fallback = {
     label: element?.name || '',
@@ -117,8 +119,10 @@ const getElementBoundsPx = (element: any) => {
   return { left: x, top: y, right: x + w, bottom: y + h };
 };
 
-const SeatNode = React.memo(({ seat, selected, mode, onSeatClick, onSeatDoubleClick, onDragStart, inGroup }: any) => {
+const SeatNode = React.memo(({ seat, selected, mode, onSeatClick, onSeatDoubleClick, onDragStart, onTouchDragEnd, inGroup }: any) => {
   const lastTapRef = React.useRef(0);
+  const touchStartRef = React.useRef<{ x: number; y: number } | null>(null);
+  const touchMovedRef = React.useRef(false);
   return (
     <button
       onClick={(e) => {
@@ -137,6 +141,12 @@ const SeatNode = React.memo(({ seat, selected, mode, onSeatClick, onSeatDoubleCl
       onTouchEnd={(e) => {
         e.preventDefault();
         e.stopPropagation();
+        if (touchMovedRef.current) {
+          onTouchDragEnd?.();
+          touchMovedRef.current = false;
+          touchStartRef.current = null;
+          return;
+        }
         const now = Date.now();
         if (now - lastTapRef.current < 280) {
           onSeatDoubleClick(seat);
@@ -144,6 +154,24 @@ const SeatNode = React.memo(({ seat, selected, mode, onSeatClick, onSeatDoubleCl
           onSeatClick(seat);
         }
         lastTapRef.current = now;
+      }}
+      onTouchStart={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const t = e.touches[0];
+        touchStartRef.current = { x: t.clientX, y: t.clientY };
+        touchMovedRef.current = false;
+        if (mode === 'edit') {
+          onDragStart(seat, 'seat', t.clientX, t.clientY, e.currentTarget, e);
+        }
+      }}
+      onTouchMove={(e) => {
+        const start = touchStartRef.current;
+        if (!start) return;
+        const t = e.touches[0];
+        if (Math.hypot(t.clientX - start.x, t.clientY - start.y) > 6) {
+          touchMovedRef.current = true;
+        }
       }}
       className={`absolute select-none text-[8px] w-6 h-6 rounded-full border flex flex-col items-center justify-center text-white ${selected ? 'bg-blue-600 ring-2 ring-blue-300 scale-110 z-10' : (statusColor[seat.status] || 'bg-slate-500')} ${mode === 'edit' ? 'cursor-move' : ''} ${inGroup ? 'outline outline-2 outline-orange-500 outline-dashed outline-offset-2 z-20' : 'border-white/20'}`}
       style={{
@@ -165,8 +193,10 @@ const SeatNode = React.memo(({ seat, selected, mode, onSeatClick, onSeatDoubleCl
            prev.mode === next.mode;
   });
 
-const TableNode = React.memo(({ box, selected, mode, onDoubleClick, onDragStart, inGroup }: any) => {
+const TableNode = React.memo(({ box, selected, mode, onDoubleClick, onDragStart, onTouchDragEnd, inGroup }: any) => {
   const lastTapRef = React.useRef(0);
+  const touchStartRef = React.useRef<{ x: number; y: number } | null>(null);
+  const touchMovedRef = React.useRef(false);
   return (
     <div
       onDoubleClick={(e) => {
@@ -181,11 +211,35 @@ const TableNode = React.memo(({ box, selected, mode, onDoubleClick, onDragStart,
       onTouchEnd={(e) => {
          e.preventDefault();
          e.stopPropagation();
+         if (touchMovedRef.current) {
+            onTouchDragEnd?.();
+            touchMovedRef.current = false;
+            touchStartRef.current = null;
+            return;
+         }
          const now = Date.now();
          if (now - lastTapRef.current < 280) {
             onDoubleClick(box.id, box.id.split('-T')[1]);
          }
          lastTapRef.current = now;
+      }}
+      onTouchStart={(e) => {
+         e.preventDefault();
+         e.stopPropagation();
+         const t = e.touches[0];
+         touchStartRef.current = { x: t.clientX, y: t.clientY };
+         touchMovedRef.current = false;
+         if (mode === 'edit') {
+           onDragStart(box, 'table', t.clientX, t.clientY, e.currentTarget, e);
+         }
+      }}
+      onTouchMove={(e) => {
+         const start = touchStartRef.current;
+         if (!start) return;
+         const t = e.touches[0];
+         if (Math.hypot(t.clientX - start.x, t.clientY - start.y) > 6) {
+           touchMovedRef.current = true;
+         }
       }}
       className={`absolute select-none border-2 ${selected ? 'border-red-500 bg-red-500/40' : 'border-indigo-400 bg-indigo-600/30'} rounded-lg flex flex-col items-center justify-center ${mode === 'edit' ? 'cursor-move' : 'cursor-pointer hover:bg-indigo-500/50'} ${inGroup ? 'outline outline-2 outline-orange-500 outline-dashed outline-offset-4 z-20' : ''} transition-colors`}
         style={{ left: box.x, top: box.y, width: box.w, height: box.h }}
@@ -532,6 +586,7 @@ const SeatingManagement: React.FC = () => {
   const [versions, setVersions] = useState<LayoutVersionLite[]>([]);
   const [selectedVersionId, setSelectedVersionId] = useState('');
   const [versionName, setVersionName] = useState('');
+  const [localDraftExists, setLocalDraftExists] = useState(false);
   const [assignmentModal, setAssignmentModal] = useState<{isOpen: boolean, seat: Seat | null, isTableModal: boolean, tableId: string | null}>({isOpen: false, seat: null, isTableModal: false, tableId: null});
   const [zoomLevel, setZoomLevel] = useState(1);
   const [isMapFullscreen, setIsMapFullscreen] = useState(false);
@@ -592,6 +647,7 @@ const SeatingManagement: React.FC = () => {
   const lastMouseCanvasRef = useRef<{ x: number; y: number } | null>(null);
   const pinchStartDistanceRef = useRef<number | null>(null);
   const pinchStartZoomRef = useRef(1);
+  const localDraftCheckedEventRef = useRef<string>('');
 
   useEffect(() => { dragStateRef.current = dragState; }, [dragState]);
   useEffect(() => { layoutDraftRef.current = layoutDraft; }, [layoutDraft]);
@@ -608,6 +664,65 @@ const SeatingManagement: React.FC = () => {
     if (isMapFullscreen) document.body.style.overflow = 'hidden';
     return () => { document.body.style.overflow = originalOverflow; };
   }, [isMapFullscreen]);
+
+  const restoreLocalDraft = useCallback((silent = false) => {
+    try {
+      const raw = localStorage.getItem(getLocalDraftKey(eventId));
+      if (!raw) {
+        setLocalDraftExists(false);
+        return false;
+      }
+      const parsed = JSON.parse(raw);
+      const draft = parsed?.draft || {};
+      const hasAny = Object.keys(draft).length > 0;
+      setLocalDraftExists(hasAny);
+      if (!hasAny) return false;
+      if (!silent) {
+        const ok = window.confirm('تم العثور على مسودة محلية غير منشورة لهذه القاعة. هل تريد استرجاعها الآن؟');
+        if (!ok) return false;
+      }
+      setLayoutDraft(draft);
+      commitDraftHistory(draft);
+      return true;
+    } catch {
+      return false;
+    }
+  }, [eventId, commitDraftHistory]);
+
+  useEffect(() => {
+    const key = getLocalDraftKey(eventId);
+    if (Object.keys(layoutDraft).length === 0) {
+      setLocalDraftExists(Boolean(localStorage.getItem(key)));
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      try {
+        localStorage.setItem(key, JSON.stringify({ draft: layoutDraft, eventId, savedAt: new Date().toISOString() }));
+        setLocalDraftExists(true);
+      } catch {
+        // Ignore localStorage quota/availability issues.
+      }
+    }, 350);
+    return () => window.clearTimeout(timer);
+  }, [layoutDraft, eventId]);
+
+  useEffect(() => {
+    if (localDraftCheckedEventRef.current === eventId) return;
+    localDraftCheckedEventRef.current = eventId;
+    if (Object.keys(layoutDraft).length > 0) return;
+    // Try silent load once after event switch to avoid accidental loss after refresh.
+    restoreLocalDraft(true);
+  }, [eventId, layoutDraft, restoreLocalDraft]);
+
+  useEffect(() => {
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (Object.keys(layoutDraftRef.current || {}).length === 0) return;
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, []);
 
   const mapSeats = useMemo(() => {
     const baseSeats = payload.seats.filter(s => {
@@ -1612,6 +1727,10 @@ const SeatingManagement: React.FC = () => {
       await api.post('/seating/bulk-save', { event_id: eventId, updates, deletions, inserts });
       
       setLayoutDraft({});
+      try {
+        localStorage.removeItem(getLocalDraftKey(eventId));
+      } catch {}
+      setLocalDraftExists(false);
       setHistory([{}]);
       setHistoryIndex(0);
       await loadMap();
@@ -1821,6 +1940,26 @@ const SeatingManagement: React.FC = () => {
     return Math.hypot(dx, dy);
   };
 
+  const zoomAtClientPoint = useCallback((targetZoomRaw: number, clientX?: number, clientY?: number) => {
+    const container = document.getElementById('seating-canvas-container');
+    if (!container) {
+      setZoomLevel(Math.max(0.2, Math.min(3, targetZoomRaw)));
+      return;
+    }
+    const nextZoom = Math.max(0.2, Math.min(3, targetZoomRaw));
+    const rect = container.getBoundingClientRect();
+    const localX = clientX !== undefined ? (clientX - rect.left) : (container.clientWidth / 2);
+    const localY = clientY !== undefined ? (clientY - rect.top) : (container.clientHeight / 2);
+    const worldX = (container.scrollLeft + localX) / zoomLevel;
+    const worldY = (container.scrollTop + localY) / zoomLevel;
+
+    setZoomLevel(nextZoom);
+    requestAnimationFrame(() => {
+      container.scrollLeft = Math.max(0, worldX * nextZoom - localX);
+      container.scrollTop = Math.max(0, worldY * nextZoom - localY);
+    });
+  }, [zoomLevel]);
+
   const handleCanvasTouchStart = (e: React.TouchEvent) => {
     if (e.touches.length >= 2) {
       pinchStartDistanceRef.current = touchDistance(e.touches);
@@ -1829,7 +1968,22 @@ const SeatingManagement: React.FC = () => {
     }
     if (e.touches.length === 1) {
       const t = e.touches[0];
-      onCanvasMove(t.clientX, t.clientY);
+      const target = e.target as HTMLElement;
+      const isBgClick = target === e.currentTarget || target.id === 'seating-canvas-inner' || target.classList.contains('bg-grid');
+      if (mainMode === 'edit' && isBgClick) {
+        const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+        const startX = t.clientX - rect.left;
+        const startY = t.clientY - rect.top;
+        if (editModeState.action === 'add' && ['wave', 'stage', 'blocked', 'aisle'].includes(editModeState.addType || '')) {
+          setDrawState({ active: true, startX, startY, endX: startX, endY: startY });
+        } else {
+          marqueeBaseSelectionRef.current = [];
+          setSelectionBox({ startX, startY, endX: startX, endY: startY });
+          setSelectedGroup([]);
+        }
+      } else {
+        onCanvasMove(t.clientX, t.clientY);
+      }
     }
   };
 
@@ -1838,8 +1992,10 @@ const SeatingManagement: React.FC = () => {
       e.preventDefault();
       const nextDist = touchDistance(e.touches);
       const ratio = nextDist / pinchStartDistanceRef.current;
-      const targetZoom = Math.max(0.2, Math.min(3, Number((pinchStartZoomRef.current * ratio).toFixed(2))));
-      setZoomLevel(targetZoom);
+      const targetZoom = Number((pinchStartZoomRef.current * ratio).toFixed(2));
+      const centerX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+      const centerY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+      zoomAtClientPoint(targetZoom, centerX, centerY);
       return;
     }
     if (e.touches.length === 1) {
@@ -1850,6 +2006,7 @@ const SeatingManagement: React.FC = () => {
 
   const handleCanvasTouchEnd = () => {
     pinchStartDistanceRef.current = null;
+    endDrag();
   };
 
   const buildDraftFromDrag = useCallback((baseDraft: Record<string, any>, ds: any, clientX: number, clientY: number) => {
@@ -2196,6 +2353,7 @@ const SeatingManagement: React.FC = () => {
           <button onClick={undoLayout} disabled={historyIndex <= 0} className="px-3 py-2 rounded-md text-sm border border-slate-700 bg-slate-800 disabled:opacity-50">Undo</button>
           <button onClick={redoLayout} disabled={historyIndex >= history.length - 1} className="px-3 py-2 rounded-md text-sm border border-slate-700 bg-slate-800 disabled:opacity-50">Redo</button>
           <button onClick={publishLayoutDraft} disabled={!Object.keys(layoutDraft).length || loading} className="px-3 py-2 rounded-md text-sm bg-indigo-600 disabled:opacity-50">نشر تعديلات التخطيط</button>
+          <button onClick={() => restoreLocalDraft(false)} disabled={!localDraftExists} className="px-3 py-2 rounded-md text-sm border border-amber-700 bg-amber-900/40 disabled:opacity-50">استرجاع مسودة محلية</button>
           <input value={versionName} onChange={(e) => setVersionName(e.target.value)} placeholder="اسم النسخة" className="px-3 py-2 rounded-md text-sm bg-slate-800 border border-slate-700" />
           <button onClick={saveLayoutVersion} className="px-3 py-2 rounded-md text-sm border border-slate-700 bg-slate-800">حفظ نسخة</button>
           <div className="flex gap-2">
@@ -2209,6 +2367,13 @@ const SeatingManagement: React.FC = () => {
           </div>
         </div>
       </div>
+      {mainMode === 'edit' && (
+        <div className={`rounded-md border p-2 text-xs ${Object.keys(layoutDraft).length ? 'border-amber-700 bg-amber-950/30 text-amber-200' : 'border-emerald-700 bg-emerald-950/20 text-emerald-200'}`}>
+          {Object.keys(layoutDraft).length
+            ? 'لديك تعديلات غير منشورة. يتم حفظها محليًا تلقائيًا، واضغط "نشر تعديلات التخطيط" للحفظ النهائي على السيرفر.'
+            : (localDraftExists ? 'لا توجد تعديلات نشطة، وتوجد مسودة محلية يمكن استرجاعها.' : 'لا توجد تعديلات غير منشورة حالياً.')}
+        </div>
+      )}
 
       {error && <div className="p-3 rounded-md border border-rose-700 bg-rose-950/60 text-rose-200">{error}</div>}
 
@@ -2353,9 +2518,9 @@ const SeatingManagement: React.FC = () => {
               >
                 {isMapFullscreen ? 'تصغير' : 'تكبير'}
               </button>
-              <button onClick={() => setZoomLevel(p => Math.max(0.2, p - 0.1))} className="px-3 py-1 bg-slate-800 border border-slate-700 hover:bg-slate-700 rounded-md text-xl leading-none">-</button>
+              <button onClick={() => zoomAtClientPoint(zoomLevel - 0.1)} className="px-3 py-1 bg-slate-800 border border-slate-700 hover:bg-slate-700 rounded-md text-xl leading-none">-</button>
               <span className="text-sm w-12 text-center font-bold text-indigo-300">{Math.round(zoomLevel * 100)}%</span>
-              <button onClick={() => setZoomLevel(p => Math.min(3, p + 0.1))} className="px-3 py-1 bg-slate-800 border border-slate-700 hover:bg-slate-700 rounded-md text-xl leading-none">+</button>
+              <button onClick={() => zoomAtClientPoint(zoomLevel + 0.1)} className="px-3 py-1 bg-slate-800 border border-slate-700 hover:bg-slate-700 rounded-md text-xl leading-none">+</button>
             </div>
             <div className="text-xs text-slate-400">سحب وإفلات في مود التعديل لتغيير المكان</div>
           </div>
@@ -2373,7 +2538,7 @@ const SeatingManagement: React.FC = () => {
                 onTouchEnd={handleCanvasTouchEnd}
                 style={{
                   transform: `scale(${zoomLevel})`,
-                  transformOrigin: 'top right',
+                  transformOrigin: 'top left',
                   userSelect: 'none',
                   WebkitUserSelect: 'none',
                   touchAction: 'none',
@@ -2441,6 +2606,7 @@ const SeatingManagement: React.FC = () => {
                          selected={selectedElement?.id === box.id} 
                          inGroup={selectedGroup.includes(box.id)}
                           mode={mainMode === 'edit' && editModeState.action === 'move' ? 'edit' : 'view'}
+                         onTouchDragEnd={endDrag}
                           onDoubleClick={(id: string, currentName: string) => {
                              if (mainMode === 'assign') {
                                 setAssignmentModal({ isOpen: true, seat: null, isTableModal: true, tableId: id });
@@ -2843,6 +3009,7 @@ const SeatingManagement: React.FC = () => {
                         selected={selectedSeatId === seat.id}
                         inGroup={selectedGroup.includes(seat.id)}
                         mode={mainMode === 'edit' && editModeState.action === 'move' ? 'edit' : 'view'}
+                        onTouchDragEnd={endDrag}
                         onSeatClick={handleSeatClick}
                         onSeatDoubleClick={handleSeatDoubleClick}
                         onDragStart={startDrag}
