@@ -118,6 +118,7 @@ const getElementBoundsPx = (element: any) => {
 };
 
 const SeatNode = React.memo(({ seat, selected, mode, onSeatClick, onSeatDoubleClick, onDragStart, inGroup }: any) => {
+  const lastTapRef = React.useRef(0);
   return (
     <button
       onClick={(e) => {
@@ -132,6 +133,17 @@ const SeatNode = React.memo(({ seat, selected, mode, onSeatClick, onSeatDoubleCl
          e.preventDefault();
          e.stopPropagation();
          onDragStart(seat, 'seat', e.clientX, e.clientY, e.currentTarget, e);
+      }}
+      onTouchEnd={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const now = Date.now();
+        if (now - lastTapRef.current < 280) {
+          onSeatDoubleClick(seat);
+        } else {
+          onSeatClick(seat);
+        }
+        lastTapRef.current = now;
       }}
       className={`absolute select-none text-[8px] w-6 h-6 rounded-full border flex flex-col items-center justify-center text-white ${selected ? 'bg-blue-600 ring-2 ring-blue-300 scale-110 z-10' : (statusColor[seat.status] || 'bg-slate-500')} ${mode === 'edit' ? 'cursor-move' : ''} ${inGroup ? 'outline outline-2 outline-orange-500 outline-dashed outline-offset-2 z-20' : 'border-white/20'}`}
       style={{
@@ -154,6 +166,7 @@ const SeatNode = React.memo(({ seat, selected, mode, onSeatClick, onSeatDoubleCl
   });
 
 const TableNode = React.memo(({ box, selected, mode, onDoubleClick, onDragStart, inGroup }: any) => {
+  const lastTapRef = React.useRef(0);
   return (
     <div
       onDoubleClick={(e) => {
@@ -164,6 +177,15 @@ const TableNode = React.memo(({ box, selected, mode, onDoubleClick, onDragStart,
          e.preventDefault();
          e.stopPropagation();
          onDragStart(box, 'table', e.clientX, e.clientY, e.currentTarget, e);
+      }}
+      onTouchEnd={(e) => {
+         e.preventDefault();
+         e.stopPropagation();
+         const now = Date.now();
+         if (now - lastTapRef.current < 280) {
+            onDoubleClick(box.id, box.id.split('-T')[1]);
+         }
+         lastTapRef.current = now;
       }}
       className={`absolute select-none border-2 ${selected ? 'border-red-500 bg-red-500/40' : 'border-indigo-400 bg-indigo-600/30'} rounded-lg flex flex-col items-center justify-center ${mode === 'edit' ? 'cursor-move' : 'cursor-pointer hover:bg-indigo-500/50'} ${inGroup ? 'outline outline-2 outline-orange-500 outline-dashed outline-offset-4 z-20' : ''} transition-colors`}
         style={{ left: box.x, top: box.y, width: box.w, height: box.h }}
@@ -568,6 +590,8 @@ const SeatingManagement: React.FC = () => {
   const layoutDraftRef = useRef<Record<string, any>>({});
   const lastAppliedDragKeyRef = useRef<string>('');
   const lastMouseCanvasRef = useRef<{ x: number; y: number } | null>(null);
+  const pinchStartDistanceRef = useRef<number | null>(null);
+  const pinchStartZoomRef = useRef(1);
 
   useEffect(() => { dragStateRef.current = dragState; }, [dragState]);
   useEffect(() => { layoutDraftRef.current = layoutDraft; }, [layoutDraft]);
@@ -1788,6 +1812,46 @@ const SeatingManagement: React.FC = () => {
      }
   };
 
+  const touchDistance = (touches: React.TouchList) => {
+    if (touches.length < 2) return 0;
+    const t1 = touches[0];
+    const t2 = touches[1];
+    const dx = t1.clientX - t2.clientX;
+    const dy = t1.clientY - t2.clientY;
+    return Math.hypot(dx, dy);
+  };
+
+  const handleCanvasTouchStart = (e: React.TouchEvent) => {
+    if (e.touches.length >= 2) {
+      pinchStartDistanceRef.current = touchDistance(e.touches);
+      pinchStartZoomRef.current = zoomLevel;
+      return;
+    }
+    if (e.touches.length === 1) {
+      const t = e.touches[0];
+      onCanvasMove(t.clientX, t.clientY);
+    }
+  };
+
+  const handleCanvasTouchMove = (e: React.TouchEvent) => {
+    if (e.touches.length >= 2 && pinchStartDistanceRef.current) {
+      e.preventDefault();
+      const nextDist = touchDistance(e.touches);
+      const ratio = nextDist / pinchStartDistanceRef.current;
+      const targetZoom = Math.max(0.2, Math.min(3, Number((pinchStartZoomRef.current * ratio).toFixed(2))));
+      setZoomLevel(targetZoom);
+      return;
+    }
+    if (e.touches.length === 1) {
+      const t = e.touches[0];
+      onCanvasMove(t.clientX, t.clientY);
+    }
+  };
+
+  const handleCanvasTouchEnd = () => {
+    pinchStartDistanceRef.current = null;
+  };
+
   const buildDraftFromDrag = useCallback((baseDraft: Record<string, any>, ds: any, clientX: number, clientY: number) => {
     const container = document.getElementById('seating-canvas-inner');
     const rect = container?.getBoundingClientRect();
@@ -2304,11 +2368,15 @@ const SeatingManagement: React.FC = () => {
                 onMouseDown={handleCanvasMouseDown}
                 onMouseUp={endDrag}
                 onMouseLeave={endDrag}
+                onTouchStart={handleCanvasTouchStart}
+                onTouchMove={handleCanvasTouchMove}
+                onTouchEnd={handleCanvasTouchEnd}
                 style={{
                   transform: `scale(${zoomLevel})`,
                   transformOrigin: 'top right',
                   userSelect: 'none',
                   WebkitUserSelect: 'none',
+                  touchAction: 'none',
                   backgroundImage:
                     'linear-gradient(to right, rgba(148,163,184,0.08) 1px, transparent 1px), linear-gradient(to bottom, rgba(148,163,184,0.08) 1px, transparent 1px)',
                   backgroundSize: '24px 24px'
