@@ -1294,6 +1294,7 @@ export const api = {
       const attendeeListColumns = [
         'id',
         'full_name',
+        'full_name_en',
         'phone_primary',
         'phone_secondary',
         'email_primary',
@@ -1301,9 +1302,15 @@ export const api = {
         'facebook_link',
         'governorate',
         'seat_class',
+        'seat_number',
+        'ticket_price_override',
+        'base_ticket_price',
+        'certificate_included',
         'payment_type',
         'payment_amount',
         'remaining_amount',
+        'commission_amount',
+        'commission_notes',
         'status',
         'qr_code',
         'barcode',
@@ -1311,13 +1318,20 @@ export const api = {
         'checked_in_at',
         'checked_in_by',
         'created_by',
+        'company_id',
+        'sales_channel',
+        'sales_source_name',
         'created_at',
         'updated_at',
         'is_deleted',
         'university',
         'faculty',
         'year',
-        'notes'
+        'notes',
+        'profile_photo_url',
+        'preferred_neighbor_name',
+        'preferred_neighbor_ids',
+        'warnings'
       ];
 
       if (idMatch) {
