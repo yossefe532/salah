@@ -153,7 +153,6 @@ const Register: React.FC = () => {
   const [showSecondaryEmail, setShowSecondaryEmail] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
-  const [occupiedSeats, setOccupiedSeats] = useState<number[]>([]);
   const [englishNameEdited, setEnglishNameEdited] = useState(false);
   const [photoProcessing, setPhotoProcessing] = useState(false);
   const [availableSeatsList, setAvailableSeatsList] = useState<{id: string, seat_number: number, seat_code: string}[]>([]);
@@ -237,7 +236,6 @@ const Register: React.FC = () => {
   useEffect(() => {
     const loadSeats = async () => {
       if (status !== 'registered') {
-        setOccupiedSeats([]);
         setAvailableSeatsList([]);
         setValue('seat_number', undefined);
         return;
@@ -252,14 +250,7 @@ const Register: React.FC = () => {
          return 'minya';
       };
       const eventId = `${normalizeGov(governorate).toUpperCase()}-2026-MAIN`;
-      const [occupiedResponse, availableResponse] = await Promise.all([
-        api.get(`/attendees?lite=1&governorate=${encodeURIComponent(governorate)}&seat_class=${encodeURIComponent(seatClass)}&status=registered&limit=5000`),
-        api.get(`/seating/available-seats?eventId=${encodeURIComponent(eventId)}&seat_class=${encodeURIComponent(seatClass)}&limit=5000`)
-      ]);
-      const occupied = (Array.isArray(occupiedResponse) ? occupiedResponse : [])
-        .map((a: any) => Number(a.seat_number))
-        .filter((n: number) => Number.isInteger(n) && n > 0);
-      setOccupiedSeats(occupied);
+      const availableResponse = await api.get(`/seating/available-seats?eventId=${encodeURIComponent(eventId)}&seat_class=${encodeURIComponent(seatClass)}&limit=1500`);
       const validSeats = Array.isArray(availableResponse) ? availableResponse : [];
       
       setAvailableSeatsList(validSeats.map((s: any) => ({
@@ -268,25 +259,38 @@ const Register: React.FC = () => {
          seat_code: s.seat_code
       })));
 
-      if (selectedSeatNumber && occupied.includes(Number(selectedSeatNumber))) {
-        setValue('seat_number', undefined);
+      if (selectedSeatNumber) {
+        const selectedStillAvailable = validSeats.some((s: any) => Number(s?.seat_number) === Number(selectedSeatNumber));
+        if (!selectedStillAvailable) {
+          setValue('seat_number', undefined);
+        }
       }
     };
     loadSeats();
-  }, [governorate, seatClass, selectedSeatNumber, setValue, status]);
+  }, [governorate, seatClass, setValue, status]);
+
+  useEffect(() => {
+    if (status !== 'registered') {
+      setAttendeesOptions([]);
+      return;
+    }
+    const loadAttendeesOptions = async () => {
+      const response = await api.get('/attendees?lite=1&status=registered&limit=1000');
+      setAttendeesOptions(Array.isArray(response) ? response : []);
+    };
+    loadAttendeesOptions();
+  }, [status]);
+
+  useEffect(() => {
+    if (status !== 'registered') {
+        setValue('seat_number', undefined);
+    }
+  }, [status, setValue]);
 
   useEffect(() => {
     register('preferred_neighbor_name');
     register('preferred_neighbor_ids');
   }, [register]);
-
-  useEffect(() => {
-    const loadAttendeesOptions = async () => {
-      const response = await api.get('/attendees?lite=1&status=registered&limit=2000');
-      setAttendeesOptions(Array.isArray(response) ? response : []);
-    };
-    loadAttendeesOptions();
-  }, []);
 
   const handleProfilePhotoChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];

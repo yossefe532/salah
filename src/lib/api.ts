@@ -1585,7 +1585,7 @@ export const api = {
       }
 
       let scoped = applyCompanyScopeToAttendeesQuery(
-        supabase.from('attendees').select(attendeeListColumns.join(',')),
+        supabase.from('attendees').select(selectedColumns.join(',')),
         currentUser
       );
       scoped = showTrash ? scoped.eq('is_deleted', true) : applyActiveAttendeesFilter(scoped);
@@ -3871,9 +3871,9 @@ export const api = {
         .or(`qr_code.eq.${clean},barcode.eq.${clean},id.eq.${clean}`)
         .single();
 
-      // 2. If not found, try "Contains" (Slower but smarter)
-      // This handles cases where scanner reads "QR_123" but DB has "QR_123_456" or vice versa
-      if (!attendee) {
+      // 2. If not found, try "Contains" (Slower)
+      // Only allow this fallback for reasonably long codes to avoid broad scans.
+      if (!attendee && clean.length >= 6) {
         // Escape special chars for LIKE query
         const safeClean = clean.replace(/([%_])/g, '\\$1');
         const { data: candidates } = await supabase

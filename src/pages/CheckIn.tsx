@@ -12,21 +12,25 @@ const CheckIn: React.FC = () => {
   const [message, setMessage] = useState<{ type: 'success' | 'error' | 'warning', text: string } | null>(null);
   const [manualInput, setManualInput] = useState('');
   const scannerRef = useRef<Html5QrcodeScanner | null>(null);
+  const inFlightCodeRef = useRef<string | null>(null);
+  const lastSuccessCodeRef = useRef<string | null>(null);
 
   const handleCheckIn = useCallback(async (code: string) => {
     if (!code || !user) return;
-    
-    // Avoid re-scanning same code immediately if success
-    if (scanResult === code && message?.type === 'success') return;
+    const normalized = code.trim();
+    if (!normalized) return;
+    if (inFlightCodeRef.current === normalized) return;
+    if (lastSuccessCodeRef.current === normalized) return;
 
-    setScanResult(code);
+    inFlightCodeRef.current = normalized;
+    setScanResult(normalized);
     setMessage(null);
     setAttendee(null);
 
     try {
-      const normalized = code.trim();
       const result = await api.post('/checkin', { code: normalized, userId: user.id });
       setAttendee(result.attendee);
+      lastSuccessCodeRef.current = normalized;
       setMessage({ type: 'success', text: 'تم تسجيل الحضور بنجاح!' });
     } catch (error: any) {
       console.error('Check-in error:', error);
@@ -39,8 +43,10 @@ const CheckIn: React.FC = () => {
       } else {
           setMessage({ type: 'error', text: error.message || error.error || 'فشل تسجيل الحضور.' });
       }
+    } finally {
+      inFlightCodeRef.current = null;
     }
-  }, [user, scanResult, message]);
+  }, [user]);
 
   useEffect(() => {
     // Initialize Scanner

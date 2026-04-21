@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback, useRef } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { api, supabase } from '../lib/api';
 import { Attendee } from '../types';
 import { Search, Eye, QrCode, CheckCircle, XCircle, UserCheck, UserX, Trash2, RefreshCcw, AlertTriangle, MessageCircle, Phone, Upload, Edit2, FileSpreadsheet, Copy, Zap, Ticket, FileBadge2, Image as ImageIcon, Download } from 'lucide-react';
@@ -14,6 +14,7 @@ const Attendees: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [isRealtime, setIsRealtime] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
+  const [debouncedSearchTerm, setDebouncedSearchTerm] = useState('');
   const [viewMode, setViewMode] = useState<'active' | 'trash'>('active');
   const [filters, setFilters] = useState({
     governorate: '',
@@ -71,7 +72,7 @@ const Attendees: React.FC = () => {
       if (filters.status) params.set('status', filters.status);
       if (filters.payment_type) params.set('payment_type', filters.payment_type);
       if (filters.attendance) params.set('attendance', filters.attendance);
-      const q = String(searchTerm || '').trim();
+      const q = String(debouncedSearchTerm || '').trim();
       if (q) params.set('q', q);
 
       const endpoint = `/attendees?${params.toString()}`;
@@ -86,11 +87,20 @@ const Attendees: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [filters, viewMode, searchTerm]);
+  }, [filters, viewMode, debouncedSearchTerm]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setDebouncedSearchTerm(searchTerm);
+    }, 350);
+    return () => window.clearTimeout(timer);
+  }, [searchTerm]);
 
   useEffect(() => {
     fetchAttendees();
+  }, [fetchAttendees]);
 
+  useEffect(() => {
     // Real-time Subscription
     const channel = supabase
       .channel('attendees_list_changes')
@@ -123,7 +133,7 @@ const Attendees: React.FC = () => {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [fetchAttendees]);
+  }, []);
 
   const handleToggleAttendance = async (attendeeId: string, currentStatus: boolean) => {
     const action = currentStatus ? 'إلغاء حضور' : 'تسجيل حضور';
@@ -168,17 +178,8 @@ const Attendees: React.FC = () => {
     }
   };
 
-  // Client-side search
-  const filteredAttendees = attendees.filter((attendee) => {
-    const term = searchTerm.toLowerCase();
-    return (
-      attendee.full_name.toLowerCase().includes(term) ||
-      attendee.phone_primary.includes(term) ||
-      (attendee.email_primary && attendee.email_primary.toLowerCase().includes(term)) ||
-      (attendee.qr_code && attendee.qr_code.includes(term)) ||
-      (attendee.id && attendee.id.toLowerCase().includes(term))
-    );
-  });
+  // Search is handled server-side in fetchAttendees to avoid duplicate filtering work.
+  const filteredAttendees = attendees;
 
   const formatDateTime = (value?: string | null) => {
     if (!value) return '-';
