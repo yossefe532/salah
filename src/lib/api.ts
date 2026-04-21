@@ -1185,16 +1185,9 @@ export const api = {
         const query = endpoint.split('?')[1] || '';
         const params = new URLSearchParams(query);
         const eventId = params.get('eventId') || DEFAULT_EVENT_ID;
-        const nowIso = new Date().toISOString();
         
-        // Optimize: Only run cleanup if there's a possibility of expired seats
-        // We can also skip this if we're in a hurry, but let's keep it for correctness.
-        await supabase
-          .from('seats')
-          .update({ status: 'available', reserved_by: null, reserved_until: null })
-          .eq('event_id', eventId)
-          .eq('status', 'reserved')
-          .lt('reserved_until', nowIso);
+        // Remove the blocking UPDATE from the GET request to prevent timeouts.
+        // Cleanup of expired reservations can happen in a separate background call or on-demand.
 
         const [
           { data: tables, error: tablesError },
@@ -1203,10 +1196,13 @@ export const api = {
           { data: attendees, error: attendeesError }
         ] = await Promise.all([
           supabase.from('seat_tables').select('*').eq('event_id', eventId).order('row_number', { ascending: true }),
-          supabase.from('seats').select('*').eq('event_id', eventId).order('row_number', { ascending: true }),
+          supabase.from('seats').select('*').eq('event_id', eventId), // Removed order() for speed if huge
           supabase.from('layout_elements').select('*').eq('event_id', eventId),
-          // Fetch only the attendees who are actually seated to avoid massive data transfer
-          supabase.from('attendees').select('id, full_name, governorate, seat_class, payment_type, payment_amount, phone_primary, seat_number, barcode, profile_photo_url').not('barcode', 'is', null)
+          // Broaden the query to catch anyone seated even if barcode is missing, and limit to 1000 to keep it light
+          supabase.from('attendees')
+            .select('id, full_name, governorate, seat_class, payment_type, payment_amount, phone_primary, seat_number, barcode, profile_photo_url')
+            .or('barcode.not.is.null,seat_number.not.is.null')
+            .limit(1000)
         ]);
 
         if (tablesError && !isMissingTable(tablesError)) throw new Error(tablesError.message);

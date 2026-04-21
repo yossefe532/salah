@@ -1302,8 +1302,21 @@ const SeatingManagement: React.FC = () => {
         seats: incoming.seats || [],
         layout_elements: incoming.layout_elements || []
       });
+      
       if (Array.isArray(incoming.seated_attendees)) {
-        setAttendees(incoming.seated_attendees);
+        setAttendees(prev => {
+           const seated = incoming.seated_attendees;
+           const merged = [...seated];
+           const seen = new Set(seated.map(a => a.id));
+           // Keep anyone from current list who wasn't in the seated list (waiting list)
+           prev.forEach(a => {
+              if (!seen.has(a.id)) {
+                 merged.push(a);
+                 seen.add(a.id);
+              }
+           });
+           return merged;
+        });
       }
     } catch (e: any) {
       setError(e.message || 'فشل تحميل خريطة المقاعد');
@@ -1315,7 +1328,18 @@ const SeatingManagement: React.FC = () => {
   const loadAttendees = async () => {
     try {
       const data = await api.get(`/seating/attendees?eventId=${eventId}`);
-      setAttendees((Array.isArray(data) ? data : []) as AttendeeLite[]);
+      const waiting = Array.isArray(data) ? data : [];
+      setAttendees(prev => {
+        const merged = [...prev];
+        const seen = new Set(prev.map(a => a.id));
+        waiting.forEach(a => {
+           if (!seen.has(a.id)) {
+              merged.push(a);
+              seen.add(a.id);
+           }
+        });
+        return merged;
+      });
     } catch (e: any) {
       setError(e.message || 'فشل تحميل الحضور');
     }
