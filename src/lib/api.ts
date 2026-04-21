@@ -144,7 +144,8 @@ const applyAttendeeMeta = (attendee: any) => {
 const insertAttendeeSafely = async (payload: any) => {
   let currentPayload = attachAttendeeMetaToPayload(payload, payload.warnings);
   for (let i = 0; i < 50; i += 1) {
-    const { data, error } = await supabase.from('attendees').insert([currentPayload]).select().single();
+    const { data, error } = await supabase.from('attendees').insert([currentPayload]).select().maybeSingle();
+    if (!error && !data) return { data: null, error: { message: 'فشل إنشاء السجل' } as any };
     if (!error) return { data, error: null };
     
     // Auto-heal logic removed to prevent loops/silent failures. Validation is handled by UI.
@@ -222,7 +223,7 @@ const markSeatChanged = async (
   const toCode = String(newSeatCode || '').trim();
   if (!attendeeId || !fromCode || !toCode || fromCode === toCode) return;
 
-  const { data: attendee } = await supabase.from('attendees').select('*').eq('id', attendeeId).single();
+  const { data: attendee } = await supabase.from('attendees').select('*').eq('id', attendeeId).maybeSingle();
   if (!attendee) return;
   const hydrated = normalizeAttendeePricing(attendee);
   const now = new Date().toISOString();
@@ -504,7 +505,7 @@ const applySeatAssignment = async (
   seat: any,
   reason: string
 ) => {
-  const attendeeRes = await supabase.from('attendees').select('*').eq('id', attendeeId).single();
+  const attendeeRes = await supabase.from('attendees').select('*').eq('id', attendeeId).maybeSingle();
   const attendee = attendeeRes.data;
   if (!attendee) throw new Error('تعذر تحميل بيانات المشترك أثناء إعادة التسكين');
   const previousCode = String(attendee?.barcode || '').trim();
@@ -522,7 +523,7 @@ const applySeatAssignment = async (
     .eq('event_id', eventId)
     .eq('id', seat.id)
     .select('*')
-    .single();
+    .maybeSingle();
   if (claimRes.error || !claimRes.data) throw new Error(claimRes.error?.message || 'فشل حجز المقعد المستهدف');
 
   const updateRes = await updateAttendeeSafely(String(attendeeId), {
@@ -1880,7 +1881,7 @@ export const api = {
         created_at: new Date().toISOString()
       };
       if (!payload.name) throw new Error('اسم الشركة مطلوب');
-      const { data, error } = await supabase.from('companies').insert([payload]).select().single();
+      const { data, error } = await supabase.from('companies').insert([payload]).select().maybeSingle();
       if (error) throw new Error(error.message);
       return data;
     }
@@ -1914,7 +1915,7 @@ export const api = {
       const newCount = Number.isFinite(requestedCount) ? Math.max(1, Math.floor(requestedCount)) : 1;
       const orientation: 'horizontal' | 'vertical' = body?.orientation === 'vertical' ? 'vertical' : 'horizontal';
       
-      const { data: table } = await supabase.from('seat_tables').select('*').eq('id', tableId).single();
+      const { data: table } = await supabase.from('seat_tables').select('*').eq('id', tableId).maybeSingle();
       if (!table) throw new Error('Table not found');
       
       const gov = table.governorate;
@@ -2140,7 +2141,7 @@ export const api = {
          }
          await supabase.from('seats').delete().eq('row_number', id).eq('seat_class', 'C').eq('event_id', eventId);
       } else if (type === 'seat') {
-         const { data: seat } = await supabase.from('seats').select('attendee_id').eq('id', id).single();
+         const { data: seat } = await supabase.from('seats').select('attendee_id').eq('id', id).maybeSingle();
          if (seat && seat.attendee_id) {
             await updateAttendeeSafely(String(seat.attendee_id), { seat_number: null, barcode: null });
          }
@@ -2403,7 +2404,7 @@ export const api = {
         .from('attendees')
         .select('id, governorate')
         .eq('id', attendeeId)
-        .single();
+        .maybeSingle();
       if (attendeeError || !attendee) throw new Error('المشارك غير موجود');
       if (normalizeGovernorate(attendee.governorate) !== hallGovernorate) {
         throw new Error('لا يمكن تسكين مشارك في قاعة محافظة مختلفة عن محافظته');
@@ -2464,7 +2465,7 @@ export const api = {
       const seatId = body?.seat_id;
       const eventId = body?.event_id || DEFAULT_EVENT_ID;
       if (!seatId) throw new Error('seat_id مطلوب');
-      const { data: seat, error: seatError } = await supabase.from('seats').select('*').eq('event_id', eventId).eq('id', seatId).single();
+      const { data: seat, error: seatError } = await supabase.from('seats').select('*').eq('event_id', eventId).eq('id', seatId).maybeSingle();
       if (seatError) throw new Error(seatError.message);
       const nextStatus = seat.status === 'vip' ? 'available' : 'vip';
       const { error } = await supabase.from('seats').update({ status: nextStatus }).eq('event_id', eventId).eq('id', seatId);
@@ -2487,7 +2488,7 @@ export const api = {
         } else if (['element', 'stage', 'aisle', 'blocked'].includes(del.type)) {
           await supabase.from('layout_elements').delete().eq('id', del.id);
         } else if (del.type === 'seat') {
-          const { data: seat } = await supabase.from('seats').select('attendee_id').eq('id', del.id).single();
+          const { data: seat } = await supabase.from('seats').select('attendee_id').eq('id', del.id).maybeSingle();
           if (seat && seat.attendee_id) { await updateAttendeeSafely(String(seat.attendee_id), { seat_number: null, barcode: null }); }
           await supabase.from('seats').delete().eq('id', del.id);
         }
@@ -2581,7 +2582,7 @@ export const api = {
         .from('seating_layout_drafts')
         .upsert(upsertPayload, { onConflict: 'event_id,governorate' })
         .select('event_id, governorate, updated_at')
-        .single();
+        .maybeSingle();
 
       if (error) {
         const canTryLegacyUpsert = isMissingColumnError(error, 'governorate')
@@ -2591,7 +2592,7 @@ export const api = {
             .from('seating_layout_drafts')
             .upsert({ event_id: eventId, draft, updated_at: now }, { onConflict: 'event_id' })
             .select('event_id, updated_at')
-            .single();
+            .maybeSingle();
           if (!legacyRes.error) {
             localStore[localKey] = {
               ...localStore[localKey],
@@ -2721,8 +2722,8 @@ export const api = {
       const hallGovernorate = getGovernorateFromEventId(eventId);
 
       const [{ data: seat, error: seatErr }, { data: attendee, error: attendeeErr }] = await Promise.all([
-        supabase.from('seats').select('*').eq('event_id', eventId).eq('id', seatId).single(),
-        supabase.from('attendees').select('*').eq('id', attendeeId).single()
+        supabase.from('seats').select('*').eq('event_id', eventId).eq('id', seatId).maybeSingle(),
+        supabase.from('attendees').select('*').eq('id', attendeeId).maybeSingle()
       ]);
       if (seatErr || !seat) throw new Error('المقعد غير موجود');
       if (attendeeErr || !attendee) throw new Error('المشارك غير موجود');
@@ -2809,7 +2810,7 @@ export const api = {
       
       // If we have a seatId, clear the seat and find the attendee
       if (seatId) {
-          const { data: seat } = await supabase.from('seats').select('*').eq('event_id', eventId).eq('id', seatId).single();
+          const { data: seat } = await supabase.from('seats').select('*').eq('event_id', eventId).eq('id', seatId).maybeSingle();
           if (seat) {
               if (!targetAttendeeId) targetAttendeeId = seat.attendee_id;
               
@@ -3065,8 +3066,8 @@ export const api = {
       const hallGovernorate = getGovernorateFromEventId(eventId);
 
       const [{ data: attendeeA }, { data: attendeeB }] = await Promise.all([
-        supabase.from('attendees').select('*').eq('id', attendeeAId).single(),
-        supabase.from('attendees').select('*').eq('id', attendeeBId).single()
+        supabase.from('attendees').select('*').eq('id', attendeeAId).maybeSingle(),
+        supabase.from('attendees').select('*').eq('id', attendeeBId).maybeSingle()
       ]);
       if (!attendeeA || !attendeeB) throw new Error('أحد المشاركين غير موجود');
       if (normalizeGovernorate(attendeeA.governorate) !== hallGovernorate || normalizeGovernorate(attendeeB.governorate) !== hallGovernorate) {
@@ -3613,7 +3614,7 @@ export const api = {
         .select('*')
         .eq('email', body.email.trim().toLowerCase())
         .eq('password', body.password.trim())
-        .single();
+        .maybeSingle();
       
       if (!user) throw new Error('بيانات الدخول غير صحيحة');
       const { password, ...userWithoutPass } = user;
@@ -3623,7 +3624,7 @@ export const api = {
     if (endpoint === '/attendees') {
       // Restrict custom price to owners only
       if (body.created_by) {
-        const { data: creator } = await supabase.from('users').select('id, role').eq('id', body.created_by).single();
+        const { data: creator } = await supabase.from('users').select('id, role').eq('id', body.created_by).maybeSingle();
         if (creator && creator.role === 'social_media' && body.ticket_price_override !== undefined && body.ticket_price_override !== null && body.ticket_price_override !== '') {
           throw new Error('السعر المخصص للتذكرة مسموح للمالك فقط');
         }
@@ -3750,7 +3751,7 @@ export const api = {
         .from('attendees')
         .select('*')
         .eq('id', attendeeId)
-        .single();
+        .maybeSingle();
       if (oldError || !oldRecord) throw new Error('العميل غير موجود');
       if (oldRecord.lead_status !== 'under_review') throw new Error('هذا العميل تم التعامل معه مسبقًا');
 
@@ -3805,7 +3806,7 @@ export const api = {
         .from('users')
         .select('id, commission_balance')
         .eq('id', socialUserId)
-        .single();
+        .maybeSingle();
       if (socialUser) {
         await supabase
           .from('users')
@@ -3844,7 +3845,7 @@ export const api = {
         .from('attendees')
         .select('*')
         .eq('id', attendeeId)
-        .single();
+        .maybeSingle();
 
       if (oldError || !oldRecord) throw new Error('العميل غير موجود');
       if (oldRecord.lead_status !== 'under_review') throw new Error('هذا العميل تم التعامل معه مسبقًا');
@@ -3903,12 +3904,12 @@ export const api = {
         .from('users')
         .select('id, commission_balance')
         .eq('id', oldRecord.social_media_user_id)
-        .single();
+        .maybeSingle();
       const { data: salesUser } = await supabase
         .from('users')
         .select('id, commission_balance')
         .eq('id', salesUserId)
-        .single();
+        .maybeSingle();
 
       if (socialUser) {
         await supabase
@@ -3956,7 +3957,7 @@ export const api = {
         .from('attendees')
         .select('*')
         .or(`qr_code.eq.${clean},barcode.eq.${clean},id.eq.${clean}`)
-        .single();
+        .maybeSingle();
 
       // 2. If not found, try "Contains" (Slower)
       // Only allow this fallback for reasonably long codes to avoid broad scans.
@@ -3987,7 +3988,8 @@ export const api = {
           return { success: false, error: 'تم تسجيل الحضور مسبقاً', attendee };
       }
       
-      const { data: updated } = await supabase.from('attendees').update({ attendance_status: true, checked_in_at: new Date().toISOString(), checked_in_by: userId }).eq('id', attendee.id).select().single();
+      const { data: updated } = await supabase.from('attendees').update({ attendance_status: true, checked_in_at: new Date().toISOString(), checked_in_by: userId }).eq('id', attendee.id).select().maybeSingle();
+      if (!updated) throw new Error('فشل تسجيل الحضور - لم يتم العثور على السجل');
       
       // Log Check-in in Activity Logs too (for unified history)
       await supabase.from('activity_logs').insert([{ 
@@ -4018,7 +4020,8 @@ export const api = {
       } else {
         throw new Error('غير مسموح بإضافة مستخدمين');
       }
-      const { data, error } = await supabase.from('users').insert([payload]).select().single();
+      const { data, error } = await supabase.from('users').insert([payload]).select().maybeSingle();
+      if (!error && !data) throw new Error('فشل إضافة المستخدم');
       if (error) throw new Error(error.message);
       return data;
     }
@@ -4175,7 +4178,7 @@ export const api = {
 
     const result = table === 'attendees'
       ? await updateAttendeeSafely(String(id), { ...bodyToSave, company_id: getCompanyIdForCreatedRecords(currentUser) })
-      : await supabase.from(table).update(bodyToSave).eq('id', id).select().single();
+      : await supabase.from(table).update(bodyToSave).eq('id', id).select().maybeSingle();
     const { data, error } = result as any;
     if (error) {
       const msg = String(error?.message || '').toLowerCase();
@@ -4241,7 +4244,8 @@ export const api = {
         supabase.from('attendees').select('attendance_status').eq('id', id),
         currentUser
       );
-      const { data: att } = await scopedRead.single();
+      const { data: att } = await scopedRead.maybeSingle();
+      if (!att) throw new Error('المشترك غير موجود');
       const newStatus = !att.attendance_status;
       const scopedUpdate = applyCompanyScopeToAttendeesQuery(
         supabase.from('attendees').update({ 
@@ -4251,7 +4255,8 @@ export const api = {
       }).eq('id', id),
         currentUser
       );
-      const { data } = await scopedUpdate.select().single();
+      const { data } = await scopedUpdate.select().maybeSingle();
+      if (!data) throw new Error('فشل تحديث حالة الحضور');
       return data;
     }
     if (endpoint.includes('mark-printed')) {
@@ -4268,7 +4273,7 @@ export const api = {
       // Instead of overwriting fields with oldRecordRaw, we ONLY update the print status.
       // This prevents the race condition where `mark-printed` overwrites the recent `patch` save.
       
-      const { data: currentRecord } = await supabase.from('attendees').select('*').eq('id', id).single();
+      const { data: currentRecord } = await supabase.from('attendees').select('*').eq('id', id).maybeSingle();
       if (!currentRecord) throw new Error('Attendee not found');
 
       // Only update what is strictly necessary for print status
@@ -4277,7 +4282,7 @@ export const api = {
         .update(payload)
         .eq('id', id)
         .select()
-        .single();
+        .maybeSingle();
         
       if (error) throw new Error(error.message);
       return normalizeAttendeePricing(data);

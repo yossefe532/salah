@@ -33,7 +33,7 @@ app.post('/api/login', async (req, res) => {
     .select('*')
     .eq('email', email.trim().toLowerCase())
     .eq('password', password.trim())
-    .single();
+    .maybeSingle();
 
   if (user) {
     const { password, ...userWithoutPass } = user;
@@ -65,7 +65,7 @@ app.post('/api/users', async (req, res) => {
     .from('users')
     .insert([newUser])
     .select('id, email, full_name, role, created_at')
-    .single();
+    .maybeSingle();
 
   if (error) return res.status(400).json({ error: error.message });
   res.json(data);
@@ -77,7 +77,7 @@ app.put('/api/users/:id', async (req, res) => {
     .update(req.body)
     .eq('id', req.params.id)
     .select('id, email, full_name, role, created_at')
-    .single();
+    .maybeSingle();
 
   if (error) return res.status(400).json({ error: error.message });
   res.json(data);
@@ -108,7 +108,7 @@ app.get('/api/attendees/:id', async (req, res) => {
     .from('attendees')
     .select('*')
     .eq('id', req.params.id)
-    .single();
+    .maybeSingle();
   if (attendee) res.json(attendee);
   else res.status(404).json({ error: 'Attendee not found' });
 });
@@ -119,7 +119,7 @@ app.post('/api/attendees', async (req, res) => {
     .from('attendees')
     .insert([newAttendee])
     .select()
-    .single();
+    .maybeSingle();
 
   if (error) return res.status(400).json({ error: error.message });
   res.json(data);
@@ -131,7 +131,7 @@ app.put('/api/attendees/:id', async (req, res) => {
     .update(req.body)
     .eq('id', req.params.id)
     .select()
-    .single();
+    .maybeSingle();
 
   if (error) return res.status(400).json({ error: error.message });
   res.json(data);
@@ -172,7 +172,7 @@ app.post('/api/checkin', async (req, res) => {
     .from('attendees')
     .select('*')
     .or(`qr_code.eq.${code},barcode.eq.${code},id.eq.${code}`)
-    .single();
+    .maybeSingle();
 
   if (!attendee) return res.status(404).json({ error: 'Attendee not found' });
   if (attendee.attendance_status) return res.status(400).json({ error: 'Already checked in', attendee });
@@ -186,7 +186,7 @@ app.post('/api/checkin', async (req, res) => {
     })
     .eq('id', attendee.id)
     .select()
-    .single();
+    .maybeSingle();
 
   if (updateError) return res.status(400).json({ error: updateError.message });
 
@@ -201,7 +201,7 @@ app.post('/api/checkin', async (req, res) => {
 
 app.patch('/api/attendees/:id/toggle-attendance', async (req, res) => {
   const { id } = req.params;
-  const { data: attendee } = await supabase.from('attendees').select('*').eq('id', id).single();
+  const { data: attendee } = await supabase.from('attendees').select('*').eq('id', id).maybeSingle();
   
   if (!attendee) return res.status(404).json({ error: 'Attendee not found' });
 
@@ -215,7 +215,7 @@ app.patch('/api/attendees/:id/toggle-attendance', async (req, res) => {
     })
     .eq('id', id)
     .select()
-    .single();
+    .maybeSingle();
 
   res.json(updated);
 });
