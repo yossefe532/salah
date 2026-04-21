@@ -1120,6 +1120,54 @@ window.addEventListener('online', processOfflineQueue);
 export const api = {
   async get(endpoint: string) {
     const currentUser = getSessionUser();
+    if (endpoint.startsWith('/dashboard/stats')) {
+      const statsColumns = [
+        'payment_amount',
+        'remaining_amount',
+        'commission_amount',
+        'seat_class',
+        'governorate',
+        'attendance_status',
+        'ticket_price_override',
+        'base_ticket_price',
+        'payment_type'
+      ];
+
+      const [
+        attendeesResult,
+        { data: expenses, error: expensesError },
+        { data: sponsors, error: sponsorsError },
+        { data: logs, error: logsError },
+        companyDaily
+      ] = await Promise.all([
+        runAttendeesSelectWithSchemaFallback(
+          (sel) => applyCompanyScopeToAttendeesQuery(supabase.from('attendees').select(sel), currentUser).not('is_deleted', 'is', true),
+          statsColumns
+        ),
+        supabase.from('expenses').select('amount'),
+        supabase.from('sponsor_contracts').select('contract_amount, paid_amount'),
+        supabase.from('activity_logs').select('*').order('created_at', { ascending: false }).limit(10),
+        api.get('/company-daily-report').catch(() => [])
+      ]);
+
+      if (attendeesResult.error && !getMissingAttendeeColumn(attendeesResult.error)) {
+        throw new Error(attendeesResult.error.message);
+      }
+      if (expensesError && !isMissingTable(expensesError)) throw new Error(expensesError.message);
+      if (sponsorsError && !isMissingTable(sponsorsError)) throw new Error(sponsorsError.message);
+
+      // Apply pricing normalization to each row to ensure virtual fields like remaining_amount are correct
+      const attendees = (attendeesResult.data || []).map(normalizeAttendeePricing);
+
+      return {
+        attendees,
+        expenses: expenses || [],
+        sponsors: sponsors || [],
+        logs: logs || [],
+        companyDaily: companyDaily || []
+      };
+    }
+
     if (endpoint.startsWith('/seating/config')) {
       return {
         event_id: DEFAULT_EVENT_ID,

@@ -3,7 +3,7 @@ import { useAuth } from '../context/AuthContext';
 import { api, supabase } from '../lib/api';
 import { Attendee } from '../types';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
-import { Users, CheckCircle, DollarSign, AlertTriangle, Zap } from 'lucide-react';
+import { Users, CheckCircle, DollarSign, AlertTriangle, Zap, RefreshCw } from 'lucide-react';
 
 const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042'];
 
@@ -30,20 +30,18 @@ const Dashboard: React.FC = () => {
     companyDaily: [] as any[],
   });
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [isRealtime, setIsRealtime] = useState(false);
   const refreshTimerRef = useRef<number | null>(null);
 
   const fetchStats = useCallback(async () => {
     try {
-      const attendees: Attendee[] = await api.get('/attendees?lite=1').catch(() => []);
-      const companyDaily = await api.get('/company-daily-report').catch(() => []);
-      // Fetch Activity Logs
-      const { data: logs } = await supabase.from('activity_logs').select('*').order('created_at', { ascending: false }).limit(10);
-      const { data: expensesData } = await supabase.from('expenses').select('amount');
-      const { data: sponsorContractsData } = await supabase.from('sponsor_contracts').select('contract_amount, paid_amount');
+      setError(null);
+      const result = await api.get('/dashboard/stats');
+      const { attendees, expenses: expensesData, sponsors: sponsorContractsData, logs, companyDaily } = result;
 
       if (attendees) {
-        const isCustomZeroPrice = (a: Attendee) => {
+        const isCustomZeroPrice = (a: any) => {
           if (a.ticket_price_override === undefined || a.ticket_price_override === null) return false;
           const v = Number(a.ticket_price_override);
           return !Number.isNaN(v) && v === 0;
@@ -127,8 +125,9 @@ const Dashboard: React.FC = () => {
           companyDaily: Array.isArray(companyDaily) ? companyDaily : []
         });
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error fetching stats:', error);
+      setError(error?.message || 'فشل تحميل بيانات لوحة التحكم');
     } finally {
       setLoading(false);
     }
@@ -171,6 +170,20 @@ const Dashboard: React.FC = () => {
 
   if (loading) return <div className="p-8 text-center dark:text-white">جاري تحميل لوحة التحكم...</div>;
 
+  if (error) {
+    return (
+      <div className="p-8 text-center space-y-4">
+        <div className="text-red-500 font-bold">{error}</div>
+        <button 
+          onClick={() => { setLoading(true); fetchStats(); }}
+          className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 transition-colors"
+        >
+          إعادة المحاولة
+        </button>
+      </div>
+    );
+  }
+
   if (user?.role !== 'owner') {
     return (
       <div className="text-center py-10">
@@ -186,14 +199,23 @@ const Dashboard: React.FC = () => {
 
   return (
     <div className="space-y-6" dir="rtl">
-      <div className="flex items-center gap-2">
-        <h1 className="text-2xl font-semibold text-gray-900 dark:text-white">لوحة تحكم الفعالية</h1>
-        {isRealtime && (
-            <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800 animate-pulse">
-                <Zap className="w-3 h-3 mr-1" />
-                تحديث حي
-            </span>
-        )}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <h1 className="text-2xl font-semibold text-gray-900 dark:text-white">لوحة تحكم الفعالية</h1>
+          {isRealtime && (
+              <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800 animate-pulse">
+                  <Zap className="w-3 h-3 mr-1" />
+                  تحديث حي
+              </span>
+          )}
+        </div>
+        <button
+          onClick={() => { setLoading(true); fetchStats(); }}
+          className="p-2 text-gray-500 hover:text-indigo-600 transition-colors"
+          title="تحديث البيانات"
+        >
+          <RefreshCw className={`h-5 w-5 ${loading ? 'animate-spin' : ''}`} />
+        </button>
       </div>
       
       {/* Summary Cards */}
