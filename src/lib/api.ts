@@ -964,49 +964,56 @@ const resolveSeat = async (
   const gov = payload.governorate || 'Minya';
   const capacity = getSeatCapacity(gov, payload.seat_class);
   if (!capacity) return payload.seat_number ?? null;
+  const eventId = `${normalizeGovernorate(gov).toUpperCase()}-2026-MAIN`;
 
   const requestedSeat = payload.seat_number ? Number(payload.seat_number) : null;
   if (requestedSeat && (requestedSeat < 1 || requestedSeat > capacity)) {
     throw new Error(`رقم المقعد يجب أن يكون بين 1 و ${capacity} لفئة ${payload.seat_class} في ${gov}`);
   }
 
-  let query = supabase
-    .from('attendees')
-    .select('id, seat_number')
-    .eq('governorate', gov)
-    .eq('seat_class', payload.seat_class)
-    .eq('status', 'registered');
-  query = applyActiveAttendeesFilter(query);
+  try {
+    if (requestedSeat) {
+      const { data: seatRow, error: seatError } = await supabase
+        .from('seats')
+        .select('id, seat_number, status, attendee_id')
+        .eq('event_id', eventId)
+        .eq('seat_class', payload.seat_class)
+        .eq('seat_number', requestedSeat)
+        .maybeSingle();
+      if (seatError) throw seatError;
+      if (!seatRow) return requestedSeat;
+      const unavailable = !SEAT_AVAILABLE_STATUSES.has(String(seatRow.status || '').toLowerCase()) || Boolean(seatRow.attendee_id);
+      if (unavailable) throw new Error(`المقعد رقم ${requestedSeat} محجوز بالفعل`);
+      return requestedSeat;
+    }
 
-  if (excludeId) query = query.neq('id', excludeId);
-  const { data, error } = await query;
-  if (error) {
-    const missingColumn = getMissingAttendeeColumn(error);
-    if (missingColumn === 'seat_number') {
+    const { data: seatsData, error: seatsError } = await supabase
+      .from('seats')
+      .select('seat_number, status, attendee_id')
+      .eq('event_id', eventId)
+      .eq('seat_class', payload.seat_class)
+      .in('status', Array.from(SEAT_AVAILABLE_STATUSES))
+      .order('seat_number', { ascending: true })
+      .limit(Math.max(capacity, 100));
+    if (seatsError) throw seatsError;
+
+    const candidates = (seatsData || [])
+      .filter((row: any) => Number.isInteger(Number(row?.seat_number)) && Number(row.seat_number) > 0)
+      .filter((row: any) => !row?.attendee_id)
+      .map((row: any) => Number(row.seat_number));
+
+    if (candidates.length === 0) {
+      throw new Error(`اكتمل عدد المقاعد لفئة ${payload.seat_class} في يوم ${gov}`);
+    }
+    return candidates[Math.floor(Math.random() * candidates.length)];
+  } catch (error: any) {
+    const msg = String(error?.message || '').toLowerCase();
+    // Keep registration available even under temporary DB pressure/timeouts.
+    if (msg.includes('statement timeout') || msg.includes('canceling statement')) {
       return requestedSeat ?? null;
     }
-    throw new Error(error.message);
+    throw error;
   }
-
-  const occupied = new Set((data || []).map((row: any) => Number(row.seat_number)).filter((x: number) => Number.isInteger(x) && x > 0));
-
-  if (requestedSeat) {
-    if (occupied.has(requestedSeat)) throw new Error(`المقعد رقم ${requestedSeat} محجوز بالفعل`);
-    return requestedSeat;
-  }
-
-  // If no seat requested, find all available seats and pick a random one
-  const available = [];
-  for (let seat = 1; seat <= capacity; seat += 1) {
-    if (!occupied.has(seat)) available.push(seat);
-  }
-
-  if (available.length === 0) {
-    throw new Error(`اكتمل عدد المقاعد لفئة ${payload.seat_class} في يوم ${gov}`);
-  }
-
-  // Pick a random seat from available ones
-  return available[Math.floor(Math.random() * available.length)];
 };
 
 export const normalizeGovernorate = (value?: string | null) => {
