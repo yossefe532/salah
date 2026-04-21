@@ -213,6 +213,62 @@ const getCertificateIncluded = (payload: any) => {
   return Boolean(payload.certificate_included);
 };
 
+type ApiCacheEntry = {
+  value: any;
+  expiresAt: number;
+};
+
+const endpointInFlightRequests = new Map<string, Promise<any>>();
+const endpointResponseCache = new Map<string, ApiCacheEntry>();
+
+const getCacheTtlForEndpoint = (endpoint: string) => {
+  if (endpoint.startsWith('/seating/map')) return 1200;
+  if (endpoint.startsWith('/seating/attendees')) return endpoint.includes('ids=') ? 2500 : 900;
+  return 0;
+};
+
+const runCachedRequest = async (endpoint: string, requestFactory: () => Promise<any>) => {
+  const ttlMs = getCacheTtlForEndpoint(endpoint);
+  if (ttlMs <= 0) return requestFactory();
+
+  const key = endpoint;
+  const now = Date.now();
+  const cached = endpointResponseCache.get(key);
+  if (cached && cached.expiresAt > now) {
+    return cached.value;
+  }
+
+  const inFlight = endpointInFlightRequests.get(key);
+  if (inFlight) return inFlight;
+
+  const requestPromise = (async () => {
+    const value = await requestFactory();
+    endpointResponseCache.set(key, {
+      value,
+      expiresAt: Date.now() + ttlMs
+    });
+    return value;
+  })().finally(() => {
+    endpointInFlightRequests.delete(key);
+  });
+
+  endpointInFlightRequests.set(key, requestPromise);
+  return requestPromise;
+};
+
+const invalidateSeatingRequestCache = () => {
+  for (const key of Array.from(endpointResponseCache.keys())) {
+    if (key.startsWith('/seating/map') || key.startsWith('/seating/attendees')) {
+      endpointResponseCache.delete(key);
+    }
+  }
+  for (const key of Array.from(endpointInFlightRequests.keys())) {
+    if (key.startsWith('/seating/map') || key.startsWith('/seating/attendees')) {
+      endpointInFlightRequests.delete(key);
+    }
+  }
+};
+
 const markSeatChanged = async (
   attendeeId: string,
   oldSeatCode: string | null | undefined,
@@ -1183,29 +1239,31 @@ export const api = {
     }
 
     if (endpoint.startsWith('/seating/map')) {
-        const query = endpoint.split('?')[1] || '';
-        const params = new URLSearchParams(query);
-        const eventId = params.get('eventId') || DEFAULT_EVENT_ID;
+        return runCachedRequest(endpoint, async () => {
+          const query = endpoint.split('?')[1] || '';
+          const params = new URLSearchParams(query);
+          const eventId = params.get('eventId') || DEFAULT_EVENT_ID;
 
-        const [
-          { data: tables, error: tablesError },
-          { data: seats, error: seatsError },
-          { data: layoutElements, error: layoutError }
-        ] = await Promise.all([
-          supabase.from('seat_tables').select('*').eq('event_id', eventId).order('row_number', { ascending: true }),
-          supabase.from('seats').select('*').eq('event_id', eventId),
-          supabase.from('layout_elements').select('*').eq('event_id', eventId)
-        ]);
+          const [
+            { data: tables, error: tablesError },
+            { data: seats, error: seatsError },
+            { data: layoutElements, error: layoutError }
+          ] = await Promise.all([
+            supabase.from('seat_tables').select('*').eq('event_id', eventId).order('row_number', { ascending: true }),
+            supabase.from('seats').select('*').eq('event_id', eventId),
+            supabase.from('layout_elements').select('*').eq('event_id', eventId)
+          ]);
 
-        if (tablesError && !isMissingTable(tablesError)) throw new Error(tablesError.message);
-        if (seatsError && !isMissingTable(seatsError)) throw new Error(seatsError.message);
-        
-        return { 
-          event_id: eventId, 
-          tables: tables || [], 
-          seats: seats || [],
-          layout_elements: layoutElements || []
-        };
+          if (tablesError && !isMissingTable(tablesError)) throw new Error(tablesError.message);
+          if (seatsError && !isMissingTable(seatsError)) throw new Error(seatsError.message);
+          
+          return { 
+            event_id: eventId, 
+            tables: tables || [], 
+            seats: seats || [],
+            layout_elements: layoutElements || []
+          };
+        });
       }
 
     if (endpoint.startsWith('/seating/available-seats')) {
@@ -1254,58 +1312,65 @@ export const api = {
     }
 
     if (endpoint.startsWith('/seating/attendees')) {
-      const query = endpoint.split('?')[1] || '';
-      const params = new URLSearchParams(query);
-      const eventId = params.get('eventId') || DEFAULT_EVENT_ID;
-      const hallGovernorate = getGovernorateFromEventId(eventId);
-      const seatClass = params.get('seatClass');
-      const idsParam = String(params.get('ids') || '').trim();
-      const rawLimit = Number(params.get('limit') || 800);
-      const limit = Number.isFinite(rawLimit) ? Math.min(Math.max(rawLimit, 1), 3000) : 800;
-      const selectColumns = [
-        'id',
-        'full_name',
-        'governorate',
-        'seat_class',
-        'payment_type',
-        'payment_amount',
-        'phone_primary',
-        'phone_secondary',
-        'preferred_neighbor_name',
-        'preferred_neighbor_ids',
-        'seat_number',
-        'barcode',
-        'profile_photo_url',
-        'seat_change_pending',
-        'seat_change_last_at',
-        'created_at',
-        'status',
-        'is_deleted'
-      ].join(', ');
+      return runCachedRequest(endpoint, async () => {
+        const query = endpoint.split('?')[1] || '';
+        const params = new URLSearchParams(query);
+        const eventId = params.get('eventId') || DEFAULT_EVENT_ID;
+        const hallGovernorate = getGovernorateFromEventId(eventId);
+        const seatClass = params.get('seatClass');
+        const idsParam = String(params.get('ids') || '').trim();
+        const rawLimit = Number(params.get('limit') || 800);
+        const limit = Number.isFinite(rawLimit) ? Math.min(Math.max(rawLimit, 1), 3000) : 800;
+        const desiredColumns = [
+          'id',
+          'full_name',
+          'governorate',
+          'seat_class',
+          'payment_type',
+          'payment_amount',
+          'phone_primary',
+          'phone_secondary',
+          'preferred_neighbor_name',
+          'preferred_neighbor_ids',
+          'seat_number',
+          'barcode',
+          'profile_photo_url',
+          'seat_change_pending',
+          'seat_change_last_at',
+          'created_at',
+          'status',
+          'is_deleted'
+        ];
 
-      if (idsParam) {
-        const ids = Array.from(new Set(idsParam.split(',').map((id) => String(id || '').trim()).filter(Boolean))).slice(0, 1000);
-        if (!ids.length) return [];
-        let byIdsQuery = supabase.from('attendees').select(selectColumns).in('id', ids).limit(ids.length);
-        byIdsQuery = applyActiveAttendeesFilter(byIdsQuery);
-        const { data: byIdsData, error: byIdsError } = await byIdsQuery;
-        if (byIdsError) throw new Error(byIdsError.message);
-        return enrichAttendeesNeighborLabels(byIdsData || []);
-      }
+        if (idsParam) {
+          const ids = Array.from(new Set(idsParam.split(',').map((id) => String(id || '').trim()).filter(Boolean))).slice(0, 1000);
+          if (!ids.length) return [];
+          const byIdsRes = await runAttendeesSelectWithSchemaFallback((selectClause) => {
+            let byIdsQuery = supabase.from('attendees').select(selectClause).in('id', ids).limit(ids.length);
+            byIdsQuery = applyActiveAttendeesFilter(byIdsQuery);
+            return byIdsQuery;
+          }, desiredColumns);
+          const { data: byIdsData, error: byIdsError } = byIdsRes;
+          if (byIdsError) throw new Error(byIdsError.message);
+          return enrichAttendeesNeighborLabels(byIdsData || []);
+        }
 
-      let attendeesQuery = supabase
-        .from('attendees')
-        .select(selectColumns)
-        .in('status', ['registered', 'interested'])
-        .order('created_at', { ascending: true })
-        .limit(limit);
-
-      attendeesQuery = applyActiveAttendeesFilter(attendeesQuery);
-      if (seatClass) attendeesQuery = attendeesQuery.eq('seat_class', seatClass);
-      const { data, error } = await attendeesQuery;
-      if (error) throw new Error(error.message);
-      const filteredByGov = (data || []).filter((row: any) => normalizeGovernorate(row?.governorate) === hallGovernorate);
-      return enrichAttendeesNeighborLabels(filteredByGov);
+        const attendeesRes = await runAttendeesSelectWithSchemaFallback((selectClause) => {
+          let attendeesQuery = supabase
+            .from('attendees')
+            .select(selectClause)
+            .in('status', ['registered', 'interested'])
+            .order('created_at', { ascending: true })
+            .limit(limit);
+          attendeesQuery = applyActiveAttendeesFilter(attendeesQuery);
+          if (seatClass) attendeesQuery = attendeesQuery.eq('seat_class', seatClass);
+          return attendeesQuery;
+        }, desiredColumns);
+        const { data, error } = attendeesRes;
+        if (error) throw new Error(error.message);
+        const filteredByGov = (data || []).filter((row: any) => normalizeGovernorate(row?.governorate) === hallGovernorate);
+        return enrichAttendeesNeighborLabels(filteredByGov);
+      });
     }
 
     if (endpoint.startsWith('/seating/logic/report')) {
@@ -1883,6 +1948,9 @@ export const api = {
   
   async post(endpoint: string, body: any) {
     const currentUser = getSessionUser();
+    if (endpoint.startsWith('/seating/')) {
+      invalidateSeatingRequestCache();
+    }
     // Offline Handling for Check-in
     if (endpoint === '/checkin' && !navigator.onLine) {
         addToQueue(endpoint, body);
@@ -4047,6 +4115,9 @@ export const api = {
 
   async put(endpoint: string, body: any) {
     const currentUser = getSessionUser();
+    if (endpoint.startsWith('/seating/')) {
+      invalidateSeatingRequestCache();
+    }
     const id = endpoint.split('/').pop();
     const table = endpoint.includes('/users/') ? 'users' : 'attendees';
     const timeoutMsg = 'ضغط مؤقت على قاعدة البيانات. حاول مرة أخرى خلال ثوانٍ.';
@@ -4309,6 +4380,9 @@ export const api = {
 
   async delete(endpoint: string) {
     const currentUser = getSessionUser();
+    if (endpoint.startsWith('/seating/')) {
+      invalidateSeatingRequestCache();
+    }
     const parts = endpoint.split('/');
     const id = parts[2];
     if (endpoint.includes('permanent')) {
