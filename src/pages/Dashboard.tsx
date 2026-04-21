@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { api, supabase } from '../lib/api';
 import { Attendee } from '../types';
@@ -31,6 +31,7 @@ const Dashboard: React.FC = () => {
   });
   const [loading, setLoading] = useState(true);
   const [isRealtime, setIsRealtime] = useState(false);
+  const refreshTimerRef = useRef<number | null>(null);
 
   const fetchStats = useCallback(async () => {
     try {
@@ -144,15 +145,23 @@ const Dashboard: React.FC = () => {
           'postgres_changes',
           { event: '*', schema: 'public', table: 'attendees' },
           () => {
-            console.log('Stats update received');
+            // Coalesce bursts of realtime changes to avoid hammering the API.
+            if (refreshTimerRef.current) return;
             setIsRealtime(true);
-            fetchStats(); // Re-fetch stats on any change
-            setTimeout(() => setIsRealtime(false), 2000);
+            refreshTimerRef.current = window.setTimeout(() => {
+              fetchStats();
+              setIsRealtime(false);
+              refreshTimerRef.current = null;
+            }, 2500);
           }
         )
         .subscribe();
 
       return () => {
+        if (refreshTimerRef.current) {
+          window.clearTimeout(refreshTimerRef.current);
+          refreshTimerRef.current = null;
+        }
         supabase.removeChannel(channel);
       };
     } else {

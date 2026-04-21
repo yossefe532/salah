@@ -146,12 +146,12 @@ const EditAttendee: React.FC = () => {
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [showSecondaryPhone, setShowSecondaryPhone] = useState(false);
   const [showSecondaryEmail, setShowSecondaryEmail] = useState(false);
-  const [occupiedSeats, setOccupiedSeats] = useState<number[]>([]);
   const [englishNameEdited, setEnglishNameEdited] = useState(false);
   const [photoProcessing, setPhotoProcessing] = useState(false);
   const [availableSeatsList, setAvailableSeatsList] = useState<{id: string, seat_number: number, seat_code: string}[]>([]);
   const [attendeesOptions, setAttendeesOptions] = useState<Attendee[]>([]);
   const [selectedBarcode, setSelectedBarcode] = useState<string | null>(null);
+  const [currentSeatOption, setCurrentSeatOption] = useState<{ seat_number: number | null; seat_code: string } | null>(null);
 
   const { register, handleSubmit, watch, setValue, reset, formState: { errors } } = useForm<FormData>({
     resolver: zodResolver(schema),
@@ -245,6 +245,7 @@ const EditAttendee: React.FC = () => {
         if (data.email_secondary) setShowSecondaryEmail(true);
         setEnglishNameEdited(Boolean(data.full_name_en));
         setSelectedBarcode(data.barcode || null);
+        setCurrentSeatOption(data.barcode ? { seat_number: data.seat_number ?? null, seat_code: data.barcode } : null);
         (window as any)._originalBarcode = data.barcode || null;
         setLoading(false);
       } catch (error) {
@@ -267,19 +268,11 @@ const EditAttendee: React.FC = () => {
   useEffect(() => {
     const loadSeats = async () => {
       if (status !== 'registered') {
-        setOccupiedSeats([]);
         setAvailableSeatsList([]);
         setValue('seat_number', undefined);
         return;
       }
-      const response = await api.get('/attendees?lite=1');
-      const attendees = Array.isArray(response) ? response : [];
-      const occupied = attendees
-        .filter((a: any) => a.governorate === governorate && a.seat_class === seatClass && a.status === 'registered' && !a.is_deleted && a.id !== id)
-        .map((a: any) => Number(a.seat_number))
-        .filter((n: number) => Number.isInteger(n) && n > 0);
-      setOccupiedSeats(occupied);
-      
+
       const normalizeGov = (val: string) => {
          const v = String(val || '').trim().toLowerCase();
          if (v.includes('minya') || v.includes('منيا')) return 'minya';
@@ -290,24 +283,22 @@ const EditAttendee: React.FC = () => {
       };
       
       const eventId = `${normalizeGov(governorate).toUpperCase()}-2026-MAIN`;
-      const mapData = await api.get(`/seating/map?eventId=${eventId}`);
-      const validSeats = (mapData.seats || []).filter((s: any) => s.seat_class === seatClass && (s.status === 'available' || s.attendee_id === id));
-      
-      setAvailableSeatsList(validSeats.map((s: any) => {
-         const code = s.seat_code + (s.attendee_id === id ? ' (مقعدك الحالي)' : '');
-         if (s.attendee_id === id && !selectedBarcode) {
-            setSelectedBarcode(code);
-         }
-         return {
-           id: s.id,
-           seat_number: s.seat_number,
-           seat_code: code
-         };
+      const seatsResponse = await api.get(`/seating/available-seats?eventId=${encodeURIComponent(eventId)}&seat_class=${encodeURIComponent(seatClass)}&limit=1500`);
+      const validSeats = Array.isArray(seatsResponse) ? seatsResponse : [];
+      const mapped = validSeats.map((s: any) => ({
+        id: s.id,
+        seat_number: Number(s.seat_number),
+        seat_code: String(s.seat_code || '')
       }));
+      const currentSeatExists = currentSeatOption && mapped.some((s) => s.seat_code === currentSeatOption.seat_code);
+      const mergedSeats = currentSeatOption && !currentSeatExists
+        ? [{ id: `current-${id}`, seat_number: Number(currentSeatOption.seat_number || 0), seat_code: `${currentSeatOption.seat_code} (مقعدك الحالي)` }, ...mapped]
+        : mapped;
+      setAvailableSeatsList(mergedSeats);
 
     };
     loadSeats();
-  }, [governorate, id, seatClass, setValue, status]);
+  }, [currentSeatOption, governorate, id, seatClass, setValue, status]);
 
   useEffect(() => {
     register('preferred_neighbor_name');
@@ -316,7 +307,7 @@ const EditAttendee: React.FC = () => {
 
   useEffect(() => {
     const loadAttendeesOptions = async () => {
-      const response = await api.get('/attendees?lite=1');
+      const response = await api.get('/attendees?lite=1&status=registered&limit=1000');
       setAttendeesOptions(Array.isArray(response) ? response : []);
     };
     loadAttendeesOptions();
@@ -411,13 +402,10 @@ const EditAttendee: React.FC = () => {
       
       // Validation: Check if the selected barcode is taken by another user
       if (updatedAttendee.barcode && updatedAttendee.barcode !== (window as any)._originalBarcode) {
-         const response = await api.get('/attendees?lite=1').catch(() => []);
-         const allAttendees = Array.isArray(response) ? response : [];
-         const conflictUser = allAttendees.find((a: any) =>
-           String(a?.barcode || '').trim() === String(updatedAttendee.barcode).trim()
-           && String(a?.id || '') !== String(id)
-           && !Boolean(a?.is_deleted)
-         );
+         const conflictUser = await api
+           .get(`/attendees?lite=1&limit=1&barcode=eq.${updatedAttendee.barcode}`)
+           .then((res: any) => (Array.isArray(res) ? res[0] : null))
+           .catch(() => null);
            
          if (conflictUser && conflictUser.id !== id) {
              throw new Error(`المقعد محجوز مسبقاً لمشترك آخر (${conflictUser.full_name}). يرجى اختيار مقعد مختلف.`);

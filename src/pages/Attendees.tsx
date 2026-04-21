@@ -9,9 +9,13 @@ import { QRCodeCanvas } from 'qrcode.react';
 import { jsPDF } from 'jspdf';
 
 const Attendees: React.FC = () => {
+  const PAGE_SIZE = 200;
   const { user } = useAuth();
   const [attendees, setAttendees] = useState<Attendee[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [page, setPage] = useState(0);
+  const [hasMore, setHasMore] = useState(false);
   const [isRealtime, setIsRealtime] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [debouncedSearchTerm, setDebouncedSearchTerm] = useState('');
@@ -61,11 +65,14 @@ const Attendees: React.FC = () => {
     }
   }, [downloadingQr]);
 
-  const fetchAttendees = useCallback(async () => {
-    setLoading(true);
+  const fetchAttendees = useCallback(async (targetPage = 0, append = false) => {
+    if (append) setLoadingMore(true);
+    else setLoading(true);
     try {
       const params = new URLSearchParams();
       params.set('lite', '1');
+      params.set('limit', String(PAGE_SIZE));
+      params.set('offset', String(targetPage * PAGE_SIZE));
       if (viewMode === 'trash') params.set('trash', 'true');
       if (filters.governorate) params.set('governorate', filters.governorate);
       if (filters.seat_class) params.set('seat_class', filters.seat_class);
@@ -81,13 +88,23 @@ const Attendees: React.FC = () => {
       // Sort by newest
       data.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
 
-      setAttendees(data);
+      setHasMore(data.length >= PAGE_SIZE);
+      if (append) {
+        setAttendees(prev => {
+          const seen = new Set(prev.map(a => a.id));
+          const extras = data.filter(a => !seen.has(a.id));
+          return [...prev, ...extras];
+        });
+      } else {
+        setAttendees(data);
+      }
     } catch (error) {
       console.error('Error fetching attendees:', error);
     } finally {
-      setLoading(false);
+      if (append) setLoadingMore(false);
+      else setLoading(false);
     }
-  }, [filters, viewMode, debouncedSearchTerm]);
+  }, [filters, viewMode, debouncedSearchTerm, PAGE_SIZE]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -97,8 +114,16 @@ const Attendees: React.FC = () => {
   }, [searchTerm]);
 
   useEffect(() => {
-    fetchAttendees();
+    setPage(0);
+    fetchAttendees(0, false);
   }, [fetchAttendees]);
+
+  const handleLoadMore = async () => {
+    if (loadingMore || !hasMore) return;
+    const nextPage = page + 1;
+    setPage(nextPage);
+    await fetchAttendees(nextPage, true);
+  };
 
   useEffect(() => {
     // Real-time Subscription
@@ -675,6 +700,18 @@ const Attendees: React.FC = () => {
       ) : (
         <div className="bg-white shadow-lg rounded-lg overflow-hidden border border-gray-100">
           {renderAttendeesTable(filteredAttendees)}
+        </div>
+      )}
+      {!loading && filteredAttendees.length > 0 && viewMode !== 'trash' && (
+        <div className="flex justify-center">
+          <button
+            type="button"
+            disabled={!hasMore || loadingMore}
+            onClick={handleLoadMore}
+            className="px-4 py-2 rounded-md border border-gray-300 text-sm text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50"
+          >
+            {loadingMore ? 'جاري تحميل المزيد...' : (hasMore ? 'تحميل المزيد' : 'لا توجد سجلات إضافية')}
+          </button>
         </div>
       )}
 

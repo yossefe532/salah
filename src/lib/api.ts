@@ -1006,7 +1006,10 @@ const resolveSeat = async (
       .map((row: any) => Number(row.seat_number));
 
     if (candidates.length === 0) {
-      throw new Error(`اكتمل عدد المقاعد لفئة ${payload.seat_class} في يوم ${gov}`);
+      // Do not block registration when seats are currently full.
+      // Caller can continue registration without seat assignment,
+      // then seats can be added/assigned later.
+      return null;
     }
     return candidates[Math.floor(Math.random() * candidates.length)];
   } catch (error: any) {
