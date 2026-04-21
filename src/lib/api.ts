@@ -160,7 +160,10 @@ const insertAttendeeSafely = async (payload: any) => {
 const updateAttendeeSafely = async (id: string, payload: any) => {
   let currentPayload = attachAttendeeMetaToPayload(payload, payload.warnings);
   for (let i = 0; i < 50; i += 1) {
-    const { data, error } = await supabase.from('attendees').update(currentPayload).eq('id', id).select().single();
+    const { data, error } = await supabase.from('attendees').update(currentPayload).eq('id', id).select().maybeSingle();
+    if (!error && !data) {
+      return { data: null, error: { message: 'المشترك غير موجود أو غير متاح للتعديل' } as any };
+    }
     if (!error) return { data, error: null };
     
     // Auto-heal logic removed to prevent loops/silent failures. Validation is handled by UI.
@@ -1568,13 +1571,14 @@ export const api = {
           supabase.from('attendees').select('*').eq('id', idMatch[1]),
           currentUser
         );
-        let { data, error } = await scoped.single();
+        let { data, error } = await scoped.maybeSingle();
         if (error && isMissingColumnError(error, 'company_id')) {
-          const fallback = await supabase.from('attendees').select('*').eq('id', idMatch[1]).single();
+          const fallback = await supabase.from('attendees').select('*').eq('id', idMatch[1]).maybeSingle();
           data = (fallback.data as any) || [];
           error = fallback.error;
         }
         if (error) throw new Error(error.message);
+        if (!data) throw new Error('المشترك غير موجود أو غير متاح');
         const normalized = normalizeAttendeePricing(data);
         const related = await applyCompanyScopeToAttendeesQuery(
           applyActiveAttendeesFilter(supabase.from('attendees').select('id, full_name, is_deleted')),
@@ -3948,7 +3952,7 @@ export const api = {
           supabase.from('attendees').select('*').eq('id', id),
           currentUser
         );
-        const { data: oldRecord } = await scopedRecord.single();
+        const { data: oldRecord } = await scopedRecord.maybeSingle();
         
         if (oldRecord) {
             const logs = [];
@@ -4018,7 +4022,7 @@ export const api = {
         supabase.from('attendees').select('*').eq('id', id),
         currentUser
       );
-      const { data: oldRecordRaw } = await scopedRecord.single();
+      const { data: oldRecordRaw } = await scopedRecord.maybeSingle();
       const oldRecord = normalizeAttendeePricing(oldRecordRaw);
       if (oldRecord) {
         const merged = {
