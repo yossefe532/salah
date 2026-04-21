@@ -1026,9 +1026,10 @@ const resolveSeat = async (
 export const normalizeGovernorate = (value?: string | null) => {
   const raw = String(value || '').trim().toLowerCase();
   if (!raw) return 'Minya';
-  if (raw.includes('asyut')) return 'Asyut';
-  if (raw.includes('sohag')) return 'Sohag';
-  if (raw.includes('qena')) return 'Qena';
+  if (raw.includes('asyut') || raw.includes('assiut') || raw.includes('أسيوط') || raw.includes('اسيوط')) return 'Asyut';
+  if (raw.includes('sohag') || raw.includes('سوهاج')) return 'Sohag';
+  if (raw.includes('qena') || raw.includes('قنا')) return 'Qena';
+  if (raw.includes('minya') || raw.includes('المنيا') || raw.includes('منيا')) return 'Minya';
   return 'Minya';
 };
 
@@ -1185,24 +1186,15 @@ export const api = {
         const query = endpoint.split('?')[1] || '';
         const params = new URLSearchParams(query);
         const eventId = params.get('eventId') || DEFAULT_EVENT_ID;
-        
-        // Remove the blocking UPDATE from the GET request to prevent timeouts.
-        // Cleanup of expired reservations can happen in a separate background call or on-demand.
 
         const [
           { data: tables, error: tablesError },
           { data: seats, error: seatsError },
-          { data: layoutElements, error: layoutError },
-          { data: attendees, error: attendeesError }
+          { data: layoutElements, error: layoutError }
         ] = await Promise.all([
           supabase.from('seat_tables').select('*').eq('event_id', eventId).order('row_number', { ascending: true }),
-          supabase.from('seats').select('*').eq('event_id', eventId), // Removed order() for speed if huge
-          supabase.from('layout_elements').select('*').eq('event_id', eventId),
-          // Broaden the query to catch anyone seated even if barcode is missing, and limit to 1000 to keep it light
-          supabase.from('attendees')
-            .select('id, full_name, governorate, seat_class, payment_type, payment_amount, phone_primary, seat_number, barcode, profile_photo_url')
-            .or('barcode.not.is.null,seat_number.not.is.null')
-            .limit(1000)
+          supabase.from('seats').select('*').eq('event_id', eventId),
+          supabase.from('layout_elements').select('*').eq('event_id', eventId)
         ]);
 
         if (tablesError && !isMissingTable(tablesError)) throw new Error(tablesError.message);
@@ -1212,8 +1204,7 @@ export const api = {
           event_id: eventId, 
           tables: tables || [], 
           seats: seats || [],
-          layout_elements: layoutElements || [],
-          seated_attendees: attendees || []
+          layout_elements: layoutElements || []
         };
       }
 
@@ -1268,32 +1259,53 @@ export const api = {
       const eventId = params.get('eventId') || DEFAULT_EVENT_ID;
       const hallGovernorate = getGovernorateFromEventId(eventId);
       const seatClass = params.get('seatClass');
-      const limit = Number(params.get('limit') || 2000); // Allow custom limit for seating
-      
-      // Search by fuzzy governorate tokens to catch case/style differences in stored data.
-      const govTokens = [hallGovernorate];
-      if (hallGovernorate === 'Minya') govTokens.push('minya', 'المنيا', 'منيا');
-      if (hallGovernorate === 'Asyut') govTokens.push('asyut', 'assiut', 'أسيوط', 'اسيوط');
-      if (hallGovernorate === 'Sohag') govTokens.push('sohag', 'سوهاج');
-      if (hallGovernorate === 'Qena') govTokens.push('qena', 'قنا');
-      const govOrFilter = govTokens
-        .filter(Boolean)
-        .map((token) => `governorate.ilike.%${String(token).replace(/,/g, '')}%`)
-        .join(',');
+      const idsParam = String(params.get('ids') || '').trim();
+      const rawLimit = Number(params.get('limit') || 800);
+      const limit = Number.isFinite(rawLimit) ? Math.min(Math.max(rawLimit, 1), 3000) : 800;
+      const selectColumns = [
+        'id',
+        'full_name',
+        'governorate',
+        'seat_class',
+        'payment_type',
+        'payment_amount',
+        'phone_primary',
+        'phone_secondary',
+        'preferred_neighbor_name',
+        'preferred_neighbor_ids',
+        'seat_number',
+        'barcode',
+        'profile_photo_url',
+        'seat_change_pending',
+        'seat_change_last_at',
+        'created_at',
+        'status',
+        'is_deleted'
+      ].join(', ');
+
+      if (idsParam) {
+        const ids = Array.from(new Set(idsParam.split(',').map((id) => String(id || '').trim()).filter(Boolean))).slice(0, 1000);
+        if (!ids.length) return [];
+        let byIdsQuery = supabase.from('attendees').select(selectColumns).in('id', ids).limit(ids.length);
+        byIdsQuery = applyActiveAttendeesFilter(byIdsQuery);
+        const { data: byIdsData, error: byIdsError } = await byIdsQuery;
+        if (byIdsError) throw new Error(byIdsError.message);
+        return enrichAttendeesNeighborLabels(byIdsData || []);
+      }
 
       let attendeesQuery = supabase
         .from('attendees')
-        .select('*')
-        .in('status', ['registered', 'interested']) // Show both for seating just in case
+        .select(selectColumns)
+        .in('status', ['registered', 'interested'])
         .order('created_at', { ascending: true })
         .limit(limit);
-      
+
       attendeesQuery = applyActiveAttendeesFilter(attendeesQuery);
-      if (govOrFilter) attendeesQuery = attendeesQuery.or(govOrFilter);
       if (seatClass) attendeesQuery = attendeesQuery.eq('seat_class', seatClass);
       const { data, error } = await attendeesQuery;
       if (error) throw new Error(error.message);
-      return enrichAttendeesNeighborLabels(data || []);
+      const filteredByGov = (data || []).filter((row: any) => normalizeGovernorate(row?.governorate) === hallGovernorate);
+      return enrichAttendeesNeighborLabels(filteredByGov);
     }
 
     if (endpoint.startsWith('/seating/logic/report')) {

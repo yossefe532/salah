@@ -1290,34 +1290,43 @@ const SeatingManagement: React.FC = () => {
   }, [mainMode, selectedGroup, selectedElement, layoutDraft, copiedGroup, payload, tableBoxes, history, historyIndex, mapSeats, mapElements, zoomLevel]);
 
 
+  const mergeAttendeesById = useCallback((base: AttendeeLite[], extra: AttendeeLite[]) => {
+    const merged = [...base];
+    const seen = new Set(base.map((a) => a.id));
+    for (const attendee of extra) {
+      if (seen.has(attendee.id)) continue;
+      merged.push(attendee);
+      seen.add(attendee.id);
+    }
+    return merged;
+  }, []);
+
+  const loadSeatedAttendees = useCallback(async (seats: Seat[]) => {
+    const ids = Array.from(new Set(
+      (seats || []).map((s) => String(s.attendee_id || '').trim()).filter(Boolean)
+    ));
+    if (!ids.length) return [] as AttendeeLite[];
+    const data = await api.get(`/seating/attendees?eventId=${eventId}&ids=${encodeURIComponent(ids.join(','))}&limit=${ids.length}`);
+    return (Array.isArray(data) ? data : []) as AttendeeLite[];
+  }, [eventId]);
+
   const loadMap = async () => {
     try {
       setLoading(true);
       setError(null);
       const data = await api.get(`/seating/map?eventId=${eventId}`);
-      const incoming = (data || { event_id: eventId, tables: [], seats: [], layout_elements: [], seated_attendees: [] }) as SeatingMapPayload & { seated_attendees: AttendeeLite[] };
+      const incoming = (data || { event_id: eventId, tables: [], seats: [], layout_elements: [] }) as SeatingMapPayload;
+      const nextSeats = incoming.seats || [];
       setPayload({
         event_id: incoming.event_id,
         tables: incoming.tables || [],
-        seats: incoming.seats || [],
+        seats: nextSeats,
         layout_elements: incoming.layout_elements || []
       });
-      
-      if (Array.isArray(incoming.seated_attendees)) {
-        setAttendees(prev => {
-           const seated = incoming.seated_attendees;
-           const merged = [...seated];
-           const seen = new Set(seated.map(a => a.id));
-           // Keep anyone from current list who wasn't in the seated list (waiting list)
-           prev.forEach(a => {
-              if (!seen.has(a.id)) {
-                 merged.push(a);
-                 seen.add(a.id);
-              }
-           });
-           return merged;
-        });
-      }
+
+      // Fetch only attendees who are actually seated in this map.
+      const seated = await loadSeatedAttendees(nextSeats);
+      setAttendees((prev) => mergeAttendeesById(seated, prev));
     } catch (e: any) {
       setError(e.message || 'فشل تحميل خريطة المقاعد');
     } finally {
@@ -1327,19 +1336,9 @@ const SeatingManagement: React.FC = () => {
 
   const loadAttendees = async () => {
     try {
-      const data = await api.get(`/seating/attendees?eventId=${eventId}`);
+      const data = await api.get(`/seating/attendees?eventId=${eventId}&limit=1200`);
       const waiting = Array.isArray(data) ? data : [];
-      setAttendees(prev => {
-        const merged = [...prev];
-        const seen = new Set(prev.map(a => a.id));
-        waiting.forEach(a => {
-           if (!seen.has(a.id)) {
-              merged.push(a);
-              seen.add(a.id);
-           }
-        });
-        return merged;
-      });
+      setAttendees((prev) => mergeAttendeesById(prev, waiting as AttendeeLite[]));
     } catch (e: any) {
       setError(e.message || 'فشل تحميل الحضور');
     }
@@ -1351,9 +1350,9 @@ const SeatingManagement: React.FC = () => {
     try {
       const [mapData, attendeesData] = await Promise.all([
         api.get(`/seating/map?eventId=${eventId}`),
-        api.get(`/seating/attendees?eventId=${eventId}&limit=200`) // Limit background sync size
+        api.get(`/seating/attendees?eventId=${eventId}&limit=220`)
       ]);
-      const incoming = (mapData || { event_id: eventId, tables: [], seats: [], layout_elements: [], seated_attendees: [] }) as SeatingMapPayload & { seated_attendees: AttendeeLite[] };
+      const incoming = (mapData || { event_id: eventId, tables: [], seats: [], layout_elements: [] }) as SeatingMapPayload;
       
       setPayload((prev) => {
         const prevSeats = prev.seats || [];
@@ -1379,28 +1378,17 @@ const SeatingManagement: React.FC = () => {
         };
       });
 
-      setAttendees((prev) => {
-        const nextSeated = Array.isArray(incoming.seated_attendees) ? incoming.seated_attendees : [];
-        const nextWaiting = (Array.isArray(attendeesData) ? attendeesData : []) as AttendeeLite[];
-        
-        // Merge seated attendees with current waiting list results
-        const merged = [...nextSeated];
-        const seatedIds = new Set(merged.map(a => a.id));
-        nextWaiting.forEach(a => {
-          if (!seatedIds.has(a.id)) {
-            merged.push(a);
-            seatedIds.add(a.id);
-          }
-        });
-
-        return areAttendeesEquivalent(prev, merged) ? prev : merged;
-      });
+      const nextSeats = Array.isArray(incoming.seats) ? incoming.seats : [];
+      const nextSeated = await loadSeatedAttendees(nextSeats);
+      const nextWaiting = (Array.isArray(attendeesData) ? attendeesData : []) as AttendeeLite[];
+      const merged = mergeAttendeesById(nextSeated, nextWaiting);
+      setAttendees((prev) => areAttendeesEquivalent(prev, merged) ? prev : merged);
     } catch {
       // Keep UI stable during background live refresh.
     } finally {
       liveSyncInFlightRef.current = false;
     }
-  }, [eventId]);
+  }, [eventId, loadSeatedAttendees, mergeAttendeesById]);
 
   const loadLayoutVersions = async () => {
     try {
