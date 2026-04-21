@@ -1295,7 +1295,16 @@ const SeatingManagement: React.FC = () => {
       setLoading(true);
       setError(null);
       const data = await api.get(`/seating/map?eventId=${eventId}`);
-      setPayload((data || { event_id: eventId, tables: [], seats: [] }) as SeatingMapPayload);
+      const incoming = (data || { event_id: eventId, tables: [], seats: [], layout_elements: [], seated_attendees: [] }) as SeatingMapPayload & { seated_attendees: AttendeeLite[] };
+      setPayload({
+        event_id: incoming.event_id,
+        tables: incoming.tables || [],
+        seats: incoming.seats || [],
+        layout_elements: incoming.layout_elements || []
+      });
+      if (Array.isArray(incoming.seated_attendees)) {
+        setAttendees(incoming.seated_attendees);
+      }
     } catch (e: any) {
       setError(e.message || 'فشل تحميل خريطة المقاعد');
     } finally {
@@ -1318,9 +1327,10 @@ const SeatingManagement: React.FC = () => {
     try {
       const [mapData, attendeesData] = await Promise.all([
         api.get(`/seating/map?eventId=${eventId}`),
-        api.get(`/seating/attendees?eventId=${eventId}`)
+        api.get(`/seating/attendees?eventId=${eventId}&limit=200`) // Limit background sync size
       ]);
-      const incoming = (mapData || { event_id: eventId, tables: [], seats: [] }) as SeatingMapPayload;
+      const incoming = (mapData || { event_id: eventId, tables: [], seats: [], layout_elements: [], seated_attendees: [] }) as SeatingMapPayload & { seated_attendees: AttendeeLite[] };
+      
       setPayload((prev) => {
         const prevSeats = prev.seats || [];
         const nextSeats = Array.isArray(incoming.seats) ? incoming.seats : [];
@@ -1344,9 +1354,22 @@ const SeatingManagement: React.FC = () => {
           layout_elements: Array.isArray(incoming.layout_elements) ? incoming.layout_elements : prev.layout_elements
         };
       });
+
       setAttendees((prev) => {
-        const next = (Array.isArray(attendeesData) ? attendeesData : []) as AttendeeLite[];
-        return areAttendeesEquivalent(prev, next) ? prev : next;
+        const nextSeated = Array.isArray(incoming.seated_attendees) ? incoming.seated_attendees : [];
+        const nextWaiting = (Array.isArray(attendeesData) ? attendeesData : []) as AttendeeLite[];
+        
+        // Merge seated attendees with current waiting list results
+        const merged = [...nextSeated];
+        const seatedIds = new Set(merged.map(a => a.id));
+        nextWaiting.forEach(a => {
+          if (!seatedIds.has(a.id)) {
+            merged.push(a);
+            seatedIds.add(a.id);
+          }
+        });
+
+        return areAttendeesEquivalent(prev, merged) ? prev : merged;
       });
     } catch {
       // Keep UI stable during background live refresh.

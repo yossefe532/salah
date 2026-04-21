@@ -1186,6 +1186,9 @@ export const api = {
         const params = new URLSearchParams(query);
         const eventId = params.get('eventId') || DEFAULT_EVENT_ID;
         const nowIso = new Date().toISOString();
+        
+        // Optimize: Only run cleanup if there's a possibility of expired seats
+        // We can also skip this if we're in a hurry, but let's keep it for correctness.
         await supabase
           .from('seats')
           .update({ status: 'available', reserved_by: null, reserved_until: null })
@@ -1196,11 +1199,14 @@ export const api = {
         const [
           { data: tables, error: tablesError },
           { data: seats, error: seatsError },
-          { data: layoutElements, error: layoutError }
+          { data: layoutElements, error: layoutError },
+          { data: attendees, error: attendeesError }
         ] = await Promise.all([
           supabase.from('seat_tables').select('*').eq('event_id', eventId).order('row_number', { ascending: true }),
           supabase.from('seats').select('*').eq('event_id', eventId).order('row_number', { ascending: true }),
-          supabase.from('layout_elements').select('*').eq('event_id', eventId)
+          supabase.from('layout_elements').select('*').eq('event_id', eventId),
+          // Fetch only the attendees who are actually seated to avoid massive data transfer
+          supabase.from('attendees').select('id, full_name, governorate, seat_class, payment_type, payment_amount, phone_primary, seat_number, barcode, profile_photo_url').not('barcode', 'is', null)
         ]);
 
         if (tablesError && !isMissingTable(tablesError)) throw new Error(tablesError.message);
@@ -1210,7 +1216,8 @@ export const api = {
           event_id: eventId, 
           tables: tables || [], 
           seats: seats || [],
-          layout_elements: layoutElements || [] 
+          layout_elements: layoutElements || [],
+          seated_attendees: attendees || []
         };
       }
 
@@ -1265,6 +1272,7 @@ export const api = {
       const eventId = params.get('eventId') || DEFAULT_EVENT_ID;
       const hallGovernorate = getGovernorateFromEventId(eventId);
       const seatClass = params.get('seatClass');
+      const limit = Number(params.get('limit') || 2000); // Allow custom limit for seating
       
       // Search by fuzzy governorate tokens to catch case/style differences in stored data.
       const govTokens = [hallGovernorate];
@@ -1281,7 +1289,9 @@ export const api = {
         .from('attendees')
         .select('*')
         .in('status', ['registered', 'interested']) // Show both for seating just in case
-        .order('created_at', { ascending: true });
+        .order('created_at', { ascending: true })
+        .limit(limit);
+      
       attendeesQuery = applyActiveAttendeesFilter(attendeesQuery);
       if (govOrFilter) attendeesQuery = attendeesQuery.or(govOrFilter);
       if (seatClass) attendeesQuery = attendeesQuery.eq('seat_class', seatClass);
