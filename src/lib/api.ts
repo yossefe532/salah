@@ -969,11 +969,44 @@ const resolveSeat = async (
   if (requestedSeat && (requestedSeat < 1 || requestedSeat > capacity)) {
     throw new Error(`رقم المقعد يجب أن يكون بين 1 و ${capacity} لفئة ${payload.seat_class} في ${gov}`);
   }
-  // Hot path optimization:
-  // Avoid scanning attendees on every registration to prevent statement timeout.
-  // If user selected a seat number, keep it (barcode uniqueness still protects real seat claims).
-  // If no seat was selected, skip auto-assignment and let seating happen لاحقًا.
-  return requestedSeat ?? null;
+
+  let query = supabase
+    .from('attendees')
+    .select('id, seat_number')
+    .eq('governorate', gov)
+    .eq('seat_class', payload.seat_class)
+    .eq('status', 'registered');
+  query = applyActiveAttendeesFilter(query);
+
+  if (excludeId) query = query.neq('id', excludeId);
+  const { data, error } = await query;
+  if (error) {
+    const missingColumn = getMissingAttendeeColumn(error);
+    if (missingColumn === 'seat_number') {
+      return requestedSeat ?? null;
+    }
+    throw new Error(error.message);
+  }
+
+  const occupied = new Set((data || []).map((row: any) => Number(row.seat_number)).filter((x: number) => Number.isInteger(x) && x > 0));
+
+  if (requestedSeat) {
+    if (occupied.has(requestedSeat)) throw new Error(`المقعد رقم ${requestedSeat} محجوز بالفعل`);
+    return requestedSeat;
+  }
+
+  // If no seat requested, find all available seats and pick a random one
+  const available = [];
+  for (let seat = 1; seat <= capacity; seat += 1) {
+    if (!occupied.has(seat)) available.push(seat);
+  }
+
+  if (available.length === 0) {
+    throw new Error(`اكتمل عدد المقاعد لفئة ${payload.seat_class} في يوم ${gov}`);
+  }
+
+  // Pick a random seat from available ones
+  return available[Math.floor(Math.random() * available.length)];
 };
 
 export const normalizeGovernorate = (value?: string | null) => {

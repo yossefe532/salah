@@ -312,15 +312,7 @@ const Register: React.FC = () => {
     setSubmitError(null);
 
     try {
-      let duplicateCheck: any = null;
-      try {
-        duplicateCheck = await api.get(`/attendees/check-duplicates?full_name=${encodeURIComponent(data.full_name || '')}&phone_primary=${encodeURIComponent(data.phone_primary || '')}`);
-      } catch (dupErr: any) {
-        const dupMsg = String(dupErr?.message || '').toLowerCase();
-        if (!dupMsg.includes('statement timeout') && !dupMsg.includes('canceling statement')) {
-          throw dupErr;
-        }
-      }
+      const duplicateCheck = await api.get(`/attendees/check-duplicates?full_name=${encodeURIComponent(data.full_name || '')}&phone_primary=${encodeURIComponent(data.phone_primary || '')}`);
       if (duplicateCheck?.duplicate_name) {
         throw new Error('هذا الاسم مسجل بالفعل! يرجى التأكد من البيانات أو إضافة اسم مميز (مثل اسم الجد).');
       }
