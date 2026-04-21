@@ -242,14 +242,6 @@ const Register: React.FC = () => {
         setValue('seat_number', undefined);
         return;
       }
-
-      const response = await api.get('/attendees');
-      const attendees = Array.isArray(response) ? response : [];
-      const occupied = attendees
-        .filter((a: any) => a.governorate === governorate && a.seat_class === seatClass && a.status === 'registered' && !a.is_deleted)
-        .map((a: any) => Number(a.seat_number))
-        .filter((n: number) => Number.isInteger(n) && n > 0);
-      setOccupiedSeats(occupied);
       
       const normalizeGov = (val: string) => {
          const v = String(val || '').trim().toLowerCase();
@@ -260,8 +252,15 @@ const Register: React.FC = () => {
          return 'minya';
       };
       const eventId = `${normalizeGov(governorate).toUpperCase()}-2026-MAIN`;
-      const mapData = await api.get(`/seating/map?eventId=${eventId}`);
-      const validSeats = (mapData.seats || []).filter((s: any) => s.seat_class === seatClass && s.status === 'available');
+      const [occupiedResponse, availableResponse] = await Promise.all([
+        api.get(`/attendees?lite=1&governorate=${encodeURIComponent(governorate)}&seat_class=${encodeURIComponent(seatClass)}&status=registered&limit=5000`),
+        api.get(`/seating/available-seats?eventId=${encodeURIComponent(eventId)}&seat_class=${encodeURIComponent(seatClass)}&limit=5000`)
+      ]);
+      const occupied = (Array.isArray(occupiedResponse) ? occupiedResponse : [])
+        .map((a: any) => Number(a.seat_number))
+        .filter((n: number) => Number.isInteger(n) && n > 0);
+      setOccupiedSeats(occupied);
+      const validSeats = Array.isArray(availableResponse) ? availableResponse : [];
       
       setAvailableSeatsList(validSeats.map((s: any) => ({
          id: s.id,
@@ -283,7 +282,7 @@ const Register: React.FC = () => {
 
   useEffect(() => {
     const loadAttendeesOptions = async () => {
-      const response = await api.get('/attendees');
+      const response = await api.get('/attendees?lite=1&status=registered&limit=2000');
       setAttendeesOptions(Array.isArray(response) ? response : []);
     };
     loadAttendeesOptions();
@@ -313,25 +312,11 @@ const Register: React.FC = () => {
     setSubmitError(null);
 
     try {
-      // Check for duplicate name (Exact Match)
-      // Ensure we have an array, even if API returns null/undefined
-      const response = await api.get('/attendees');
-      const existingAttendees = Array.isArray(response) ? response : [];
-      
-      const isDuplicateName = existingAttendees.some((a: any) => 
-        a.full_name && a.full_name.trim().toLowerCase() === data.full_name.trim().toLowerCase() && !a.is_deleted
-      );
-      
-      if (isDuplicateName) {
+      const duplicateCheck = await api.get(`/attendees/check-duplicates?full_name=${encodeURIComponent(data.full_name || '')}&phone_primary=${encodeURIComponent(data.phone_primary || '')}`);
+      if (duplicateCheck?.duplicate_name) {
         throw new Error('هذا الاسم مسجل بالفعل! يرجى التأكد من البيانات أو إضافة اسم مميز (مثل اسم الجد).');
       }
-
-      // Check for duplicate phone
-      const isDuplicatePhone = data.phone_primary && existingAttendees.some((a: any) => 
-        a.phone_primary === data.phone_primary && !a.is_deleted
-      );
-
-      if (isDuplicatePhone) {
+      if (data.phone_primary && duplicateCheck?.duplicate_phone) {
          throw new Error('رقم الهاتف هذا مسجل بالفعل لمشارك آخر.');
       }
 
@@ -465,7 +450,10 @@ const Register: React.FC = () => {
 
           // Validation: Check if the selected barcode is taken by another user
           if (newAttendee.barcode) {
-             const { data: conflictUser } = await api.get(`/attendees?barcode=eq.${newAttendee.barcode}`).then((res: any) => ({ data: Array.isArray(res) ? res[0] : null })).catch(() => ({ data: null }));
+             const { data: conflictUser } = await api
+               .get(`/attendees?lite=1&limit=1&barcode=eq.${newAttendee.barcode}`)
+               .then((res: any) => ({ data: Array.isArray(res) ? res[0] : null }))
+               .catch(() => ({ data: null }));
                
              if (conflictUser) {
                  throw new Error(`المقعد محجوز مسبقاً لمشترك آخر (${conflictUser.full_name}). يرجى اختيار مقعد مختلف.`);

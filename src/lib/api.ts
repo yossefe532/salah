@@ -358,12 +358,22 @@ const normalizeAttendeePricing = (attendee: any) => {
 const enrichAttendeesNeighborLabels = (items: any[]) => {
   const attendees = (items || []).map(normalizeAttendeePricing);
   const byId = new Map(attendees.map((attendee: any) => [attendee.id, attendee]));
+  const reverseByTarget = new Map<string, Set<string>>();
+
+  for (const attendee of attendees) {
+    const ids = Array.isArray(attendee?.preferred_neighbor_ids) ? attendee.preferred_neighbor_ids : [];
+    for (const targetId of ids) {
+      if (!targetId) continue;
+      const key = String(targetId);
+      const bucket = reverseByTarget.get(key) || new Set<string>();
+      bucket.add(String(attendee.id));
+      reverseByTarget.set(key, bucket);
+    }
+  }
 
   return attendees.map((attendee: any) => {
     const forwardIds = Array.isArray(attendee.preferred_neighbor_ids) ? attendee.preferred_neighbor_ids : [];
-    const reverseIds = attendees
-      .filter((other: any) => other.id !== attendee.id && Array.isArray(other.preferred_neighbor_ids) && other.preferred_neighbor_ids.includes(attendee.id))
-      .map((other: any) => other.id);
+    const reverseIds = Array.from(reverseByTarget.get(String(attendee.id)) || []).filter((id) => id !== String(attendee.id));
     const allIds = [...new Set([...forwardIds, ...reverseIds])];
     const names = allIds
       .map((id: string) => byId.get(id))
@@ -1142,6 +1152,28 @@ export const api = {
         };
       }
 
+    if (endpoint.startsWith('/seating/available-seats')) {
+      const query = endpoint.split('?')[1] || '';
+      const params = new URLSearchParams(query);
+      const eventId = params.get('eventId') || DEFAULT_EVENT_ID;
+      const seatClass = params.get('seat_class');
+      const rawLimit = Number(params.get('limit') || 800);
+      const limit = Number.isFinite(rawLimit) ? Math.min(Math.max(rawLimit, 1), 5000) : 800;
+
+      let q = supabase
+        .from('seats')
+        .select('id, seat_number, seat_code, seat_class, status')
+        .eq('event_id', eventId)
+        .in('status', ['available', 'vip'])
+        .order('seat_number', { ascending: true })
+        .limit(limit);
+
+      if (seatClass) q = q.eq('seat_class', seatClass);
+      const { data, error } = await q;
+      if (error) throw new Error(error.message);
+      return Array.isArray(data) ? data : [];
+    }
+
     if (endpoint.startsWith('/seating/recommend')) {
       const query = endpoint.split('?')[1] || '';
       const params = new URLSearchParams(query);
@@ -1395,6 +1427,68 @@ export const api = {
       const liteMode = params.get('lite') === '1';
       const barcodeMatch = endpoint.match(/barcode=eq\.([^&]+)/);
       const idMatch = endpoint.match(/\/attendees\/([^\/?]+)/);
+      const limitParam = Number(params.get('limit') || 0);
+      const offsetParam = Number(params.get('offset') || 0);
+      const hasLimit = Number.isFinite(limitParam) && limitParam > 0;
+      const hasOffset = Number.isFinite(offsetParam) && offsetParam >= 0;
+
+      if (endpoint.startsWith('/attendees/check-duplicates')) {
+        const fullNameRaw = String(params.get('full_name') || '').trim();
+        const phoneRaw = String(params.get('phone_primary') || '').trim();
+        const fullName = fullNameRaw.replace(/,/g, '');
+        const phone = phoneRaw.replace(/,/g, '');
+
+        const duplicateResult = {
+          duplicate_name: false,
+          duplicate_phone: false,
+          name_owner: null as any,
+          phone_owner: null as any
+        };
+
+        if (fullName) {
+          const buildNameQuery = (selectClause: string) => {
+            let q = applyCompanyScopeToAttendeesQuery(supabase.from('attendees').select(selectClause), currentUser);
+            q = applyActiveAttendeesFilter(q).ilike('full_name', fullName).limit(1);
+            return q;
+          };
+          const nameRes = await runAttendeesSelectWithSchemaFallback(buildNameQuery, ['id', 'full_name', 'phone_primary', 'is_deleted']);
+          if (nameRes.error && isMissingColumnError(nameRes.error, 'company_id')) {
+            const legacy = await runAttendeesSelectWithSchemaFallback(
+              (selectClause) => applyActiveAttendeesFilter(supabase.from('attendees').select(selectClause)).ilike('full_name', fullName).limit(1),
+              ['id', 'full_name', 'phone_primary', 'is_deleted']
+            );
+            if (legacy.error) throw new Error(legacy.error.message);
+            duplicateResult.name_owner = Array.isArray(legacy.data) && legacy.data.length > 0 ? legacy.data[0] : null;
+          } else {
+            if (nameRes.error) throw new Error(nameRes.error.message);
+            duplicateResult.name_owner = Array.isArray(nameRes.data) && nameRes.data.length > 0 ? nameRes.data[0] : null;
+          }
+          duplicateResult.duplicate_name = Boolean(duplicateResult.name_owner);
+        }
+
+        if (phone) {
+          const buildPhoneQuery = (selectClause: string) => {
+            let q = applyCompanyScopeToAttendeesQuery(supabase.from('attendees').select(selectClause), currentUser);
+            q = applyActiveAttendeesFilter(q).eq('phone_primary', phone).limit(1);
+            return q;
+          };
+          const phoneRes = await runAttendeesSelectWithSchemaFallback(buildPhoneQuery, ['id', 'full_name', 'phone_primary', 'is_deleted']);
+          if (phoneRes.error && isMissingColumnError(phoneRes.error, 'company_id')) {
+            const legacy = await runAttendeesSelectWithSchemaFallback(
+              (selectClause) => applyActiveAttendeesFilter(supabase.from('attendees').select(selectClause)).eq('phone_primary', phone).limit(1),
+              ['id', 'full_name', 'phone_primary', 'is_deleted']
+            );
+            if (legacy.error) throw new Error(legacy.error.message);
+            duplicateResult.phone_owner = Array.isArray(legacy.data) && legacy.data.length > 0 ? legacy.data[0] : null;
+          } else {
+            if (phoneRes.error) throw new Error(phoneRes.error.message);
+            duplicateResult.phone_owner = Array.isArray(phoneRes.data) && phoneRes.data.length > 0 ? phoneRes.data[0] : null;
+          }
+          duplicateResult.duplicate_phone = Boolean(duplicateResult.phone_owner);
+        }
+
+        return duplicateResult;
+      }
       
       const attendeeListColumns = [
         'id',
@@ -1438,6 +1532,29 @@ export const api = {
         'preferred_neighbor_ids',
         'warnings'
       ];
+      const attendeeLiteColumns = [
+        'id',
+        'full_name',
+        'governorate',
+        'seat_class',
+        'seat_number',
+        'status',
+        'is_deleted',
+        'phone_primary',
+        'barcode',
+        'payment_type',
+        'payment_amount',
+        'ticket_price_override',
+        'base_ticket_price',
+        'certificate_included',
+        'profile_photo_url',
+        'preferred_neighbor_name',
+        'preferred_neighbor_ids',
+        'warnings',
+        'created_at',
+        'updated_at'
+      ];
+      const selectedColumns = liteMode ? attendeeLiteColumns : attendeeListColumns;
 
       if (idMatch) {
         const scoped = applyCompanyScopeToAttendeesQuery(
@@ -1514,10 +1631,13 @@ export const api = {
         if (attendance === 'absent') q = q.or('attendance_status.is.false,attendance_status.is.null');
         if (safeSearch) q = q.or(`full_name.ilike.%${safeSearch}%,phone_primary.ilike.%${safeSearch}%,phone_secondary.ilike.%${safeSearch}%`);
         if (barcodeMatch) q = q.eq('barcode', barcodeMatch[1]);
+        q = q.order('created_at', { ascending: false });
+        if (hasOffset && hasLimit) q = q.range(offsetParam, offsetParam + limitParam - 1);
+        else if (hasLimit) q = q.limit(limitParam);
         return q;
       };
 
-      const initialResult = await runAttendeesSelectWithSchemaFallback(buildScopedQuery, attendeeListColumns);
+      const initialResult = await runAttendeesSelectWithSchemaFallback(buildScopedQuery, selectedColumns);
       let { data, error } = initialResult;
       if (error && isMissingColumnError(error, 'company_id')) {
         const fallbackResult = await runAttendeesSelectWithSchemaFallback((selectClause) => {
@@ -1535,8 +1655,11 @@ export const api = {
           if (attendance === 'absent') fallbackQuery = fallbackQuery.or('attendance_status.is.false,attendance_status.is.null');
           if (safeSearch) fallbackQuery = fallbackQuery.or(`full_name.ilike.%${safeSearch}%,phone_primary.ilike.%${safeSearch}%,phone_secondary.ilike.%${safeSearch}%`);
           if (barcodeMatch) fallbackQuery = fallbackQuery.eq('barcode', barcodeMatch[1]);
+          fallbackQuery = fallbackQuery.order('created_at', { ascending: false });
+          if (hasOffset && hasLimit) fallbackQuery = fallbackQuery.range(offsetParam, offsetParam + limitParam - 1);
+          else if (hasLimit) fallbackQuery = fallbackQuery.limit(limitParam);
           return fallbackQuery;
-        }, attendeeListColumns);
+        }, selectedColumns);
         data = fallbackResult.data;
         error = fallbackResult.error;
       }
@@ -1547,14 +1670,16 @@ export const api = {
           (selectClause) => supabase
             .from('attendees')
             .select(selectClause)
-            .not('is_deleted', 'is', true),
-          attendeeListColumns
+            .not('is_deleted', 'is', true)
+            .order('created_at', { ascending: false })
+            .limit(hasLimit ? limitParam : 1000),
+          selectedColumns
         );
         if (!raw.error && Array.isArray(raw.data) && raw.data.length > 0) {
           data = raw.data;
         }
       }
-      const sorted = sortByCreatedAtDesc(Array.isArray(data) ? data : []);
+      const sorted = Array.isArray(data) ? data : [];
       if (liteMode) return sorted.map(normalizeAttendeePricing);
       return enrichAttendeesNeighborLabels(sorted);
     }
