@@ -1603,6 +1603,7 @@ export const api = {
       const paymentType = params.get('payment_type');
       const attendance = params.get('attendance');
       const q = params.get('q');
+      const withCount = params.get('withCount') === '1';
       const safeSearch = q ? String(q).replace(/,/g, '').trim() : '';
 
       if (governorate) scoped = scoped.eq('governorate', governorate);
@@ -1627,9 +1628,9 @@ export const api = {
       if (barcodeMatch) {
          scoped = scoped.eq('barcode', barcodeMatch[1]);
       }
-      const buildScopedQuery = (selectClause: string) => {
+      const buildScopedQuery = (selectClause: string, isCountOnly = false) => {
         let q = applyCompanyScopeToAttendeesQuery(
-          supabase.from('attendees').select(selectClause),
+          supabase.from('attendees').select(selectClause, isCountOnly ? { count: 'exact', head: true } : {}),
           currentUser
         );
         q = showTrash ? q.eq('is_deleted', true) : applyActiveAttendeesFilter(q);
@@ -1645,13 +1646,33 @@ export const api = {
         if (attendance === 'absent') q = q.or('attendance_status.is.false,attendance_status.is.null');
         if (safeSearch) q = q.or(`full_name.ilike.%${safeSearch}%,phone_primary.ilike.%${safeSearch}%,phone_secondary.ilike.%${safeSearch}%`);
         if (barcodeMatch) q = q.eq('barcode', barcodeMatch[1]);
-        q = q.order('created_at', { ascending: false });
-        if (hasOffset && hasLimit) q = q.range(offsetParam, offsetParam + limitParam - 1);
-        else if (hasLimit) q = q.limit(limitParam);
+        
+        if (!isCountOnly) {
+          q = q.order('created_at', { ascending: false });
+          if (hasOffset && hasLimit) q = q.range(offsetParam, offsetParam + limitParam - 1);
+          else if (hasLimit) q = q.limit(limitParam);
+        }
         return q;
       };
 
-      const initialResult = await runAttendeesSelectWithSchemaFallback(buildScopedQuery, selectedColumns);
+      let finalData: any[] = [];
+      let totalCount = 0;
+      let presentCount = 0;
+      let absentCount = 0;
+
+      if (withCount) {
+        // Run count queries in parallel
+        const [totalRes, presentRes, absentRes] = await Promise.all([
+          buildScopedQuery('id', true),
+          buildScopedQuery('id', true).eq('attendance_status', true),
+          buildScopedQuery('id', true).or('attendance_status.is.false,attendance_status.is.null')
+        ]);
+        totalCount = totalRes.count || 0;
+        presentCount = presentRes.count || 0;
+        absentCount = absentRes.count || 0;
+      }
+
+      const initialResult = await runAttendeesSelectWithSchemaFallback((sel) => buildScopedQuery(sel), selectedColumns);
       let { data, error } = initialResult;
       if (error && isMissingColumnError(error, 'company_id')) {
         const fallbackResult = await runAttendeesSelectWithSchemaFallback((selectClause) => {
@@ -1694,8 +1715,19 @@ export const api = {
         }
       }
       const sorted = Array.isArray(data) ? data : [];
-      if (liteMode) return sorted.map(normalizeAttendeePricing);
-      return enrichAttendeesNeighborLabels(sorted);
+      const normalized = liteMode 
+        ? sorted.map(normalizeAttendeePricing) 
+        : enrichAttendeesNeighborLabels(sorted);
+
+      if (withCount) {
+        return {
+          data: normalized,
+          total: totalCount,
+          present: presentCount,
+          absent: absentCount
+        };
+      }
+      return normalized;
     }
 
     if (endpoint.startsWith('/companies')) {

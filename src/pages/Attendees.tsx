@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { api, supabase } from '../lib/api';
 import { Attendee } from '../types';
 import { Search, Eye, QrCode, CheckCircle, XCircle, UserCheck, UserX, Trash2, RefreshCcw, AlertTriangle, MessageCircle, Phone, Upload, Edit2, FileSpreadsheet, Copy, Zap, Ticket, FileBadge2, Image as ImageIcon, Download } from 'lucide-react';
@@ -9,13 +9,14 @@ import { QRCodeCanvas } from 'qrcode.react';
 import { jsPDF } from 'jspdf';
 
 const Attendees: React.FC = () => {
-  const PAGE_SIZE = 200;
+  const PAGE_SIZE = 20;
   const { user } = useAuth();
   const [attendees, setAttendees] = useState<Attendee[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [page, setPage] = useState(0);
   const [hasMore, setHasMore] = useState(false);
+  const [stats, setStats] = useState({ total: 0, present: 0, absent: 0 });
   const [isRealtime, setIsRealtime] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [debouncedSearchTerm, setDebouncedSearchTerm] = useState('');
@@ -73,6 +74,8 @@ const Attendees: React.FC = () => {
       params.set('lite', '1');
       params.set('limit', String(PAGE_SIZE));
       params.set('offset', String(targetPage * PAGE_SIZE));
+      params.set('withCount', '1');
+      
       if (viewMode === 'trash') params.set('trash', 'true');
       if (filters.governorate) params.set('governorate', filters.governorate);
       if (filters.seat_class) params.set('seat_class', filters.seat_class);
@@ -83,16 +86,20 @@ const Attendees: React.FC = () => {
       if (q) params.set('q', q);
 
       const endpoint = `/attendees?${params.toString()}`;
-      let data: Attendee[] = await api.get(endpoint);
+      const response = await api.get(endpoint);
+      
+      const data = response.data || [];
+      const total = response.total || 0;
+      const present = response.present || 0;
+      const absent = response.absent || 0;
 
-      // Sort by newest
-      data.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-
+      setStats({ total, present, absent });
       setHasMore(data.length >= PAGE_SIZE);
+
       if (append) {
         setAttendees(prev => {
           const seen = new Set(prev.map(a => a.id));
-          const extras = data.filter(a => !seen.has(a.id));
+          const extras = data.filter((a: any) => !seen.has(a.id));
           return [...prev, ...extras];
         });
       } else {
@@ -118,12 +125,23 @@ const Attendees: React.FC = () => {
     fetchAttendees(0, false);
   }, [fetchAttendees]);
 
-  const handleLoadMore = async () => {
-    if (loadingMore || !hasMore) return;
-    const nextPage = page + 1;
-    setPage(nextPage);
-    await fetchAttendees(nextPage, true);
-  };
+  const observer = useRef<IntersectionObserver | null>(null);
+  const lastAttendeeElementRef = useCallback((node: HTMLDivElement | null) => {
+    if (loading || loadingMore) return;
+    if (observer.current) observer.current.disconnect();
+    observer.current = new IntersectionObserver(entries => {
+      if (entries[0].isIntersecting && hasMore) {
+        setPage(prevPage => prevPage + 1);
+      }
+    });
+    if (node) observer.current.observe(node);
+  }, [loading, loadingMore, hasMore]);
+
+  useEffect(() => {
+    if (page > 0) {
+      fetchAttendees(page, true);
+    }
+  }, [page]);
 
   useEffect(() => {
     // Real-time Subscription
@@ -262,12 +280,6 @@ const Attendees: React.FC = () => {
     });
   };
 
-  const stats = {
-    total: filteredAttendees.length,
-    present: filteredAttendees.filter(a => a.attendance_status).length,
-    absent: filteredAttendees.filter(a => !a.attendance_status).length
-  };
-
   const isCustomZeroPrice = (attendee: Attendee) => {
     if (attendee.ticket_price_override === undefined || attendee.ticket_price_override === null) return false;
     const v = Number(attendee.ticket_price_override);
@@ -309,7 +321,10 @@ const Attendees: React.FC = () => {
         </thead>
         <tbody className="bg-white divide-y divide-gray-200">
           {rows.map((attendee) => (
-            <tr key={attendee.id} className={`hover:bg-gray-50 transition-colors ${attendee.attendance_status ? 'bg-green-50/30' : ''}`}>
+            <tr 
+              key={attendee.id} 
+              className={`hover:bg-gray-50 transition-colors ${attendee.attendance_status ? 'bg-green-50/30' : ''}`}
+            >
               <td className="px-6 py-4">
                 <div className="flex items-center">
                   <div>
@@ -702,16 +717,18 @@ const Attendees: React.FC = () => {
           {renderAttendeesTable(filteredAttendees)}
         </div>
       )}
-      {!loading && filteredAttendees.length > 0 && viewMode !== 'trash' && (
-        <div className="flex justify-center">
-          <button
-            type="button"
-            disabled={!hasMore || loadingMore}
-            onClick={handleLoadMore}
-            className="px-4 py-2 rounded-md border border-gray-300 text-sm text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50"
-          >
-            {loadingMore ? 'جاري تحميل المزيد...' : (hasMore ? 'تحميل المزيد' : 'لا توجد سجلات إضافية')}
-          </button>
+      {/* Infinite Scroll Sentinel */}
+      {viewMode !== 'trash' && (
+        <div ref={lastAttendeeElementRef} className="h-10 flex items-center justify-center">
+          {loadingMore && (
+            <div className="flex items-center gap-2 text-gray-500">
+              <div className="animate-spin rounded-full h-4 w-4 border-2 border-indigo-600 border-t-transparent"></div>
+              <span className="text-sm font-medium">جاري تحميل المزيد...</span>
+            </div>
+          )}
+          {!hasMore && attendees.length > 0 && (
+            <span className="text-sm text-gray-400 font-medium italic">تم تحميل كافة البيانات</span>
+          )}
         </div>
       )}
 
