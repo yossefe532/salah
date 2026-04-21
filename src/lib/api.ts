@@ -1019,6 +1019,7 @@ const getTableOrderFromTableId = (tableId?: string | null) => {
 };
 
 const LAYOUT_VERSIONS_KEY = 'seating_layout_versions_v1';
+const LAYOUT_DRAFTS_KEY = 'seating_layout_drafts_v1';
 
 const readLayoutVersionsStore = () => {
   try {
@@ -1030,6 +1031,29 @@ const readLayoutVersionsStore = () => {
 
 const writeLayoutVersionsStore = (value: any) => {
   localStorage.setItem(LAYOUT_VERSIONS_KEY, JSON.stringify(value || {}));
+};
+
+const readLayoutDraftsStore = () => {
+  try {
+    return JSON.parse(localStorage.getItem(LAYOUT_DRAFTS_KEY) || '{}');
+  } catch {
+    return {};
+  }
+};
+
+const writeLayoutDraftsStore = (value: any) => {
+  localStorage.setItem(LAYOUT_DRAFTS_KEY, JSON.stringify(value || {}));
+};
+
+const getLayoutDraftStoreKey = (eventId: string, governorate: string) => `${eventId}::${governorate}`;
+
+const normalizeDraftPayload = (draft: any) => {
+  if (!draft || typeof draft !== 'object' || Array.isArray(draft)) return {};
+  try {
+    return JSON.parse(JSON.stringify(draft));
+  } catch {
+    return {};
+  }
 };
 
 // Offline Queue Management
@@ -1215,6 +1239,87 @@ export const api = {
       const store = readLayoutVersionsStore();
       const versions = Array.isArray(store[eventId]) ? store[eventId] : [];
       return versions.map((v: any) => ({ id: v.id, name: v.name, created_at: v.created_at }));
+    }
+
+    if (endpoint.startsWith('/seating/layout-draft')) {
+      const query = endpoint.split('?')[1] || '';
+      const params = new URLSearchParams(query);
+      const eventId = params.get('eventId') || DEFAULT_EVENT_ID;
+      const governorate = normalizeGovernorate(params.get('governorate') || getGovernorateFromEventId(eventId));
+      const localStore = readLayoutDraftsStore();
+      const localKey = getLayoutDraftStoreKey(eventId, governorate);
+      const localDraft = localStore?.[localKey];
+
+      const fallbackResult = {
+        event_id: eventId,
+        governorate,
+        draft: normalizeDraftPayload(localDraft?.draft || {}),
+        has_draft: Boolean(localDraft && Object.keys(localDraft?.draft || {}).length > 0),
+        updated_at: localDraft?.updated_at || null,
+        source: 'local'
+      };
+
+      const { data, error } = await supabase
+        .from('seating_layout_drafts')
+        .select('event_id, governorate, draft, updated_at')
+        .eq('event_id', eventId)
+        .eq('governorate', governorate)
+        .maybeSingle();
+
+      if (error) {
+        if (isMissingColumnError(error, 'governorate')) {
+          const legacy = await supabase
+            .from('seating_layout_drafts')
+            .select('event_id, draft, updated_at')
+            .eq('event_id', eventId)
+            .maybeSingle();
+          if (legacy.error && !isMissingTable(legacy.error)) throw new Error(legacy.error.message);
+          const legacyDraft = normalizeDraftPayload(legacy.data?.draft || {});
+          if (Object.keys(legacyDraft).length === 0) return fallbackResult;
+          localStore[localKey] = {
+            event_id: eventId,
+            governorate,
+            draft: legacyDraft,
+            updated_at: legacy.data?.updated_at || new Date().toISOString(),
+            source: 'remote_legacy'
+          };
+          writeLayoutDraftsStore(localStore);
+          return {
+            event_id: eventId,
+            governorate,
+            draft: legacyDraft,
+            has_draft: true,
+            updated_at: legacy.data?.updated_at || null,
+            source: 'remote_legacy'
+          };
+        }
+        if (!isMissingTable(error)) throw new Error(error.message);
+        return fallbackResult;
+      }
+
+      const remoteDraft = normalizeDraftPayload(data?.draft || {});
+      const hasRemoteDraft = Object.keys(remoteDraft).length > 0;
+      if (!data || !hasRemoteDraft) {
+        return fallbackResult;
+      }
+
+      localStore[localKey] = {
+        event_id: eventId,
+        governorate,
+        draft: remoteDraft,
+        updated_at: data?.updated_at || new Date().toISOString(),
+        source: 'remote'
+      };
+      writeLayoutDraftsStore(localStore);
+
+      return {
+        event_id: eventId,
+        governorate,
+        draft: remoteDraft,
+        has_draft: true,
+        updated_at: data?.updated_at || null,
+        source: 'remote'
+      };
     }
 
     if (endpoint.startsWith('/leads/social')) {
@@ -2217,6 +2322,130 @@ export const api = {
       }
 
       return { success: true };
+    }
+
+    if (endpoint === '/seating/layout-draft/autosave') {
+      const eventId = body?.event_id || DEFAULT_EVENT_ID;
+      const governorate = normalizeGovernorate(body?.governorate || getGovernorateFromEventId(eventId));
+      const draft = normalizeDraftPayload(body?.draft || {});
+      const now = new Date().toISOString();
+
+      const localStore = readLayoutDraftsStore();
+      const localKey = getLayoutDraftStoreKey(eventId, governorate);
+      localStore[localKey] = {
+        event_id: eventId,
+        governorate,
+        draft,
+        updated_at: now,
+        source: 'local'
+      };
+      writeLayoutDraftsStore(localStore);
+
+      if (!navigator.onLine) {
+        return {
+          success: true,
+          event_id: eventId,
+          governorate,
+          updated_at: now,
+          source: 'local_offline'
+        };
+      }
+
+      const upsertPayload = {
+        event_id: eventId,
+        governorate,
+        draft,
+        updated_at: now
+      };
+
+      const { data, error } = await supabase
+        .from('seating_layout_drafts')
+        .upsert(upsertPayload, { onConflict: 'event_id,governorate' })
+        .select('event_id, governorate, updated_at')
+        .single();
+
+      if (error) {
+        const canTryLegacyUpsert = isMissingColumnError(error, 'governorate')
+          || String(error?.message || '').toLowerCase().includes('there is no unique or exclusion constraint matching the on conflict specification');
+        if (canTryLegacyUpsert) {
+          const legacyRes = await supabase
+            .from('seating_layout_drafts')
+            .upsert({ event_id: eventId, draft, updated_at: now }, { onConflict: 'event_id' })
+            .select('event_id, updated_at')
+            .single();
+          if (!legacyRes.error) {
+            localStore[localKey] = {
+              ...localStore[localKey],
+              updated_at: legacyRes.data?.updated_at || now,
+              source: 'remote_legacy'
+            };
+            writeLayoutDraftsStore(localStore);
+            return {
+              success: true,
+              event_id: eventId,
+              governorate,
+              updated_at: legacyRes.data?.updated_at || now,
+              source: 'remote_legacy'
+            };
+          }
+        }
+        if (!isMissingTable(error) && !isMissingColumnError(error, 'governorate')) {
+          console.warn('layout-draft autosave remote failed, fallback to local store', error);
+        }
+        return {
+          success: true,
+          event_id: eventId,
+          governorate,
+          updated_at: now,
+          source: 'local_fallback'
+        };
+      }
+
+      localStore[localKey] = {
+        ...localStore[localKey],
+        updated_at: data?.updated_at || now,
+        source: 'remote'
+      };
+      writeLayoutDraftsStore(localStore);
+
+      return {
+        success: true,
+        event_id: eventId,
+        governorate,
+        updated_at: data?.updated_at || now,
+        source: 'remote'
+      };
+    }
+
+    if (endpoint === '/seating/layout-draft/clear') {
+      const eventId = body?.event_id || DEFAULT_EVENT_ID;
+      const governorate = normalizeGovernorate(body?.governorate || getGovernorateFromEventId(eventId));
+      const localStore = readLayoutDraftsStore();
+      const localKey = getLayoutDraftStoreKey(eventId, governorate);
+      if (localStore?.[localKey]) {
+        delete localStore[localKey];
+        writeLayoutDraftsStore(localStore);
+      }
+
+      const { error } = await supabase
+        .from('seating_layout_drafts')
+        .delete()
+        .eq('event_id', eventId)
+        .eq('governorate', governorate);
+      if (error) {
+        if (isMissingColumnError(error, 'governorate')) {
+          const legacyDelete = await supabase
+            .from('seating_layout_drafts')
+            .delete()
+            .eq('event_id', eventId);
+          if (legacyDelete.error && !isMissingTable(legacyDelete.error)) {
+            throw new Error(legacyDelete.error.message);
+          }
+        } else if (!isMissingTable(error)) {
+          throw new Error(error.message);
+        }
+      }
+      return { success: true, event_id: eventId, governorate };
     }
 
     if (endpoint === '/seating/layout-version/save') {

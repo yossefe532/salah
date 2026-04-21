@@ -51,7 +51,52 @@ const statusLabel: Record<string, string> = {
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 
-const getLocalDraftKey = (eventId: string) => `seating-layout-draft:${eventId}`;
+const getLegacyLocalDraftKey = (eventId: string) => `seating-layout-draft:${eventId}`;
+const getLocalDraftKey = (eventId: string, governorate: string) =>
+  `seating-layout-draft:${eventId}:${String(governorate || 'Minya').toLowerCase()}`;
+
+type DraftSnapshot = {
+  source: 'local' | 'server';
+  draft: Record<string, any>;
+  savedAt: string | null;
+};
+
+const parseDraftDate = (value?: string | null) => {
+  if (!value) return 0;
+  const ts = Date.parse(value);
+  return Number.isFinite(ts) ? ts : 0;
+};
+
+const safeDraftHash = (draft: Record<string, any>) => {
+  try {
+    return JSON.stringify(draft || {});
+  } catch {
+    return '';
+  }
+};
+
+const areAttendeesEquivalent = (prev: AttendeeLite[], next: AttendeeLite[]) => {
+  if (prev.length !== next.length) return false;
+  for (let i = 0; i < prev.length; i += 1) {
+    const a = prev[i];
+    const b = next[i];
+    if (!b) return false;
+    if (
+      a.id !== b.id ||
+      a.full_name !== b.full_name ||
+      a.governorate !== b.governorate ||
+      a.seat_class !== b.seat_class ||
+      a.payment_type !== b.payment_type ||
+      Number(a.payment_amount || 0) !== Number(b.payment_amount || 0) ||
+      Number(a.seat_number || 0) !== Number(b.seat_number || 0) ||
+      a.barcode !== b.barcode ||
+      a.profile_photo_url !== b.profile_photo_url
+    ) {
+      return false;
+    }
+  }
+  return true;
+};
 
 const parseElementMeta = (element: any) => {
   const fallback = {
@@ -525,7 +570,7 @@ const AssignmentModalComponent = ({ isOpen, seat, attendees, mapSeats, onClose, 
 
 interface EditModeState {
   action: 'add' | 'move' | 'delete' | 'edit_details' | null;
-  addType: 'table' | 'wave' | 'seat' | 'blocked' | 'stage' | 'aisle' | null;
+  addType: 'table' | 'wave' | 'seat' | 'seat-bundle' | 'blocked' | 'stage' | 'aisle' | null;
   addClass: 'A' | 'B' | 'C' | null;
   addName: string;
   addCount: number;
@@ -587,6 +632,11 @@ const SeatingManagement: React.FC = () => {
   const [selectedVersionId, setSelectedVersionId] = useState('');
   const [versionName, setVersionName] = useState('');
   const [localDraftExists, setLocalDraftExists] = useState(false);
+  const [serverDraftExists, setServerDraftExists] = useState(false);
+  const [draftAutosaveStatus, setDraftAutosaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const [draftAutosaveError, setDraftAutosaveError] = useState<string | null>(null);
+  const [draftLastSavedAt, setDraftLastSavedAt] = useState<string | null>(null);
+  const [draftRecoveredFrom, setDraftRecoveredFrom] = useState<'local' | 'server' | null>(null);
   const [assignmentModal, setAssignmentModal] = useState<{isOpen: boolean, seat: Seat | null, isTableModal: boolean, tableId: string | null}>({isOpen: false, seat: null, isTableModal: false, tableId: null});
   const [zoomLevel, setZoomLevel] = useState(1);
   const [isMapFullscreen, setIsMapFullscreen] = useState(false);
@@ -610,9 +660,11 @@ const SeatingManagement: React.FC = () => {
     name: string;
     shape: string;
     count: number;
+    rows: number;
+    seatsPerRow: number;
     seatClass: string;
     aisleWidth: number;
-  }>({ isOpen: false, type: '', startX: 0, startY: 0, endX: 0, endY: 0, name: '', shape: 'rect', count: 10, seatClass: 'C', aisleWidth: 18 });
+  }>({ isOpen: false, type: '', startX: 0, startY: 0, endX: 0, endY: 0, name: '', shape: 'rect', count: 10, rows: 3, seatsPerRow: 8, seatClass: 'C', aisleWidth: 18 });
   const [elementControls, setElementControls] = useState<{
     id: string;
     elementType: string;
@@ -647,7 +699,9 @@ const SeatingManagement: React.FC = () => {
   const lastMouseCanvasRef = useRef<{ x: number; y: number } | null>(null);
   const pinchStartDistanceRef = useRef<number | null>(null);
   const pinchStartZoomRef = useRef(1);
-  const localDraftCheckedEventRef = useRef<string>('');
+  const restoredDraftEventRef = useRef<string>('');
+  const lastLocalDraftHashRef = useRef<string>('');
+  const lastRemoteDraftHashRef = useRef<string>('');
 
   useEffect(() => { dragStateRef.current = dragState; }, [dragState]);
   useEffect(() => { layoutDraftRef.current = layoutDraft; }, [layoutDraft]);
@@ -665,54 +719,165 @@ const SeatingManagement: React.FC = () => {
     return () => { document.body.style.overflow = originalOverflow; };
   }, [isMapFullscreen]);
 
-  const restoreLocalDraft = useCallback((silent = false) => {
+  const readLocalDraftSnapshot = useCallback((targetEventId: string, targetGovernorate?: string): DraftSnapshot | null => {
     try {
-      const raw = localStorage.getItem(getLocalDraftKey(eventId));
+      const gov = targetGovernorate || governorate;
+      const scopedKey = getLocalDraftKey(targetEventId, gov);
+      const legacyKey = getLegacyLocalDraftKey(targetEventId);
+      const raw = localStorage.getItem(scopedKey) || localStorage.getItem(legacyKey);
       if (!raw) {
         setLocalDraftExists(false);
-        return false;
+        return null;
       }
       const parsed = JSON.parse(raw);
       const draft = parsed?.draft || {};
       const hasAny = Object.keys(draft).length > 0;
       setLocalDraftExists(hasAny);
-      if (!hasAny) return false;
-      if (!silent) {
-        const ok = window.confirm('تم العثور على مسودة محلية غير منشورة لهذه القاعة. هل تريد استرجاعها الآن؟');
-        if (!ok) return false;
+      if (!hasAny) return null;
+      if (localStorage.getItem(legacyKey) && !localStorage.getItem(scopedKey)) {
+        const savedAt = parsed?.savedAt || parsed?.saved_at || new Date().toISOString();
+        localStorage.setItem(scopedKey, JSON.stringify({ draft, eventId: targetEventId, governorate: gov, savedAt }));
       }
-      setLayoutDraft(draft);
-      commitDraftHistory(draft);
-      return true;
+      return {
+        source: 'local',
+        draft,
+        savedAt: parsed?.savedAt || parsed?.saved_at || null
+      };
     } catch {
-      return false;
+      setLocalDraftExists(false);
+      return null;
     }
-  }, [eventId, commitDraftHistory]);
+  }, [governorate]);
+
+  const readServerDraftSnapshot = useCallback(async (targetEventId: string, targetGovernorate?: string): Promise<DraftSnapshot | null> => {
+    try {
+      const query = `/seating/layout-draft?eventId=${encodeURIComponent(targetEventId)}&governorate=${encodeURIComponent(targetGovernorate || governorate)}`;
+      const response = await api.get(query);
+      const draft = (response?.draft && typeof response.draft === 'object') ? response.draft : {};
+      const hasAny = Object.keys(draft).length > 0;
+      setServerDraftExists(hasAny);
+      if (!hasAny) return null;
+      return {
+        source: 'server',
+        draft,
+        savedAt: response?.updated_at || null
+      };
+    } catch {
+      setServerDraftExists(false);
+      return null;
+    }
+  }, [governorate]);
+
+  const applyRecoveredDraft = useCallback((snapshot: DraftSnapshot | null) => {
+    if (!snapshot) return false;
+    setLayoutDraft(snapshot.draft);
+    commitDraftHistory(snapshot.draft);
+    setDraftRecoveredFrom(snapshot.source);
+    if (snapshot.savedAt) setDraftLastSavedAt(snapshot.savedAt);
+    return true;
+  }, [commitDraftHistory]);
+
+  const restoreLocalDraft = useCallback((silent = false) => {
+    const snapshot = readLocalDraftSnapshot(eventId, governorate);
+    if (!snapshot) return false;
+    if (!silent) {
+      const ok = window.confirm('تم العثور على مسودة محلية غير منشورة لهذه القاعة. هل تريد استرجاعها الآن؟');
+      if (!ok) return false;
+    }
+    return applyRecoveredDraft(snapshot);
+  }, [eventId, governorate, readLocalDraftSnapshot, applyRecoveredDraft]);
+
+  const restoreServerDraft = useCallback(async (silent = false) => {
+    const snapshot = await readServerDraftSnapshot(eventId, governorate);
+    if (!snapshot) return false;
+    if (!silent) {
+      const ok = window.confirm('تم العثور على مسودة محفوظة تلقائيًا على السيرفر لهذه القاعة. هل تريد استرجاعها الآن؟');
+      if (!ok) return false;
+    }
+    return applyRecoveredDraft(snapshot);
+  }, [eventId, readServerDraftSnapshot, applyRecoveredDraft]);
 
   useEffect(() => {
-    const key = getLocalDraftKey(eventId);
+    const key = getLocalDraftKey(eventId, governorate);
+    const legacyKey = getLegacyLocalDraftKey(eventId);
     if (Object.keys(layoutDraft).length === 0) {
-      setLocalDraftExists(Boolean(localStorage.getItem(key)));
+      setLocalDraftExists(Boolean(localStorage.getItem(key) || localStorage.getItem(legacyKey)));
+      lastLocalDraftHashRef.current = '';
       return;
     }
     const timer = window.setTimeout(() => {
       try {
-        localStorage.setItem(key, JSON.stringify({ draft: layoutDraft, eventId, savedAt: new Date().toISOString() }));
+        const currentHash = safeDraftHash(layoutDraft);
+        if (currentHash && currentHash === lastLocalDraftHashRef.current) return;
+        const savedAt = new Date().toISOString();
+        localStorage.setItem(key, JSON.stringify({ draft: layoutDraft, eventId, governorate, savedAt }));
+        if (localStorage.getItem(legacyKey)) {
+          localStorage.removeItem(legacyKey);
+        }
+        lastLocalDraftHashRef.current = currentHash;
         setLocalDraftExists(true);
+        setDraftLastSavedAt(savedAt);
       } catch {
         // Ignore localStorage quota/availability issues.
       }
     }, 350);
     return () => window.clearTimeout(timer);
-  }, [layoutDraft, eventId]);
+  }, [layoutDraft, eventId, governorate]);
 
   useEffect(() => {
-    if (localDraftCheckedEventRef.current === eventId) return;
-    localDraftCheckedEventRef.current = eventId;
+    if (restoredDraftEventRef.current === eventId) return;
     if (Object.keys(layoutDraft).length > 0) return;
-    // Try silent load once after event switch to avoid accidental loss after refresh.
-    restoreLocalDraft(true);
-  }, [eventId, layoutDraft, restoreLocalDraft]);
+    restoredDraftEventRef.current = eventId;
+    let cancelled = false;
+    const restoreBestDraft = async () => {
+      const [serverSnapshot, localSnapshot] = await Promise.all([
+        readServerDraftSnapshot(eventId, governorate),
+        Promise.resolve(readLocalDraftSnapshot(eventId, governorate))
+      ]);
+      if (cancelled) return;
+      const candidates = [serverSnapshot, localSnapshot].filter(Boolean) as DraftSnapshot[];
+      if (!candidates.length) return;
+      candidates.sort((a, b) => parseDraftDate(b.savedAt) - parseDraftDate(a.savedAt));
+      applyRecoveredDraft(candidates[0]);
+    };
+    void restoreBestDraft();
+    return () => {
+      cancelled = true;
+    };
+  }, [eventId, layoutDraft, readServerDraftSnapshot, readLocalDraftSnapshot, applyRecoveredDraft]);
+
+  useEffect(() => {
+    if (Object.keys(layoutDraft).length === 0) {
+      setDraftAutosaveStatus('idle');
+      setDraftAutosaveError(null);
+      lastRemoteDraftHashRef.current = '';
+      return;
+    }
+    const currentHash = safeDraftHash(layoutDraft);
+    if (currentHash && currentHash === lastRemoteDraftHashRef.current) {
+      setDraftAutosaveStatus('saved');
+      return;
+    }
+    setDraftAutosaveStatus('saving');
+    setDraftAutosaveError(null);
+    const timer = window.setTimeout(async () => {
+      try {
+        const response = await api.post('/seating/layout-draft/autosave', {
+          event_id: eventId,
+          governorate,
+          draft: layoutDraft
+        });
+        setServerDraftExists(true);
+        setDraftAutosaveStatus('saved');
+        lastRemoteDraftHashRef.current = currentHash;
+        if (response?.updated_at) setDraftLastSavedAt(response.updated_at);
+      } catch (e: any) {
+        setDraftAutosaveStatus('error');
+        setDraftAutosaveError(e?.message || 'فشل الحفظ التلقائي على السيرفر');
+      }
+    }, 900);
+    return () => window.clearTimeout(timer);
+  }, [layoutDraft, eventId, governorate]);
 
   useEffect(() => {
     const onBeforeUnload = (e: BeforeUnloadEvent) => {
@@ -1179,7 +1344,10 @@ const SeatingManagement: React.FC = () => {
           layout_elements: Array.isArray(incoming.layout_elements) ? incoming.layout_elements : prev.layout_elements
         };
       });
-      setAttendees((Array.isArray(attendeesData) ? attendeesData : []) as AttendeeLite[]);
+      setAttendees((prev) => {
+        const next = (Array.isArray(attendeesData) ? attendeesData : []) as AttendeeLite[];
+        return areAttendeesEquivalent(prev, next) ? prev : next;
+      });
     } catch {
       // Keep UI stable during background live refresh.
     } finally {
@@ -1206,7 +1374,11 @@ const SeatingManagement: React.FC = () => {
     loadMap();
     loadAttendees();
     loadLayoutVersions();
+    restoredDraftEventRef.current = '';
     setLayoutDraft({});
+    setDraftRecoveredFrom(null);
+    setDraftAutosaveError(null);
+    setDraftAutosaveStatus('idle');
     setHistory([{}]);
     setHistoryIndex(0);
   }, [eventId]);
@@ -1681,6 +1853,9 @@ const SeatingManagement: React.FC = () => {
       setError(null);
       await api.post('/seating/layout-version/apply', { event_id: eventId, version_id: selectedVersionId });
       setLayoutDraft({});
+      try {
+        await api.post('/seating/layout-draft/clear', { event_id: eventId, governorate });
+      } catch {}
       setHistory([{}]);
       setHistoryIndex(0);
       await loadMap();
@@ -1728,9 +1903,17 @@ const SeatingManagement: React.FC = () => {
       
       setLayoutDraft({});
       try {
-        localStorage.removeItem(getLocalDraftKey(eventId));
+        localStorage.removeItem(getLocalDraftKey(eventId, governorate));
+        localStorage.removeItem(getLegacyLocalDraftKey(eventId));
+      } catch {}
+      try {
+        await api.post('/seating/layout-draft/clear', { event_id: eventId, governorate });
       } catch {}
       setLocalDraftExists(false);
+      setServerDraftExists(false);
+      setDraftRecoveredFrom(null);
+      setDraftAutosaveStatus('idle');
+      setDraftAutosaveError(null);
       setHistory([{}]);
       setHistoryIndex(0);
       await loadMap();
@@ -1921,7 +2104,7 @@ const SeatingManagement: React.FC = () => {
         const startY = e.clientY - rect.top;
         const additive = e.ctrlKey || e.metaKey || e.shiftKey;
         
-        if (editModeState.action === 'add' && ['wave', 'stage', 'blocked', 'aisle'].includes(editModeState.addType || '')) {
+        if (editModeState.action === 'add' && ['wave', 'seat-bundle', 'stage', 'blocked', 'aisle'].includes(editModeState.addType || '')) {
             setDrawState({ active: true, startX, startY, endX: startX, endY: startY });
         } else {
             marqueeBaseSelectionRef.current = additive ? [...selectedGroup] : [];
@@ -1974,7 +2157,7 @@ const SeatingManagement: React.FC = () => {
         const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
         const startX = t.clientX - rect.left;
         const startY = t.clientY - rect.top;
-        if (editModeState.action === 'add' && ['wave', 'stage', 'blocked', 'aisle'].includes(editModeState.addType || '')) {
+        if (editModeState.action === 'add' && ['wave', 'seat-bundle', 'stage', 'blocked', 'aisle'].includes(editModeState.addType || '')) {
           setDrawState({ active: true, startX, startY, endX: startX, endY: startY });
         } else {
           marqueeBaseSelectionRef.current = [];
@@ -2154,7 +2337,7 @@ const SeatingManagement: React.FC = () => {
             startY: drawState.startY / zoomLevel / 4,
             endX: drawState.endX / zoomLevel / 8,
             endY: drawState.endY / zoomLevel / 4,
-            name: editModeState.addType === 'stage' ? 'المسرح' : editModeState.addType === 'aisle' ? 'ممر' : ''
+            name: editModeState.addType === 'stage' ? 'المسرح' : editModeState.addType === 'aisle' ? 'ممر' : editModeState.addType === 'seat-bundle' ? 'W' : ''
         }));
         return;
     }
@@ -2284,6 +2467,40 @@ const SeatingManagement: React.FC = () => {
     setLayoutDraft(JSON.parse(JSON.stringify(history[nextIndex] || {})));   
   };
 
+  const hasDraftChanges = Object.keys(layoutDraft).length > 0;
+  const draftAutosaveLabel = useMemo(() => {
+    if (!hasDraftChanges) {
+      if (draftRecoveredFrom === 'server') return 'لا توجد تعديلات نشطة (تم الاسترجاع من السيرفر)';
+      if (draftRecoveredFrom === 'local') return 'لا توجد تعديلات نشطة (تم الاسترجاع من المحلي)';
+      return 'لا توجد تعديلات نشطة';
+    }
+    if (draftAutosaveStatus === 'saving') return 'جاري الحفظ التلقائي على السيرفر...';
+    if (draftAutosaveStatus === 'error') return `فشل الحفظ التلقائي: ${draftAutosaveError || 'خطأ غير معروف'}`;
+    if (draftAutosaveStatus === 'saved') return 'المسودة محفوظة تلقائيًا على السيرفر';
+    return 'تعديلات غير منشورة';
+  }, [hasDraftChanges, draftRecoveredFrom, draftAutosaveStatus, draftAutosaveError]);
+
+  const clearServerDraft = useCallback(async () => {
+    if (!window.confirm('سيتم حذف مسودة السيرفر لهذه القاعة فقط. هل تريد المتابعة؟')) return;
+    try {
+      await api.post('/seating/layout-draft/clear', { event_id: eventId, governorate });
+      setServerDraftExists(false);
+      if (!hasDraftChanges) setDraftRecoveredFrom(null);
+    } catch (e: any) {
+      setError(e?.message || 'فشل حذف مسودة السيرفر');
+    }
+  }, [eventId, governorate, hasDraftChanges]);
+
+  const clearLocalDraft = useCallback(() => {
+    if (!window.confirm('سيتم حذف المسودة المحلية لهذه القاعة فقط. هل تريد المتابعة؟')) return;
+    try {
+      localStorage.removeItem(getLocalDraftKey(eventId, governorate));
+      localStorage.removeItem(getLegacyLocalDraftKey(eventId));
+    } catch {}
+    setLocalDraftExists(false);
+    if (!hasDraftChanges) setDraftRecoveredFrom(null);
+  }, [eventId, governorate, hasDraftChanges]);
+
   return (
     <div className="min-h-screen bg-slate-950 text-white p-4 md:p-6 space-y-4" dir="rtl">
       <div className="rounded-xl border border-slate-800 bg-slate-900 p-4">
@@ -2349,11 +2566,14 @@ const SeatingManagement: React.FC = () => {
             التسكين التلقائي يراعي: الأقدم أولاً + الدفع + الجار المفضل + الشركة.
           </div>
         </div>
-        <div className="mt-2 grid grid-cols-2 md:grid-cols-6 gap-2">
+        <div className="mt-2 grid grid-cols-2 md:grid-cols-8 gap-2">
           <button onClick={undoLayout} disabled={historyIndex <= 0} className="px-3 py-2 rounded-md text-sm border border-slate-700 bg-slate-800 disabled:opacity-50">Undo</button>
           <button onClick={redoLayout} disabled={historyIndex >= history.length - 1} className="px-3 py-2 rounded-md text-sm border border-slate-700 bg-slate-800 disabled:opacity-50">Redo</button>
-          <button onClick={publishLayoutDraft} disabled={!Object.keys(layoutDraft).length || loading} className="px-3 py-2 rounded-md text-sm bg-indigo-600 disabled:opacity-50">نشر تعديلات التخطيط</button>
-          <button onClick={() => restoreLocalDraft(false)} disabled={!localDraftExists} className="px-3 py-2 rounded-md text-sm border border-amber-700 bg-amber-900/40 disabled:opacity-50">استرجاع مسودة محلية</button>
+          <button onClick={publishLayoutDraft} disabled={!hasDraftChanges || loading} className="px-3 py-2 rounded-md text-sm bg-indigo-600 disabled:opacity-50">نشر تعديلات التخطيط</button>
+          <button onClick={() => restoreLocalDraft(false)} disabled={!localDraftExists} className="px-3 py-2 rounded-md text-sm border border-amber-700 bg-amber-900/40 disabled:opacity-50">استرجاع محلي</button>
+          <button onClick={() => { void restoreServerDraft(false); }} disabled={!serverDraftExists} className="px-3 py-2 rounded-md text-sm border border-cyan-700 bg-cyan-950/30 disabled:opacity-50">استرجاع سيرفر</button>
+          <button onClick={clearLocalDraft} disabled={!localDraftExists} className="px-3 py-2 rounded-md text-sm border border-slate-700 bg-slate-800 disabled:opacity-50">حذف محلي</button>
+          <button onClick={() => { void clearServerDraft(); }} disabled={!serverDraftExists} className="px-3 py-2 rounded-md text-sm border border-slate-700 bg-slate-800 disabled:opacity-50">حذف سيرفر</button>
           <input value={versionName} onChange={(e) => setVersionName(e.target.value)} placeholder="اسم النسخة" className="px-3 py-2 rounded-md text-sm bg-slate-800 border border-slate-700" />
           <button onClick={saveLayoutVersion} className="px-3 py-2 rounded-md text-sm border border-slate-700 bg-slate-800">حفظ نسخة</button>
           <div className="flex gap-2">
@@ -2368,10 +2588,18 @@ const SeatingManagement: React.FC = () => {
         </div>
       </div>
       {mainMode === 'edit' && (
-        <div className={`rounded-md border p-2 text-xs ${Object.keys(layoutDraft).length ? 'border-amber-700 bg-amber-950/30 text-amber-200' : 'border-emerald-700 bg-emerald-950/20 text-emerald-200'}`}>
-          {Object.keys(layoutDraft).length
-            ? 'لديك تعديلات غير منشورة. يتم حفظها محليًا تلقائيًا، واضغط "نشر تعديلات التخطيط" للحفظ النهائي على السيرفر.'
-            : (localDraftExists ? 'لا توجد تعديلات نشطة، وتوجد مسودة محلية يمكن استرجاعها.' : 'لا توجد تعديلات غير منشورة حالياً.')}
+        <div className={`rounded-md border p-2 text-xs ${
+          draftAutosaveStatus === 'error'
+            ? 'border-rose-700 bg-rose-950/30 text-rose-200'
+            : hasDraftChanges
+              ? 'border-amber-700 bg-amber-950/30 text-amber-200'
+              : 'border-emerald-700 bg-emerald-950/20 text-emerald-200'
+        }`}>
+          <div>{draftAutosaveLabel}</div>
+          <div className="mt-1 text-[11px] opacity-90">
+            محلي: {localDraftExists ? 'موجود' : 'غير موجود'} | سيرفر: {serverDraftExists ? 'موجود' : 'غير موجود'}
+            {draftLastSavedAt ? ` | آخر حفظ: ${new Date(draftLastSavedAt).toLocaleString('ar-EG')}` : ''}
+          </div>
         </div>
       )}
 
@@ -2450,6 +2678,7 @@ const SeatingManagement: React.FC = () => {
             <option value="table">ترابيزة (Table)</option>
             <option value="wave">ويف (Wave)</option>
             <option value="seat">كرسي فردي (Chair)</option>
+            <option value="seat-bundle">حزمة كراسي ويف (Seat Bundle)</option>
             <option value="blocked">منطقة محظورة (Blocked)</option>
             <option value="stage">المسرح (Stage)</option>
             <option value="aisle">ممر (Aisle)</option>
@@ -2497,7 +2726,7 @@ const SeatingManagement: React.FC = () => {
             </>
           )}
           
-          {['wave', 'stage', 'blocked', 'aisle'].includes(editModeState.addType || '') && (
+          {['wave', 'seat-bundle', 'stage', 'blocked', 'aisle'].includes(editModeState.addType || '') && (
              <div className="flex items-center gap-2 px-4 py-2 bg-amber-500/20 border border-amber-500/50 rounded-md text-amber-300 text-sm font-bold animate-pulse shadow-[0_0_15px_rgba(245,158,11,0.2)]">
                 <span className="text-lg">🖌️</span>
                 اضغط واسحب الماوس على القاعة لرسم العنصر
@@ -2557,6 +2786,19 @@ const SeatingManagement: React.FC = () => {
                            stroke="#0ea5e9" strokeWidth="4" strokeDasharray="5,5" 
                        />
                    </svg>
+              )}
+              {drawState?.active && editModeState.addType === 'seat-bundle' && (
+                 <div
+                    className="absolute pointer-events-none z-[200]"
+                    style={{
+                       left: Math.min(drawState.startX, drawState.endX) / zoomLevel,
+                       top: Math.min(drawState.startY, drawState.endY) / zoomLevel,
+                       width: Math.abs(drawState.endX - drawState.startX) / zoomLevel,
+                       height: Math.abs(drawState.endY - drawState.startY) / zoomLevel,
+                       border: '2px dashed #06b6d4',
+                       backgroundColor: 'rgba(6, 182, 212, 0.15)'
+                    }}
+                 />
               )}
               {drawState?.active && editModeState.addType === 'aisle' && (
                    <svg className="absolute top-0 left-0 w-full h-full pointer-events-none z-[200]">
@@ -2735,14 +2977,22 @@ const SeatingManagement: React.FC = () => {
                  <div className="fixed inset-0 z-[300] flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setDrawModal(p => ({...p, isOpen: false}))}>
                     <div className="bg-slate-900 border border-slate-700 rounded-xl w-full max-w-sm p-6 flex flex-col gap-4 shadow-2xl" onClick={e => e.stopPropagation()}>
                        <h3 className="text-lg font-bold text-white">
-                          {drawModal.type === 'wave' ? 'تفاصيل الـ Wave' : drawModal.type === 'stage' ? 'تفاصيل المسرح' : drawModal.type === 'aisle' ? 'تفاصيل الممر' : 'تفاصيل المنطقة المحظورة'}
+                         {drawModal.type === 'wave'
+                           ? 'تفاصيل الـ Wave'
+                           : drawModal.type === 'seat-bundle'
+                             ? 'تفاصيل حزمة كراسي الـ Wave'
+                             : drawModal.type === 'stage'
+                               ? 'تفاصيل المسرح'
+                               : drawModal.type === 'aisle'
+                                 ? 'تفاصيل الممر'
+                                 : 'تفاصيل المنطقة المحظورة'}
                        </h3>
                        
                        <label className="text-sm text-slate-300">الاسم / المعرف</label>
                        <input 
                          type="text" autoFocus value={drawModal.name} onChange={e => setDrawModal(p => ({...p, name: e.target.value}))}
                          className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white"
-                         placeholder={drawModal.type === 'wave' ? 'مثال: W1' : 'الاسم...'}
+                         placeholder={drawModal.type === 'wave' || drawModal.type === 'seat-bundle' ? 'مثال: W1' : 'الاسم...'}
                        />
                        
                        {drawModal.type === 'wave' && (
@@ -2750,6 +3000,36 @@ const SeatingManagement: React.FC = () => {
                              <label className="text-sm text-slate-300">عدد الكراسي</label>
                              <input type="number" value={drawModal.count} onChange={e => setDrawModal(p => ({...p, count: Number(e.target.value)}))} className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white" />
                              
+                             <label className="text-sm text-slate-300">الفئة</label>
+                             <select value={drawModal.seatClass} onChange={e => setDrawModal(p => ({...p, seatClass: e.target.value}))} className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white">
+                               <option value="A">Class A</option>
+                               <option value="B">Class B</option>
+                               <option value="C">Class C</option>
+                             </select>
+                          </>
+                       )}
+                       {drawModal.type === 'seat-bundle' && (
+                          <>
+                             <label className="text-sm text-slate-300">عدد الصفوف (Rows)</label>
+                             <input
+                               type="number"
+                               min={1}
+                               max={50}
+                               value={drawModal.rows}
+                               onChange={e => setDrawModal(p => ({...p, rows: Math.max(1, Number(e.target.value || 1))}))}
+                               className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white"
+                             />
+
+                             <label className="text-sm text-slate-300">عدد المقاعد بكل صف (Seats / Row)</label>
+                             <input
+                               type="number"
+                               min={1}
+                               max={100}
+                               value={drawModal.seatsPerRow}
+                               onChange={e => setDrawModal(p => ({...p, seatsPerRow: Math.max(1, Number(e.target.value || 1))}))}
+                               className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white"
+                             />
+
                              <label className="text-sm text-slate-300">الفئة</label>
                              <select value={drawModal.seatClass} onChange={e => setDrawModal(p => ({...p, seatClass: e.target.value}))} className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white">
                                <option value="A">Class A</option>
@@ -2826,6 +3106,68 @@ const SeatingManagement: React.FC = () => {
                                               position_x: Math.round(sx * 10) / 10,
                                               position_y: Math.round(sy * 10) / 10
                                           };
+                                      }
+                                  } else if (drawModal.type === 'seat-bundle') {
+                                      const rows = Math.max(1, Number(drawModal.rows || 1));
+                                      const seatsPerRow = Math.max(1, Number(drawModal.seatsPerRow || 1));
+                                      const minX = Math.min(drawModal.startX, drawModal.endX);
+                                      const maxX = Math.max(drawModal.startX, drawModal.endX);
+                                      const minY = Math.min(drawModal.startY, drawModal.endY);
+                                      const maxY = Math.max(drawModal.startY, drawModal.endY);
+                                      const width = Math.max(0, maxX - minX);
+                                      const height = Math.max(0, maxY - minY);
+                                      const stepX = seatsPerRow > 1 ? width / (seatsPerRow - 1) : 0;
+                                      const stepY = rows > 1 ? height / (rows - 1) : 0;
+                                      const usedWaveLabels = new Set<string>();
+                                      mapSeats.forEach((s: any) => {
+                                        if (s.wave_number) usedWaveLabels.add(String(s.wave_number));
+                                      });
+                                      Object.values(nextDraft).forEach((patch: any) => {
+                                        if (patch?.wave_number) usedWaveLabels.add(String(patch.wave_number));
+                                      });
+                                      const extractWaveNo = (val: string) => {
+                                        const m = String(val || '').match(/(\d+)/);
+                                        return m ? Number(m[1]) : null;
+                                      };
+                                      const usedWaveNos = Array.from(usedWaveLabels)
+                                        .map(extractWaveNo)
+                                        .filter((n): n is number => Number.isFinite(Number(n)) && Number(n) > 0);
+                                      let autoWaveNo = usedWaveNos.length ? Math.max(...usedWaveNos) + 1 : 1;
+                                      const baseWave = String(drawModal.name || '').trim();
+                                      const waveMatch = baseWave.match(/^(.*?)(\d+)([^0-9]*)$/);
+                                      const basePrefix = waveMatch ? waveMatch[1] : '';
+                                      const baseNum = waveMatch ? Number(waveMatch[2]) : null;
+                                      const baseSuffix = waveMatch ? waveMatch[3] : '';
+
+                                      for (let r = 0; r < rows; r++) {
+                                        let waveLabel = '';
+                                        if (baseWave) {
+                                          if (baseNum !== null && Number.isFinite(baseNum)) {
+                                            waveLabel = `${basePrefix}${baseNum + r}${baseSuffix}`;
+                                          } else {
+                                            waveLabel = rows > 1 ? `${baseWave}-R${r + 1}` : baseWave;
+                                          }
+                                        } else {
+                                          waveLabel = `W${autoWaveNo}`;
+                                          autoWaveNo += 1;
+                                        }
+                                        for (let c = 0; c < seatsPerRow; c++) {
+                                          const seatIndex = c + 1;
+                                          const sx = seatsPerRow > 1 ? (minX + c * stepX) : ((minX + maxX) / 2);
+                                          const sy = rows > 1 ? (minY + r * stepY) : ((minY + maxY) / 2);
+                                          const newId = `${gov}-${drawModal.seatClass}-${waveLabel}-S${seatIndex}-${crypto.randomUUID().slice(0,4)}`;
+                                          nextDraft[newId] = {
+                                            is_new: true,
+                                            type: 'seat',
+                                            seat_class: drawModal.seatClass,
+                                            wave_number: waveLabel,
+                                            row_number: r + 1,
+                                            seat_number: seatIndex,
+                                            seat_code: `${drawModal.seatClass}-${waveLabel}-S${seatIndex}`,
+                                            position_x: Math.round(sx * 10) / 10,
+                                            position_y: Math.round(sy * 10) / 10
+                                          };
+                                        }
                                       }
                                   } else {
                                       const px = Math.min(drawModal.startX, drawModal.endX);
