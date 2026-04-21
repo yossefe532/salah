@@ -3948,27 +3948,47 @@ export const api = {
     const currentUser = getSessionUser();
     const id = endpoint.split('/').pop();
     const table = endpoint.includes('/users/') ? 'users' : 'attendees';
+    const timeoutMsg = 'ضغط مؤقت على قاعدة البيانات. حاول مرة أخرى خلال ثوانٍ.';
+    const seatMutationRequested = table === 'attendees' && (
+      body.seat_number !== undefined ||
+      body.seat_class !== undefined ||
+      body.governorate !== undefined ||
+      body.barcode !== undefined ||
+      body.status !== undefined
+    );
+    let shouldSyncSeat = false;
+    let seatSyncPayload: { governorate: string; seat_class: string; seat_number: number | null; barcode: string | null } | null = null;
+    let oldRecordRaw: any = null;
+    let oldRecord: any = null;
+
+    if (table === 'attendees') {
+      const scopedRecord = applyCompanyScopeToAttendeesQuery(
+        supabase.from('attendees').select('*').eq('id', id),
+        currentUser
+      );
+      const scopedRes = await scopedRecord.maybeSingle();
+      if (scopedRes.error) throw new Error(scopedRes.error.message);
+      oldRecordRaw = scopedRes.data || null;
+      oldRecord = normalizeAttendeePricing(oldRecordRaw);
+      if (!oldRecordRaw) {
+        throw new Error('المشترك غير موجود أو غير متاح للتعديل');
+      }
+    }
     
     // Smart Logging Logic for Attendees
     if (table === 'attendees') {
-        const scopedRecord = applyCompanyScopeToAttendeesQuery(
-          supabase.from('attendees').select('*').eq('id', id),
-          currentUser
-        );
-        const { data: oldRecord } = await scopedRecord.maybeSingle();
-        
-        if (oldRecord) {
+        if (oldRecordRaw) {
             const logs = [];
             const userId = body.updated_by || null; // Assume userId is passed in body for logging
 
             // 1. Payment Change
-            if (body.payment_amount !== undefined && Number(body.payment_amount) !== Number(oldRecord.payment_amount)) {
-                const diff = Number(body.payment_amount) - Number(oldRecord.payment_amount);
+            if (body.payment_amount !== undefined && Number(body.payment_amount) !== Number(oldRecordRaw.payment_amount)) {
+                const diff = Number(body.payment_amount) - Number(oldRecordRaw.payment_amount);
                 if (diff > 0) {
-                    const updatedCommission = body.commission_amount !== undefined ? Number(body.commission_amount) : Number(oldRecord.commission_amount || 0);
+                    const updatedCommission = body.commission_amount !== undefined ? Number(body.commission_amount) : Number(oldRecordRaw.commission_amount || 0);
                     logs.push({
                         attendee_id: id,
-                        attendee_name: oldRecord.full_name,
+                        attendee_name: oldRecordRaw.full_name,
                         action_type: 'payment',
                         details: `دفع إضافي: ${diff} ج.م (الإجمالي: ${body.payment_amount}) - صافي بعد العمولة: ${Math.max(0, Number(body.payment_amount) - updatedCommission)} ج.م`,
                         amount_change: diff,
@@ -3977,36 +3997,36 @@ export const api = {
                 }
             }
 
-            if (body.commission_amount !== undefined && Number(body.commission_amount) !== Number(oldRecord.commission_amount || 0)) {
+            if (body.commission_amount !== undefined && Number(body.commission_amount) !== Number(oldRecordRaw.commission_amount || 0)) {
                 logs.push({
                     attendee_id: id,
-                    attendee_name: oldRecord.full_name,
+                    attendee_name: oldRecordRaw.full_name,
                     action_type: 'payment',
-                    details: `تحديث العمولة من ${Number(oldRecord.commission_amount || 0)} إلى ${Number(body.commission_amount)} ج.م`,
-                    amount_change: -Math.abs(Number(body.commission_amount) - Number(oldRecord.commission_amount || 0)),
+                    details: `تحديث العمولة من ${Number(oldRecordRaw.commission_amount || 0)} إلى ${Number(body.commission_amount)} ج.م`,
+                    amount_change: -Math.abs(Number(body.commission_amount) - Number(oldRecordRaw.commission_amount || 0)),
                     performed_by: userId
                 });
             }
 
-            if (body.sales_channel && body.sales_channel !== oldRecord.sales_channel) {
+            if (body.sales_channel && body.sales_channel !== oldRecordRaw.sales_channel) {
                 logs.push({
                     attendee_id: id,
-                    attendee_name: oldRecord.full_name,
+                    attendee_name: oldRecordRaw.full_name,
                     action_type: 'status',
-                    details: `تحديث مصدر التسجيل من "${oldRecord.sales_channel || 'direct'}" إلى "${body.sales_channel}"`,
+                    details: `تحديث مصدر التسجيل من "${oldRecordRaw.sales_channel || 'direct'}" إلى "${body.sales_channel}"`,
                     amount_change: 0,
                     performed_by: userId
                 });
             }
 
             // 2. Status Change
-            if (body.status && body.status !== oldRecord.status) {
+            if (body.status && body.status !== oldRecordRaw.status) {
                 const statusMap: Record<string, string> = { 'interested': 'مهتم', 'registered': 'تم التسجيل' };
                 logs.push({
                     attendee_id: id,
-                    attendee_name: oldRecord.full_name,
+                    attendee_name: oldRecordRaw.full_name,
                     action_type: 'status',
-                    details: `تغيير الحالة من "${statusMap[oldRecord.status] || oldRecord.status}" إلى "${statusMap[body.status] || body.status}"`,
+                    details: `تغيير الحالة من "${statusMap[oldRecordRaw.status] || oldRecordRaw.status}" إلى "${statusMap[body.status] || body.status}"`,
                     amount_change: 0,
                     performed_by: userId
                 });
@@ -4021,12 +4041,6 @@ export const api = {
 
     let bodyToSave: any = body;
     if (table === 'attendees') {
-      const scopedRecord = applyCompanyScopeToAttendeesQuery(
-        supabase.from('attendees').select('*').eq('id', id),
-        currentUser
-      );
-      const { data: oldRecordRaw } = await scopedRecord.maybeSingle();
-      const oldRecord = normalizeAttendeePricing(oldRecordRaw);
       if (oldRecord) {
         const merged = {
           governorate: body.governorate ?? oldRecord.governorate,
@@ -4034,7 +4048,10 @@ export const api = {
           status: body.status ?? oldRecord.status,
           seat_number: body.seat_number ?? oldRecord.seat_number ?? null,
         };
-        const resolvedSeat = await resolveSeat(merged, String(id));
+        let resolvedSeat = oldRecord.seat_number ?? null;
+        if (seatMutationRequested) {
+          resolvedSeat = await resolveSeat(merged, String(id));
+        }
         const baseTicketPrice = getBaseTicketPrice({
           seat_class: merged.seat_class,
           ticket_price_override: body.ticket_price_override ?? oldRecord.ticket_price_override ?? null,
@@ -4065,6 +4082,14 @@ export const api = {
           seat_number: resolvedSeat,
           barcode: finalBarcode
         };
+
+        shouldSyncSeat = seatMutationRequested;
+        seatSyncPayload = {
+          governorate: bodyToSave.governorate ?? oldRecord.governorate,
+          seat_class: bodyToSave.seat_class ?? oldRecord.seat_class,
+          seat_number: body.seat_number === null ? null : (bodyToSave.seat_number ?? null),
+          barcode: body.barcode === null ? null : (bodyToSave.barcode ?? null)
+        };
       }
     }
 
@@ -4072,18 +4097,36 @@ export const api = {
       ? await updateAttendeeSafely(String(id), { ...bodyToSave, company_id: getCompanyIdForCreatedRecords(currentUser) })
       : await supabase.from(table).update(bodyToSave).eq('id', id).select().single();
     const { data, error } = result as any;
-    if (error) throw new Error(error.message);
+    if (error) {
+      const msg = String(error?.message || '').toLowerCase();
+      if (msg.includes('statement timeout') || msg.includes('canceling statement')) {
+        throw new Error(timeoutMsg);
+      }
+      throw new Error(error.message);
+    }
 
-    if (table === 'attendees' && data) {
+    if (table === 'attendees' && data && shouldSyncSeat && seatSyncPayload) {
         // Run syncSeatStatus to ensure the seat is properly updated and we get the correct barcode back
         // Important: if we are trying to unassign, we must explicitly pass nulls
-        const passedSeatNumber = body.seat_number === null ? null : data.seat_number;
-        const passedBarcode = body.barcode === null ? null : data.barcode;
-        
-        const newBarcode = await syncSeatStatus(data.id, data.governorate, data.seat_class, passedSeatNumber, passedBarcode);
-        if (newBarcode !== data.barcode) {
-           await updateAttendeeSafely(String(data.id), { barcode: newBarcode });
-           data.barcode = newBarcode;
+        try {
+          const newBarcode = await syncSeatStatus(
+            data.id,
+            seatSyncPayload.governorate,
+            seatSyncPayload.seat_class,
+            seatSyncPayload.seat_number,
+            seatSyncPayload.barcode
+          );
+          if (newBarcode !== data.barcode) {
+             await updateAttendeeSafely(String(data.id), { barcode: newBarcode });
+             data.barcode = newBarcode;
+          }
+        } catch (seatSyncErr: any) {
+          const msg = String(seatSyncErr?.message || '').toLowerCase();
+          if (msg.includes('statement timeout') || msg.includes('canceling statement')) {
+            // Seat sync timeout should not fail the whole attendee update.
+            return data;
+          }
+          throw seatSyncErr;
         }
     }
 
