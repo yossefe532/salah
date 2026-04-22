@@ -404,13 +404,14 @@ const EditAttendee: React.FC = () => {
       const normalizedNewBarcode = String(updatedAttendee.barcode || '').trim();
       const normalizedOriginalBarcode = String((window as any)._originalBarcode || '').trim();
       if (normalizedNewBarcode && normalizedNewBarcode !== normalizedOriginalBarcode) {
-         const conflictUser = await api
-          .get(`/attendees?lite=1&limit=1&barcode=eq.${normalizedNewBarcode}`)
-           .then((res: any) => (Array.isArray(res) ? res[0] : null))
+         const seatOwner = await api
+           .get(`/seating/owner-by-barcode?governorate=${encodeURIComponent(String(data.governorate || ''))}&barcode=${encodeURIComponent(normalizedNewBarcode)}`)
            .catch(() => null);
-           
-         if (conflictUser && String(conflictUser.id || '') !== String(id || '')) {
-             throw new Error(`المقعد محجوز مسبقاً لمشترك آخر (${conflictUser.full_name}). يرجى اختيار مقعد مختلف.`);
+         const seatOwnerId = String(seatOwner?.attendee_id || '').trim();
+         if (seatOwnerId && seatOwnerId !== String(id || '')) {
+           const ownerRecord = await api.get(`/attendees/${seatOwnerId}`).catch(() => null);
+           const ownerName = String(ownerRecord?.full_name || '').trim();
+           throw new Error(`المقعد محجوز مسبقاً لمشترك آخر${ownerName ? ` (${ownerName})` : ''}. يرجى اختيار مقعد مختلف.`);
          }
       }
       

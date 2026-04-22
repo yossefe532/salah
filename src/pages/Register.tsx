@@ -454,13 +454,14 @@ const Register: React.FC = () => {
 
           // Validation: Check if the selected barcode is taken by another user
           if (newAttendee.barcode) {
-             const { data: conflictUser } = await api
-               .get(`/attendees?lite=1&limit=1&barcode=eq.${newAttendee.barcode}`)
-               .then((res: any) => ({ data: Array.isArray(res) ? res[0] : null }))
-               .catch(() => ({ data: null }));
-               
-             if (conflictUser) {
-                 throw new Error(`المقعد محجوز مسبقاً لمشترك آخر (${conflictUser.full_name}). يرجى اختيار مقعد مختلف.`);
+             const seatOwner = await api
+               .get(`/seating/owner-by-barcode?governorate=${encodeURIComponent(String(data.governorate || ''))}&barcode=${encodeURIComponent(String(newAttendee.barcode))}`)
+               .catch(() => null);
+             const seatOwnerId = String(seatOwner?.attendee_id || '').trim();
+             if (seatOwnerId) {
+               const ownerRecord = await api.get(`/attendees/${seatOwnerId}`).catch(() => null);
+               const ownerName = String(ownerRecord?.full_name || '').trim();
+               throw new Error(`المقعد محجوز مسبقاً لمشترك آخر${ownerName ? ` (${ownerName})` : ''}. يرجى اختيار مقعد مختلف.`);
              }
           }
     

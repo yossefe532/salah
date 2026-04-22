@@ -819,6 +819,19 @@ const syncSeatStatus = async (attendeeId: string, governorate: string, seatClass
     await updateAttendeeSafely(String(targetSeat.attendee_id), { seat_number: null, barcode: null });
   }
 
+  if (targetSeat?.seat_code) {
+    const { data: staleBarcodeOwners, error: staleOwnersError } = await supabase
+      .from('attendees')
+      .select('id')
+      .eq('barcode', targetSeat.seat_code)
+      .not('id', 'eq', attendeeId)
+      .or('is_deleted.eq.false,is_deleted.is.null');
+    if (staleOwnersError) throw new Error(staleOwnersError.message);
+    for (const staleOwner of staleBarcodeOwners || []) {
+      await updateAttendeeSafely(String(staleOwner.id), { seat_number: null, barcode: null });
+    }
+  }
+
   await supabase
     .from('seats')
     .update({ status: 'available', attendee_id: null, reserved_by: null, reserved_until: null })
@@ -1361,6 +1374,31 @@ export const api = {
       const { data, error } = await q;
       if (error) throw new Error(error.message);
       return Array.isArray(data) ? data : [];
+    }
+
+    if (endpoint.startsWith('/seating/owner-by-barcode')) {
+      const query = endpoint.split('?')[1] || '';
+      const params = new URLSearchParams(query);
+      const barcode = String(params.get('barcode') || '').trim();
+      const eventIdParam = String(params.get('eventId') || '').trim();
+      const governorate = String(params.get('governorate') || '').trim();
+      if (!barcode) return null;
+
+      const candidateEvents = eventIdParam
+        ? [eventIdParam]
+        : [`${normalizeGovernorate(governorate).toUpperCase()}-2026-MAIN`, 'MINYA-2026-MAIN', 'ASYUT-2026-MAIN', 'SOHAG-2026-MAIN', 'QENA-2026-MAIN'];
+
+      for (const candidateEvent of candidateEvents) {
+        const { data, error } = await supabase
+          .from('seats')
+          .select('id, seat_code, attendee_id, status, event_id')
+          .eq('event_id', candidateEvent)
+          .eq('seat_code', barcode)
+          .maybeSingle();
+        if (error) throw new Error(error.message);
+        if (data) return data;
+      }
+      return null;
     }
 
     if (endpoint.startsWith('/seating/recommend')) {
