@@ -260,6 +260,16 @@ const isOneEditAway = (aRaw: unknown, bRaw: unknown) => {
   return true;
 };
 
+const isStrictSearchMatch = (needleRaw: unknown, candidateRaw: unknown) => {
+  const needle = normalizeSearchToken(needleRaw);
+  const candidate = normalizeSearchToken(candidateRaw);
+  if (!needle || !candidate) return false;
+  if (needle === candidate) return true;
+  if (candidate.startsWith(needle)) return true;
+  if (needle.length >= 3 && candidate.includes(needle)) return true;
+  return isOneEditAway(needle, candidate);
+};
+
 type ApiCacheEntry = {
   value: any;
   expiresAt: number;
@@ -1803,6 +1813,9 @@ export const api = {
       const withCount = params.get('withCount') === '1';
       const searchMode = String(params.get('search_mode') || 'strict').toLowerCase();
       const safeSearch = q ? String(q).replace(/[,%_*]/g, '').trim() : '';
+      const searchContainsClause = safeSearch
+        ? `full_name.ilike.%${safeSearch}%,phone_primary.ilike.%${safeSearch}%,phone_secondary.ilike.%${safeSearch}%,barcode.ilike.%${safeSearch}%`
+        : '';
 
       if (governorate) scoped = scoped.eq('governorate', governorate);
       if (seatClass) scoped = scoped.eq('seat_class', seatClass);
@@ -1817,7 +1830,7 @@ export const api = {
       if (attendance === 'present') scoped = scoped.eq('attendance_status', true);
       if (attendance === 'absent') scoped = scoped.eq('attendance_status', false);
       if (q && safeSearch) {
-        scoped = scoped.or(`full_name.ilike.${safeSearch},phone_primary.eq.${safeSearch},phone_secondary.eq.${safeSearch},barcode.eq.${safeSearch}`);
+        scoped = scoped.or(searchContainsClause);
       }
 
       if (barcodeMatch) {
@@ -1846,7 +1859,7 @@ export const api = {
         if (attendance === 'present') q = q.eq('attendance_status', true);
         if (attendance === 'absent') q = q.or('attendance_status.is.false,attendance_status.is.null');
         if (includeSearch && safeSearch) {
-          q = q.or(`full_name.ilike.${safeSearch},phone_primary.eq.${safeSearch},phone_secondary.eq.${safeSearch},barcode.eq.${safeSearch}`);
+          q = q.or(searchContainsClause);
         }
         if (barcodeMatch) q = q.eq('barcode', barcodeMatch[1]);
         
@@ -1892,7 +1905,7 @@ export const api = {
           }
           if (attendance === 'present') fallbackQuery = fallbackQuery.eq('attendance_status', true);
           if (attendance === 'absent') fallbackQuery = fallbackQuery.or('attendance_status.is.false,attendance_status.is.null');
-          if (safeSearch) fallbackQuery = fallbackQuery.or(`full_name.ilike.${safeSearch},phone_primary.eq.${safeSearch},phone_secondary.eq.${safeSearch},barcode.eq.${safeSearch}`);
+          if (safeSearch) fallbackQuery = fallbackQuery.or(searchContainsClause);
           if (barcodeMatch) fallbackQuery = fallbackQuery.eq('barcode', barcodeMatch[1]);
           fallbackQuery = fallbackQuery.order('created_at', { ascending: false });
           if (hasOffset && hasLimit) fallbackQuery = fallbackQuery.range(offsetParam, offsetParam + limitParam - 1);
@@ -1920,37 +1933,33 @@ export const api = {
       }
 
       if (searchMode === 'strict' && safeSearch) {
-        const currentRows = Array.isArray(data) ? data : [];
-        if (currentRows.length === 0) {
-          const candidateLimit = Math.min(2000, Math.max(hasLimit ? limitParam * 25 : 500, 500));
-          const candidateResult = await runAttendeesSelectWithSchemaFallback(
-            (selectClause) => buildScopedQuery(selectClause, false, false, false, candidateLimit),
-            selectedColumns
-          );
-          const candidateRows = Array.isArray(candidateResult.data) ? candidateResult.data : [];
-          const strictNeedle = normalizeSearchToken(safeSearch);
-          const oneAwayRows = candidateRows.filter((row: any) => {
-            const values = [
-              row?.full_name,
-              row?.full_name_en,
-              row?.phone_primary,
-              row?.phone_secondary,
-              row?.barcode
-            ];
-            return values.some((val) => isOneEditAway(strictNeedle, val));
-          });
+        const candidateLimit = Math.min(2500, Math.max(hasLimit ? limitParam * 80 : 800, 800));
+        const candidateResult = await runAttendeesSelectWithSchemaFallback(
+          (selectClause) => buildScopedQuery(selectClause, false, true, false, candidateLimit),
+          selectedColumns
+        );
+        const candidateRows = Array.isArray(candidateResult.data) ? candidateResult.data : [];
+        const strictRows = candidateRows.filter((row: any) => {
+          const values = [
+            row?.full_name,
+            row?.full_name_en,
+            row?.phone_primary,
+            row?.phone_secondary,
+            row?.barcode
+          ];
+          return values.some((val) => isStrictSearchMatch(safeSearch, val));
+        });
 
-          if (withCount) {
-            totalCount = oneAwayRows.length;
-            presentCount = oneAwayRows.filter((row: any) => row?.attendance_status === true).length;
-            absentCount = oneAwayRows.filter((row: any) => row?.attendance_status !== true).length;
-          }
-          if (hasLimit) {
-            const start = hasOffset ? offsetParam : 0;
-            data = oneAwayRows.slice(start, start + limitParam);
-          } else {
-            data = oneAwayRows;
-          }
+        if (withCount) {
+          totalCount = strictRows.length;
+          presentCount = strictRows.filter((row: any) => row?.attendance_status === true).length;
+          absentCount = strictRows.filter((row: any) => row?.attendance_status !== true).length;
+        }
+        if (hasLimit) {
+          const start = hasOffset ? offsetParam : 0;
+          data = strictRows.slice(start, start + limitParam);
+        } else {
+          data = strictRows;
         }
       }
 
