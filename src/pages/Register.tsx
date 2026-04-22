@@ -276,10 +276,27 @@ const Register: React.FC = () => {
       return;
     }
     const loadAttendeesOptions = async () => {
-      const response = await api.get('/attendees?lite=1&status=registered&limit=1000');
-      setAttendeesOptions(Array.isArray(response) ? response : []);
+      const pageSize = 500;
+      const maxRows = 10000;
+      let offset = 0;
+      const collected: Attendee[] = [];
+
+      while (offset < maxRows) {
+        const response = await api.get(`/attendees?lite=1&status=registered&limit=${pageSize}&offset=${offset}`);
+        const rows = Array.isArray(response) ? response : [];
+        if (rows.length === 0) break;
+        collected.push(...rows);
+        if (rows.length < pageSize) break;
+        offset += pageSize;
+      }
+
+      const unique = new Map<string, Attendee>();
+      collected.forEach((attendee) => {
+        if (attendee?.id) unique.set(attendee.id, attendee);
+      });
+      setAttendeesOptions(Array.from(unique.values()));
     };
-    loadAttendeesOptions();
+    loadAttendeesOptions().catch(() => setAttendeesOptions([]));
   }, [status]);
 
   useEffect(() => {
