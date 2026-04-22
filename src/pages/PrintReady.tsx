@@ -8,7 +8,7 @@ const PrintReady: React.FC = () => {
   const [attendees, setAttendees] = useState<Attendee[]>([]);
   const [loading, setLoading] = useState(true);
   const [isProcessing, setIsProcessing] = useState(false);
-  const [photoFilter, setPhotoFilter] = useState<'ready' | 'not_ready'>('ready');
+  const [photoFilter, setPhotoFilter] = useState<'all' | 'ready' | 'not_ready'>('all');
 
   useEffect(() => {
     fetchReadyAttendees();
@@ -16,8 +16,25 @@ const PrintReady: React.FC = () => {
 
   const fetchReadyAttendees = async () => {
     try {
-      const data: Attendee[] = await api.get('/attendees');
-      const eligible = (data || []).filter((a) => a.status === 'registered' && !a.is_deleted);
+      const pageSize = 500;
+      let offset = 0;
+      const collected: Attendee[] = [];
+
+      while (true) {
+        const page: Attendee[] = await api.get(`/attendees?status=registered&limit=${pageSize}&offset=${offset}`);
+        const chunk = Array.isArray(page) ? page : [];
+        if (!chunk.length) break;
+        collected.push(...chunk);
+        if (chunk.length < pageSize) break;
+        offset += pageSize;
+      }
+
+      const byId = new Map<string, Attendee>();
+      for (const row of collected) {
+        if (!row?.id) continue;
+        byId.set(String(row.id), row);
+      }
+      const eligible = Array.from(byId.values()).filter((a) => a.status === 'registered' && !a.is_deleted);
       setAttendees(eligible);
     } catch (error) {
       console.error('Error fetching print ready attendees:', error);
@@ -49,7 +66,10 @@ const PrintReady: React.FC = () => {
 
   const filteredAttendees = useMemo(() => {
     const isReadyByPhoto = (a: Attendee) => Boolean(String(a.profile_photo_url || '').trim());
-    const list = attendees.filter((a) => (photoFilter === 'ready' ? isReadyByPhoto(a) : !isReadyByPhoto(a)));
+    const list = attendees.filter((a) => {
+      if (photoFilter === 'all') return true;
+      return photoFilter === 'ready' ? isReadyByPhoto(a) : !isReadyByPhoto(a);
+    });
 
     // Raise seat-changed attendees to top.
     return [...list].sort((a, b) => {
@@ -84,6 +104,12 @@ const PrintReady: React.FC = () => {
         </div>
         <div className="flex items-center gap-2">
           <button
+            onClick={() => setPhotoFilter('all')}
+            className={`px-3 py-2 rounded-md text-sm border ${photoFilter === 'all' ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white border-gray-300 text-gray-700'}`}
+          >
+            كل المسجلين
+          </button>
+          <button
             onClick={() => setPhotoFilter('ready')}
             className={`px-3 py-2 rounded-md text-sm border ${photoFilter === 'ready' ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white border-gray-300 text-gray-700'}`}
           >
@@ -113,7 +139,9 @@ const PrintReady: React.FC = () => {
           <div className="text-center py-16 bg-gray-50">
             {photoFilter === 'ready' ? <CheckCircle className="mx-auto h-12 w-12 text-emerald-400" /> : <AlertCircle className="mx-auto h-12 w-12 text-amber-400" />}
             <p className="mt-2 text-lg text-gray-500 font-bold">
-              {photoFilter === 'ready' ? 'لا يوجد عملاء جاهزين للطباعة حالياً' : 'لا يوجد عملاء غير جاهزين حالياً'}
+              {photoFilter === 'all'
+                ? 'لا يوجد عملاء مسجلين حالياً'
+                : (photoFilter === 'ready' ? 'لا يوجد عملاء جاهزين للطباعة حالياً' : 'لا يوجد عملاء غير جاهزين حالياً')}
             </p>
           </div>
         ) : (
@@ -145,6 +173,14 @@ const PrintReady: React.FC = () => {
                          <span className="text-[10px] px-2 py-0.5 rounded bg-slate-200 text-slate-700 border border-slate-300">
                             {a.governorate}
                          </span>
+                         <span className={`text-[10px] px-2 py-0.5 rounded border ${a.profile_photo_url ? 'bg-emerald-100 text-emerald-700 border-emerald-200' : 'bg-amber-100 text-amber-700 border-amber-200'}`}>
+                            {a.profile_photo_url ? 'الصورة جاهزة' : 'بدون صورة'}
+                         </span>
+                      </div>
+                      <div className="mt-2 text-[11px] text-gray-600 space-y-0.5">
+                        <div>الباركود: {a.barcode || '-'}</div>
+                        <div>المحافظة: {a.governorate || '-'}</div>
+                        <div>الحالة: {a.status || '-'}</div>
                       </div>
                       {Array.isArray(a.seat_change_history) && a.seat_change_history.length > 0 && (
                         <div className="mt-2 rounded-md bg-yellow-50 border border-yellow-200 p-2">
