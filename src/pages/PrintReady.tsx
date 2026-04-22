@@ -7,6 +7,7 @@ import { Link } from 'react-router-dom';
 const PrintReady: React.FC = () => {
   const [attendees, setAttendees] = useState<Attendee[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMessage, setLoadingMessage] = useState('جاري تحميل العملاء...');
   const [isProcessing, setIsProcessing] = useState(false);
   const [photoFilter, setPhotoFilter] = useState<'all' | 'ready' | 'not_ready'>('all');
 
@@ -15,31 +16,42 @@ const PrintReady: React.FC = () => {
   }, []);
 
   const fetchReadyAttendees = async () => {
-    try {
-      const pageSize = 500;
-      let offset = 0;
-      const collected: Attendee[] = [];
+    setLoading(true);
+    setLoadingMessage('جاري تحميل العملاء...');
 
-      while (true) {
-        const page: Attendee[] = await api.get(`/attendees?status=registered&limit=${pageSize}&offset=${offset}`);
-        const chunk = Array.isArray(page) ? page : [];
-        if (!chunk.length) break;
-        collected.push(...chunk);
-        if (chunk.length < pageSize) break;
-        offset += pageSize;
-      }
+    while (true) {
+      try {
+        const pageSize = 500;
+        let offset = 0;
+        const collected: Attendee[] = [];
+        let pageNo = 1;
 
-      const byId = new Map<string, Attendee>();
-      for (const row of collected) {
-        if (!row?.id) continue;
-        byId.set(String(row.id), row);
+        while (true) {
+          setLoadingMessage(`جاري تحميل الصفحة ${pageNo}...`);
+          const page: Attendee[] = await api.get(`/attendees?lite=1&status=registered&limit=${pageSize}&offset=${offset}`);
+          const chunk = Array.isArray(page) ? page : [];
+          if (!chunk.length) break;
+          collected.push(...chunk);
+          if (chunk.length < pageSize) break;
+          offset += pageSize;
+          pageNo += 1;
+        }
+
+        const byId = new Map<string, Attendee>();
+        for (const row of collected) {
+          if (!row?.id) continue;
+          byId.set(String(row.id), row);
+        }
+        const eligible = Array.from(byId.values()).filter((a) => a.status === 'registered' && !a.is_deleted);
+        setAttendees(eligible);
+        setLoading(false);
+        return;
+      } catch (error) {
+        console.error('Error fetching print ready attendees:', error);
+        // Keep waiting and retry automatically instead of showing an empty result.
+        setLoadingMessage('الاتصال بطيء... جاري إعادة المحاولة تلقائياً');
+        await new Promise((resolve) => setTimeout(resolve, 1500));
       }
-      const eligible = Array.from(byId.values()).filter((a) => a.status === 'registered' && !a.is_deleted);
-      setAttendees(eligible);
-    } catch (error) {
-      console.error('Error fetching print ready attendees:', error);
-    } finally {
-      setLoading(false);
     }
   };
 
@@ -85,7 +97,10 @@ const PrintReady: React.FC = () => {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <Loader2 className="h-8 w-8 animate-spin text-indigo-600" />
+        <div className="flex flex-col items-center gap-3">
+          <Loader2 className="h-8 w-8 animate-spin text-indigo-600" />
+          <div className="text-sm text-slate-600">{loadingMessage}</div>
+        </div>
       </div>
     );
   }
