@@ -775,7 +775,13 @@ const EditAttendee: React.FC = () => {
                         <label className="block text-sm font-medium text-gray-700">سعر مخصص للتذكرة (اختياري)</label>
                         <input
                           type="number"
-                          {...register('ticket_price_override', { valueAsNumber: true, required: false })}
+                          {...register('ticket_price_override', {
+                            setValueAs: (v) => {
+                              if (v === '' || v === null || v === undefined) return undefined;
+                              const n = Number(v);
+                              return Number.isNaN(n) ? undefined : n;
+                            }
+                          })}
                           className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm p-2 border"
                           placeholder={`الأساسي: ${SEAT_PRICES[seatClass as keyof typeof SEAT_PRICES]} ج.م`}
                         />

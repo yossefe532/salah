@@ -980,7 +980,13 @@ const Register: React.FC = () => {
                             id="ticket_price_override"
                             type="number"
                             inputMode="decimal"
-                            {...register('ticket_price_override', { valueAsNumber: true, required: false })}
+                            {...register('ticket_price_override', {
+                              setValueAs: (v) => {
+                                if (v === '' || v === null || v === undefined) return undefined;
+                                const n = Number(v);
+                                return Number.isNaN(n) ? undefined : n;
+                              }
+                            })}
                             onWheel={(e) => e.currentTarget.blur()}
                             className="shadow-sm focus:ring-indigo-500 focus:border-indigo-500 block w-full sm:text-sm border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-md p-2 border"
                             placeholder={`الأساسي: ${SEAT_PRICES[seatClass]} ج.م`}
