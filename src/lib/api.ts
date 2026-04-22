@@ -1872,7 +1872,6 @@ export const api = {
       if (governorate) scoped = scoped.eq('governorate', governorate);
       if (seatClass) scoped = scoped.eq('seat_class', seatClass);
       if (status) scoped = scoped.eq('status', status);
-      if (companyId) scoped = scoped.eq('company_id', companyId);
       if (paymentType) {
         if (paymentType === 'zero_deposit') {
           scoped = scoped.eq('payment_type', 'deposit').eq('payment_amount', 0);
@@ -1904,7 +1903,6 @@ export const api = {
         if (governorate) q = q.eq('governorate', governorate);
         if (seatClass) q = q.eq('seat_class', seatClass);
         if (status) q = q.eq('status', status);
-        if (companyId) q = q.eq('company_id', companyId);
         if (paymentType === 'full' || paymentType === 'deposit') {
           q = q.eq('payment_type', paymentType);
         } else if (paymentType === 'zero_deposit') {
@@ -1952,7 +1950,6 @@ export const api = {
           if (governorate) fallbackQuery = fallbackQuery.eq('governorate', governorate);
           if (seatClass) fallbackQuery = fallbackQuery.eq('seat_class', seatClass);
           if (status) fallbackQuery = fallbackQuery.eq('status', status);
-          if (companyId) fallbackQuery = fallbackQuery.eq('company_id', companyId);
           if (paymentType === 'full' || paymentType === 'deposit') {
             fallbackQuery = fallbackQuery.eq('payment_type', paymentType);
           } else if (paymentType === 'zero_deposit') {
@@ -2019,9 +2016,19 @@ export const api = {
       }
 
       const sorted = Array.isArray(data) ? data : [];
-      const normalized = liteMode 
+      let normalized = liteMode 
         ? sorted.map(normalizeAttendeePricing) 
         : enrichAttendeesNeighborLabels(sorted);
+
+      if (companyId) {
+        const targetCompanyId = String(companyId).trim();
+        normalized = normalized.filter((row: any) => String(row?.company_id || '').trim() === targetCompanyId);
+        if (withCount) {
+          totalCount = normalized.length;
+          presentCount = normalized.filter((row: any) => row?.attendance_status === true).length;
+          absentCount = normalized.filter((row: any) => row?.attendance_status !== true).length;
+        }
+      }
 
       if (withCount) {
         return {
