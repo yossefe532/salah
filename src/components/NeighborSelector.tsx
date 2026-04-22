@@ -1,5 +1,6 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Attendee } from '../types';
+import { api } from '../lib/api';
 
 interface NeighborSelectorProps {
   attendees: Attendee[];
@@ -10,15 +11,39 @@ interface NeighborSelectorProps {
 
 const NeighborSelector: React.FC<NeighborSelectorProps> = ({ attendees, currentAttendeeId, selectedIds, onChange }) => {
   const [query, setQuery] = useState('');
+  const [remoteResults, setRemoteResults] = useState<Attendee[]>([]);
 
   const normalizedSelected = useMemo(
     () => [...new Set(selectedIds.filter((id) => id && id !== currentAttendeeId))],
     [currentAttendeeId, selectedIds]
   );
 
+  useEffect(() => {
+    const keyword = query.trim();
+    if (keyword.length < 2) {
+      setRemoteResults([]);
+      return;
+    }
+    let cancelled = false;
+    const timer = window.setTimeout(async () => {
+      try {
+        const response = await api.get(`/attendees?lite=1&search_mode=strict&limit=30&q=${encodeURIComponent(keyword)}`);
+        if (cancelled) return;
+        const rows = Array.isArray(response) ? response : (Array.isArray(response?.data) ? response.data : []);
+        setRemoteResults(rows as Attendee[]);
+      } catch {
+        if (!cancelled) setRemoteResults([]);
+      }
+    }, 180);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [query]);
+
   const filteredAttendees = useMemo(() => {
     const keyword = query.trim().toLowerCase();
-    return attendees
+    const localMatches = attendees
       .filter((attendee) => attendee.id !== currentAttendeeId && !normalizedSelected.includes(attendee.id))
       .filter((attendee) => {
         if (!keyword) return true;
@@ -34,7 +59,18 @@ const NeighborSelector: React.FC<NeighborSelectorProps> = ({ attendees, currentA
         return haystack.includes(keyword);
       })
       .slice(0, 8);
-  }, [attendees, currentAttendeeId, normalizedSelected, query]);
+
+    if (!keyword) return localMatches;
+
+    const merged = new Map<string, Attendee>();
+    [...localMatches, ...remoteResults].forEach((attendee) => {
+      if (!attendee?.id) return;
+      if (attendee.id === currentAttendeeId) return;
+      if (normalizedSelected.includes(attendee.id)) return;
+      merged.set(attendee.id, attendee);
+    });
+    return Array.from(merged.values()).slice(0, 12);
+  }, [attendees, currentAttendeeId, normalizedSelected, query, remoteResults]);
 
   const selectedAttendees = useMemo(
     () => normalizedSelected.map((id) => attendees.find((attendee) => attendee.id === id)).filter(Boolean) as Attendee[],
