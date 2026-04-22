@@ -398,32 +398,6 @@ const EditAttendee: React.FC = () => {
         return createdId;
       };
 
-      const syncGroupNeighbors = async (groupId: string) => {
-        if (!groupId) return;
-        const peers = await api.get(`/attendees?lite=1&status=registered&company_id=${encodeURIComponent(groupId)}&limit=3000`);
-        const rows = (Array.isArray(peers) ? peers : []).filter((item: any) => item?.id && !item?.is_deleted);
-        const ids = [...new Set(rows.map((item: any) => String(item.id)).filter(Boolean))];
-        if (ids.length < 2) return;
-
-        const nameById = new Map<string, string>();
-        rows.forEach((item: any) => {
-          nameById.set(String(item.id), String(item.full_name || '').trim());
-        });
-
-        for (const memberId of ids) {
-          const member = rows.find((item: any) => String(item.id) === memberId);
-          const existing = Array.isArray(member?.preferred_neighbor_ids) ? member.preferred_neighbor_ids.map(String) : [];
-          const others = ids.filter((id) => id !== memberId);
-          const merged = [...new Set([...existing, ...others])];
-          const names = merged.map((id) => nameById.get(id) || '').filter(Boolean).join('، ');
-          await api.patch(`/attendees/${memberId}`, {
-            company_id: groupId,
-            preferred_neighbor_ids: merged,
-            preferred_neighbor_name: names || null
-          });
-        }
-      };
-
       const groupId = await resolveTargetGroupId();
       const newAttendeeId = crypto.randomUUID();
       const safeCommission = Math.max(0, Math.min(Number(data.commission_amount || 0), Number(data.payment_amount || 0)));
@@ -512,7 +486,7 @@ const EditAttendee: React.FC = () => {
       delete (window as any)._tempSelectedBarcodeEdit;
 
       await api.put(`/attendees/${id}`, updatedAttendee);
-      if (groupId) await syncGroupNeighbors(groupId);
+      // Do not run heavy all-members sync in request path to avoid timeouts.
 
       alert('تم تحديث البيانات بنجاح!');
       navigate('/attendees');
