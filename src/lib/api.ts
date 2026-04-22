@@ -144,9 +144,10 @@ const applyAttendeeMeta = (attendee: any) => {
 const insertAttendeeSafely = async (payload: any) => {
   let currentPayload = attachAttendeeMetaToPayload(payload, payload.warnings);
   for (let i = 0; i < 50; i += 1) {
-    const { data, error } = await supabase.from('attendees').insert([currentPayload]).select().maybeSingle();
-    if (!error && !data) return { data: null, error: { message: 'فشل إنشاء السجل' } as any };
-    if (!error) return { data, error: null };
+    const { data, error } = await supabase.from('attendees').insert([currentPayload]).select().limit(1);
+    const firstRow = Array.isArray(data) ? (data[0] || null) : (data as any);
+    if (!error && !firstRow) return { data: null, error: { message: 'فشل إنشاء السجل' } as any };
+    if (!error) return { data: firstRow, error: null };
     
     // Auto-heal logic removed to prevent loops/silent failures. Validation is handled by UI.
     
@@ -161,11 +162,12 @@ const insertAttendeeSafely = async (payload: any) => {
 const updateAttendeeSafely = async (id: string, payload: any) => {
   let currentPayload = attachAttendeeMetaToPayload(payload, payload.warnings);
   for (let i = 0; i < 50; i += 1) {
-    const { data, error } = await supabase.from('attendees').update(currentPayload).eq('id', id).select().maybeSingle();
-    if (!error && !data) {
+    const { data, error } = await supabase.from('attendees').update(currentPayload).eq('id', id).select().limit(1);
+    const firstRow = Array.isArray(data) ? (data[0] || null) : (data as any);
+    if (!error && !firstRow) {
       return { data: null, error: { message: 'المشترك غير موجود أو غير متاح للتعديل' } as any };
     }
-    if (!error) return { data, error: null };
+    if (!error) return { data: firstRow, error: null };
     
     // Auto-heal logic removed to prevent loops/silent failures. Validation is handled by UI.
 
@@ -1407,9 +1409,12 @@ export const api = {
           .select('id, seat_code, attendee_id, status, event_id')
           .eq('event_id', candidateEvent)
           .eq('seat_code', barcode)
-          .maybeSingle();
+          .limit(10);
         if (error) throw new Error(error.message);
-        if (data) return data;
+        const rows = Array.isArray(data) ? data : [];
+        if (!rows.length) continue;
+        const prioritized = rows.find((row: any) => row?.attendee_id) || rows[0];
+        if (prioritized) return prioritized;
       }
       return null;
     }
@@ -4441,13 +4446,13 @@ export const api = {
         };
         // If attendee has a booked seat but attendee barcode is stale/missing, pull canonical seat_code from seats table.
         if (!merged.barcode) {
-          const { data: bookedSeat } = await supabase
+          const { data: bookedSeatRows } = await supabase
             .from('seats')
             .select('seat_code, seat_number, seat_class')
             .eq('attendee_id', String(id))
             .eq('status', 'booked')
             .limit(1)
-            .maybeSingle();
+          const bookedSeat = Array.isArray(bookedSeatRows) ? (bookedSeatRows[0] || null) : (bookedSeatRows as any);
           if (bookedSeat?.seat_code) merged.barcode = String(bookedSeat.seat_code);
           if ((merged.seat_number === null || merged.seat_number === undefined) && bookedSeat?.seat_number !== undefined) {
             merged.seat_number = Number(bookedSeat.seat_number);
