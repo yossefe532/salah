@@ -12,6 +12,7 @@ interface NeighborSelectorProps {
 const NeighborSelector: React.FC<NeighborSelectorProps> = ({ attendees, currentAttendeeId, selectedIds, onChange }) => {
   const [query, setQuery] = useState('');
   const [remoteResults, setRemoteResults] = useState<Attendee[]>([]);
+  const [knownSelected, setKnownSelected] = useState<Record<string, Attendee>>({});
 
   const normalizedSelected = useMemo(
     () => [...new Set(selectedIds.filter((id) => id && id !== currentAttendeeId))],
@@ -40,6 +41,20 @@ const NeighborSelector: React.FC<NeighborSelectorProps> = ({ attendees, currentA
       window.clearTimeout(timer);
     };
   }, [query]);
+
+  useEffect(() => {
+    const next: Record<string, Attendee> = { ...knownSelected };
+    [...attendees, ...remoteResults].forEach((attendee) => {
+      if (attendee?.id) next[attendee.id] = attendee;
+    });
+    // Clean stale selected entries only when they are no longer selected.
+    Object.keys(next).forEach((id) => {
+      if (!normalizedSelected.includes(id) && !attendees.find((a) => a.id === id) && !remoteResults.find((a) => a.id === id)) {
+        delete next[id];
+      }
+    });
+    setKnownSelected(next);
+  }, [attendees, remoteResults, normalizedSelected]);
 
   const filteredAttendees = useMemo(() => {
     const keyword = query.trim().toLowerCase();
@@ -73,11 +88,17 @@ const NeighborSelector: React.FC<NeighborSelectorProps> = ({ attendees, currentA
   }, [attendees, currentAttendeeId, normalizedSelected, query, remoteResults]);
 
   const selectedAttendees = useMemo(
-    () => normalizedSelected.map((id) => attendees.find((attendee) => attendee.id === id)).filter(Boolean) as Attendee[],
-    [attendees, normalizedSelected]
+    () => normalizedSelected
+      .map((id) => attendees.find((attendee) => attendee.id === id) || knownSelected[id])
+      .filter(Boolean) as Attendee[],
+    [attendees, knownSelected, normalizedSelected]
   );
 
   const addNeighbor = (id: string) => {
+    const candidate = filteredAttendees.find((attendee) => attendee.id === id) || remoteResults.find((attendee) => attendee.id === id);
+    if (candidate?.id) {
+      setKnownSelected((prev) => ({ ...prev, [candidate.id]: candidate }));
+    }
     onChange([...normalizedSelected, id]);
     setQuery('');
   };
