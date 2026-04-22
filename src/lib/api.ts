@@ -1042,7 +1042,8 @@ const resolveSeat = async (
         .maybeSingle();
       if (seatError) throw seatError;
       if (!seatRow) return requestedSeat;
-      const unavailable = !SEAT_AVAILABLE_STATUSES.has(String(seatRow.status || '').toLowerCase()) || Boolean(seatRow.attendee_id);
+      const sameAttendee = String(seatRow.attendee_id || '') === String(excludeId || '');
+      const unavailable = (!SEAT_AVAILABLE_STATUSES.has(String(seatRow.status || '').toLowerCase()) || Boolean(seatRow.attendee_id)) && !sameAttendee;
       if (unavailable) throw new Error(`المقعد رقم ${requestedSeat} محجوز بالفعل`);
       return requestedSeat;
     }
@@ -4255,7 +4256,25 @@ export const api = {
           barcode: finalBarcode
         };
 
-        shouldSyncSeat = seatMutationRequested;
+        const oldSeatNumber = oldRecord?.seat_number === null || oldRecord?.seat_number === undefined ? null : Number(oldRecord.seat_number);
+        const nextSeatNumber = body.seat_number === null ? null : (bodyToSave.seat_number === null || bodyToSave.seat_number === undefined ? null : Number(bodyToSave.seat_number));
+        const oldSeatClass = String(oldRecord?.seat_class || '');
+        const nextSeatClass = String(bodyToSave.seat_class || oldSeatClass);
+        const oldGov = normalizeGovernorate(oldRecord?.governorate);
+        const nextGov = normalizeGovernorate(bodyToSave.governorate ?? oldRecord?.governorate);
+        const oldBarcode = String(oldRecord?.barcode || '').trim();
+        const nextBarcode = String((body.barcode === null ? '' : (bodyToSave.barcode || ''))).trim();
+        const oldStatus = String(oldRecord?.status || '');
+        const nextStatus = String(bodyToSave.status || oldStatus);
+
+        const seatFieldsActuallyChanged =
+          oldSeatNumber !== nextSeatNumber ||
+          oldSeatClass !== nextSeatClass ||
+          oldGov !== nextGov ||
+          oldBarcode !== nextBarcode ||
+          oldStatus !== nextStatus;
+
+        shouldSyncSeat = seatMutationRequested && seatFieldsActuallyChanged;
         seatSyncPayload = {
           governorate: bodyToSave.governorate ?? oldRecord.governorate,
           seat_class: bodyToSave.seat_class ?? oldRecord.seat_class,

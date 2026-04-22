@@ -401,13 +401,15 @@ const EditAttendee: React.FC = () => {
       }
       
       // Validation: Check if the selected barcode is taken by another user
-      if (updatedAttendee.barcode && updatedAttendee.barcode !== (window as any)._originalBarcode) {
+      const normalizedNewBarcode = String(updatedAttendee.barcode || '').trim();
+      const normalizedOriginalBarcode = String((window as any)._originalBarcode || '').trim();
+      if (normalizedNewBarcode && normalizedNewBarcode !== normalizedOriginalBarcode) {
          const conflictUser = await api
-           .get(`/attendees?lite=1&limit=1&barcode=eq.${updatedAttendee.barcode}`)
+          .get(`/attendees?lite=1&limit=1&barcode=eq.${normalizedNewBarcode}`)
            .then((res: any) => (Array.isArray(res) ? res[0] : null))
            .catch(() => null);
            
-         if (conflictUser && conflictUser.id !== id) {
+         if (conflictUser && String(conflictUser.id || '') !== String(id || '')) {
              throw new Error(`المقعد محجوز مسبقاً لمشترك آخر (${conflictUser.full_name}). يرجى اختيار مقعد مختلف.`);
          }
       }
