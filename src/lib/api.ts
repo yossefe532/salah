@@ -509,6 +509,19 @@ const enrichAttendeesNeighborLabels = (items: any[]) => {
 
 
 const isMissingTable = (error: any) => String(error?.message || '').includes('Could not find the table');
+const buildVirtualGroupId = (name: string) => {
+  const cleaned = String(name || '').trim();
+  return `grp:${encodeURIComponent(cleaned)}`;
+};
+const parseVirtualGroupName = (id?: string | null) => {
+  const value = String(id || '').trim();
+  if (!value.startsWith('grp:')) return '';
+  try {
+    return decodeURIComponent(value.slice(4));
+  } catch {
+    return value.slice(4);
+  }
+};
 
 const getSessionUser = () => {
   try {
@@ -2024,12 +2037,41 @@ export const api = {
     if (endpoint.startsWith('/companies')) {
       if (!currentUser) return [];
       if (currentUser.role === 'owner') {
-        const { data } = await supabase.from('companies').select('*').order('created_at', { ascending: false });
-        return data || [];
+        const { data, error } = await supabase.from('companies').select('*').order('created_at', { ascending: false });
+        if (!error) return data || [];
+        if (!isMissingTable(error)) throw new Error(error.message);
+        const { data: attendeeGroups } = await supabase
+          .from('attendees')
+          .select('company_id, created_at')
+          .not('is_deleted', 'is', true)
+          .not('company_id', 'is', null)
+          .order('created_at', { ascending: false })
+          .limit(5000);
+        const unique = new Map<string, any>();
+        (attendeeGroups || []).forEach((row: any) => {
+          const id = String(row?.company_id || '').trim();
+          if (!id || unique.has(id)) return;
+          unique.set(id, {
+            id,
+            name: parseVirtualGroupName(id) || id,
+            created_at: row?.created_at || new Date().toISOString(),
+            virtual: true
+          });
+        });
+        return Array.from(unique.values());
       }
       if (isCompanyScopedRole(currentUser.role)) {
-        const { data } = await supabase.from('companies').select('*').eq('id', currentUser.company_id).limit(1);
-        return data || [];
+        const { data, error } = await supabase.from('companies').select('*').eq('id', currentUser.company_id).limit(1);
+        if (!error) return data || [];
+        if (!isMissingTable(error)) throw new Error(error.message);
+        const fallbackId = String(currentUser.company_id || '').trim();
+        if (!fallbackId) return [];
+        return [{
+          id: fallbackId,
+          name: parseVirtualGroupName(fallbackId) || fallbackId,
+          created_at: new Date().toISOString(),
+          virtual: true
+        }];
       }
       return [];
     }
@@ -2127,7 +2169,17 @@ export const api = {
       };
       if (!payload.name) throw new Error('اسم الشركة مطلوب');
       const { data, error } = await supabase.from('companies').insert([payload]).select().maybeSingle();
-      if (error) throw new Error(error.message);
+      if (error) {
+        if (!isMissingTable(error)) throw new Error(error.message);
+        return {
+          id: buildVirtualGroupId(payload.name),
+          name: payload.name,
+          code: null,
+          owner_user_id: payload.owner_user_id || null,
+          created_at: new Date().toISOString(),
+          virtual: true
+        };
+      }
       return data;
     }
 
