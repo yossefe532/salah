@@ -213,6 +213,53 @@ const getCertificateIncluded = (payload: any) => {
   return Boolean(payload.certificate_included);
 };
 
+const normalizeSearchToken = (value: unknown) => {
+  const arabicToWesternDigits = String(value ?? '')
+    .replace(/[٠-٩]/g, (d) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d)))
+    .replace(/[^\p{L}\p{N}]+/gu, '')
+    .toLowerCase()
+    .trim();
+  return arabicToWesternDigits;
+};
+
+const isOneEditAway = (aRaw: unknown, bRaw: unknown) => {
+  const a = normalizeSearchToken(aRaw);
+  const b = normalizeSearchToken(bRaw);
+  if (!a || !b) return false;
+  if (a === b) return true;
+  const lenA = a.length;
+  const lenB = b.length;
+  if (Math.abs(lenA - lenB) > 1) return false;
+
+  if (lenA === lenB) {
+    let mismatches = 0;
+    for (let i = 0; i < lenA; i += 1) {
+      if (a[i] !== b[i]) {
+        mismatches += 1;
+        if (mismatches > 1) return false;
+      }
+    }
+    return mismatches === 1;
+  }
+
+  const shorter = lenA < lenB ? a : b;
+  const longer = lenA < lenB ? b : a;
+  let i = 0;
+  let j = 0;
+  let edits = 0;
+  while (i < shorter.length && j < longer.length) {
+    if (shorter[i] === longer[j]) {
+      i += 1;
+      j += 1;
+      continue;
+    }
+    edits += 1;
+    if (edits > 1) return false;
+    j += 1;
+  }
+  return true;
+};
+
 type ApiCacheEntry = {
   value: any;
   expiresAt: number;
@@ -1017,7 +1064,7 @@ const generateHallPlan = (eventId: string, governorate: string = 'Minya') => {
 };
 
 const resolveSeat = async (
-  payload: { governorate?: string; seat_class?: string; status?: string; seat_number?: number | null },
+  payload: { governorate?: string; seat_class?: string; status?: string; seat_number?: number | null; barcode?: string | null },
   excludeId?: string
 ) => {
   if (payload.status !== 'registered') return null;
@@ -1026,12 +1073,29 @@ const resolveSeat = async (
   if (!capacity) return payload.seat_number ?? null;
   const eventId = `${normalizeGovernorate(gov).toUpperCase()}-2026-MAIN`;
 
+  const requestedBarcode = String(payload.barcode || '').trim() || null;
   const requestedSeat = payload.seat_number ? Number(payload.seat_number) : null;
   if (requestedSeat && (requestedSeat < 1 || requestedSeat > capacity)) {
     throw new Error(`رقم المقعد يجب أن يكون بين 1 و ${capacity} لفئة ${payload.seat_class} في ${gov}`);
   }
 
   try {
+    if (requestedBarcode) {
+      const { data: seatByCode, error: seatByCodeError } = await supabase
+        .from('seats')
+        .select('id, seat_number, seat_code, status, attendee_id')
+        .eq('event_id', eventId)
+        .eq('seat_code', requestedBarcode)
+        .maybeSingle();
+      if (seatByCodeError) throw seatByCodeError;
+      if (seatByCode) {
+        const sameAttendee = String(seatByCode.attendee_id || '') === String(excludeId || '');
+        const unavailable = (!SEAT_AVAILABLE_STATUSES.has(String(seatByCode.status || '').toLowerCase()) || Boolean(seatByCode.attendee_id)) && !sameAttendee;
+        if (unavailable) throw new Error(`المقعد ${requestedBarcode} محجوز بالفعل`);
+        return Number(seatByCode.seat_number) || requestedSeat || null;
+      }
+    }
+
     if (requestedSeat) {
       const { data: seatRow, error: seatError } = await supabase
         .from('seats')
@@ -1737,7 +1801,8 @@ export const api = {
       const attendance = params.get('attendance');
       const q = params.get('q');
       const withCount = params.get('withCount') === '1';
-      const safeSearch = q ? String(q).replace(/,/g, '').trim() : '';
+      const searchMode = String(params.get('search_mode') || 'strict').toLowerCase();
+      const safeSearch = q ? String(q).replace(/[,%_*]/g, '').trim() : '';
 
       if (governorate) scoped = scoped.eq('governorate', governorate);
       if (seatClass) scoped = scoped.eq('seat_class', seatClass);
@@ -1751,17 +1816,20 @@ export const api = {
       }
       if (attendance === 'present') scoped = scoped.eq('attendance_status', true);
       if (attendance === 'absent') scoped = scoped.eq('attendance_status', false);
-      if (q) {
-        const safe = String(q).replace(/,/g, '').trim();
-        if (safe) {
-          scoped = scoped.or(`full_name.ilike.%${safe}%,phone_primary.ilike.%${safe}%,email_primary.ilike.%${safe}%`);
-        }
+      if (q && safeSearch) {
+        scoped = scoped.or(`full_name.ilike.${safeSearch},phone_primary.eq.${safeSearch},phone_secondary.eq.${safeSearch},barcode.eq.${safeSearch}`);
       }
 
       if (barcodeMatch) {
          scoped = scoped.eq('barcode', barcodeMatch[1]);
       }
-      const buildScopedQuery = (selectClause: string, isCountOnly = false) => {
+      const buildScopedQuery = (
+        selectClause: string,
+        isCountOnly = false,
+        includeSearch = true,
+        applyPagination = true,
+        explicitLimit = 0
+      ) => {
         let q = applyCompanyScopeToAttendeesQuery(
           supabase.from('attendees').select(selectClause, isCountOnly ? { count: 'exact', head: true } : {}),
           currentUser
@@ -1777,13 +1845,16 @@ export const api = {
         }
         if (attendance === 'present') q = q.eq('attendance_status', true);
         if (attendance === 'absent') q = q.or('attendance_status.is.false,attendance_status.is.null');
-        if (safeSearch) q = q.or(`full_name.ilike.%${safeSearch}%,phone_primary.ilike.%${safeSearch}%,phone_secondary.ilike.%${safeSearch}%`);
+        if (includeSearch && safeSearch) {
+          q = q.or(`full_name.ilike.${safeSearch},phone_primary.eq.${safeSearch},phone_secondary.eq.${safeSearch},barcode.eq.${safeSearch}`);
+        }
         if (barcodeMatch) q = q.eq('barcode', barcodeMatch[1]);
         
         if (!isCountOnly) {
           q = q.order('created_at', { ascending: false });
-          if (hasOffset && hasLimit) q = q.range(offsetParam, offsetParam + limitParam - 1);
-          else if (hasLimit) q = q.limit(limitParam);
+          if (applyPagination && hasOffset && hasLimit) q = q.range(offsetParam, offsetParam + limitParam - 1);
+          else if (applyPagination && hasLimit) q = q.limit(limitParam);
+          else if (!applyPagination && explicitLimit > 0) q = q.limit(explicitLimit);
         }
         return q;
       };
@@ -1821,7 +1892,7 @@ export const api = {
           }
           if (attendance === 'present') fallbackQuery = fallbackQuery.eq('attendance_status', true);
           if (attendance === 'absent') fallbackQuery = fallbackQuery.or('attendance_status.is.false,attendance_status.is.null');
-          if (safeSearch) fallbackQuery = fallbackQuery.or(`full_name.ilike.%${safeSearch}%,phone_primary.ilike.%${safeSearch}%,phone_secondary.ilike.%${safeSearch}%`);
+          if (safeSearch) fallbackQuery = fallbackQuery.or(`full_name.ilike.${safeSearch},phone_primary.eq.${safeSearch},phone_secondary.eq.${safeSearch},barcode.eq.${safeSearch}`);
           if (barcodeMatch) fallbackQuery = fallbackQuery.eq('barcode', barcodeMatch[1]);
           fallbackQuery = fallbackQuery.order('created_at', { ascending: false });
           if (hasOffset && hasLimit) fallbackQuery = fallbackQuery.range(offsetParam, offsetParam + limitParam - 1);
@@ -1832,7 +1903,7 @@ export const api = {
         error = fallbackResult.error;
       }
       if (error) throw new Error(error.message);
-      if (!showTrash && (!data || data.length === 0)) {
+      if (!showTrash && !safeSearch && (!data || data.length === 0)) {
         // Safety fallback: if scoped/filtered query returns nothing unexpectedly, try raw active rows.
         const raw = await runAttendeesSelectWithSchemaFallback(
           (selectClause) => supabase
@@ -1847,6 +1918,42 @@ export const api = {
           data = raw.data;
         }
       }
+
+      if (searchMode === 'strict' && safeSearch) {
+        const currentRows = Array.isArray(data) ? data : [];
+        if (currentRows.length === 0) {
+          const candidateLimit = Math.min(2000, Math.max(hasLimit ? limitParam * 25 : 500, 500));
+          const candidateResult = await runAttendeesSelectWithSchemaFallback(
+            (selectClause) => buildScopedQuery(selectClause, false, false, false, candidateLimit),
+            selectedColumns
+          );
+          const candidateRows = Array.isArray(candidateResult.data) ? candidateResult.data : [];
+          const strictNeedle = normalizeSearchToken(safeSearch);
+          const oneAwayRows = candidateRows.filter((row: any) => {
+            const values = [
+              row?.full_name,
+              row?.full_name_en,
+              row?.phone_primary,
+              row?.phone_secondary,
+              row?.barcode
+            ];
+            return values.some((val) => isOneEditAway(strictNeedle, val));
+          });
+
+          if (withCount) {
+            totalCount = oneAwayRows.length;
+            presentCount = oneAwayRows.filter((row: any) => row?.attendance_status === true).length;
+            absentCount = oneAwayRows.filter((row: any) => row?.attendance_status !== true).length;
+          }
+          if (hasLimit) {
+            const start = hasOffset ? offsetParam : 0;
+            data = oneAwayRows.slice(start, start + limitParam);
+          } else {
+            data = oneAwayRows;
+          }
+        }
+      }
+
       const sorted = Array.isArray(data) ? data : [];
       const normalized = liteMode 
         ? sorted.map(normalizeAttendeePricing) 
@@ -4220,6 +4327,7 @@ export const api = {
           seat_class: body.seat_class ?? oldRecord.seat_class,
           status: body.status ?? oldRecord.status,
           seat_number: body.seat_number ?? oldRecord.seat_number ?? null,
+          barcode: body.barcode === null ? null : (body.barcode ?? oldRecord.barcode ?? null),
         };
         let resolvedSeat = oldRecord.seat_number ?? null;
         if (seatMutationRequested) {

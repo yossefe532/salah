@@ -75,6 +75,7 @@ const Attendees: React.FC = () => {
       params.set('limit', String(PAGE_SIZE));
       params.set('offset', String(targetPage * PAGE_SIZE));
       params.set('withCount', '1');
+      params.set('search_mode', 'strict');
       
       if (viewMode === 'trash') params.set('trash', 'true');
       if (filters.governorate) params.set('governorate', filters.governorate);
