@@ -1845,6 +1845,7 @@ export const api = {
       const governorate = params.get('governorate');
       const seatClass = params.get('seat_class');
       const status = params.get('status');
+      const companyId = params.get('company_id');
       const paymentType = params.get('payment_type');
       const attendance = params.get('attendance');
       const q = params.get('q');
@@ -1858,6 +1859,7 @@ export const api = {
       if (governorate) scoped = scoped.eq('governorate', governorate);
       if (seatClass) scoped = scoped.eq('seat_class', seatClass);
       if (status) scoped = scoped.eq('status', status);
+      if (companyId) scoped = scoped.eq('company_id', companyId);
       if (paymentType) {
         if (paymentType === 'zero_deposit') {
           scoped = scoped.eq('payment_type', 'deposit').eq('payment_amount', 0);
@@ -1889,6 +1891,7 @@ export const api = {
         if (governorate) q = q.eq('governorate', governorate);
         if (seatClass) q = q.eq('seat_class', seatClass);
         if (status) q = q.eq('status', status);
+        if (companyId) q = q.eq('company_id', companyId);
         if (paymentType === 'full' || paymentType === 'deposit') {
           q = q.eq('payment_type', paymentType);
         } else if (paymentType === 'zero_deposit') {
@@ -1936,6 +1939,7 @@ export const api = {
           if (governorate) fallbackQuery = fallbackQuery.eq('governorate', governorate);
           if (seatClass) fallbackQuery = fallbackQuery.eq('seat_class', seatClass);
           if (status) fallbackQuery = fallbackQuery.eq('status', status);
+          if (companyId) fallbackQuery = fallbackQuery.eq('company_id', companyId);
           if (paymentType === 'full' || paymentType === 'deposit') {
             fallbackQuery = fallbackQuery.eq('payment_type', paymentType);
           } else if (paymentType === 'zero_deposit') {

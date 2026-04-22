@@ -152,6 +152,11 @@ const EditAttendee: React.FC = () => {
   const [attendeesOptions, setAttendeesOptions] = useState<Attendee[]>([]);
   const [selectedBarcode, setSelectedBarcode] = useState<string | null>(null);
   const [currentSeatOption, setCurrentSeatOption] = useState<{ seat_number: number | null; seat_code: string } | null>(null);
+  const [enableGroupAssignment, setEnableGroupAssignment] = useState(false);
+  const [groupMode, setGroupMode] = useState<'existing' | 'new'>('existing');
+  const [groupCompanies, setGroupCompanies] = useState<Array<{ id: string; name: string }>>([]);
+  const [selectedGroupId, setSelectedGroupId] = useState('');
+  const [newGroupName, setNewGroupName] = useState('');
 
   const { register, handleSubmit, watch, setValue, reset, formState: { errors } } = useForm<FormData>({
     resolver: zodResolver(schema),
@@ -246,6 +251,12 @@ const EditAttendee: React.FC = () => {
         setEnglishNameEdited(Boolean(data.full_name_en));
         setSelectedBarcode(data.barcode || null);
         setCurrentSeatOption(data.barcode ? { seat_number: data.seat_number ?? null, seat_code: data.barcode } : null);
+        const existingGroupId = String(data.company_id || '').trim();
+        if (existingGroupId) {
+          setEnableGroupAssignment(true);
+          setSelectedGroupId(existingGroupId);
+          setGroupMode('existing');
+        }
         (window as any)._originalBarcode = data.barcode || null;
         setLoading(false);
       } catch (error) {
@@ -306,6 +317,18 @@ const EditAttendee: React.FC = () => {
   }, [register]);
 
   useEffect(() => {
+    const loadCompanies = async () => {
+      if (user?.role !== 'owner') return;
+      const rows = await api.get('/companies');
+      const mapped = (Array.isArray(rows) ? rows : [])
+        .filter((item: any) => item?.id && item?.name)
+        .map((item: any) => ({ id: String(item.id), name: String(item.name) }));
+      setGroupCompanies(mapped);
+    };
+    loadCompanies().catch(() => setGroupCompanies([]));
+  }, [user?.role]);
+
+  useEffect(() => {
     const loadAttendeesOptions = async () => {
       const pageSize = 500;
       const maxRows = 10000;
@@ -354,6 +377,54 @@ const EditAttendee: React.FC = () => {
     setSubmitError(null);
 
     try {
+      const resolveTargetGroupId = async () => {
+        if (!enableGroupAssignment) return null;
+        if (user?.role !== 'owner') throw new Error('ميزة الجروبات متاحة للمالك فقط');
+        if (groupMode === 'existing') {
+          if (!selectedGroupId) throw new Error('اختر الجروب أولاً');
+          return selectedGroupId;
+        }
+        const name = String(newGroupName || '').trim();
+        if (!name) throw new Error('اكتب اسم الجروب الجديد');
+        const created = await api.post('/companies', { name });
+        const createdId = String(created?.id || '').trim();
+        if (!createdId) throw new Error('فشل إنشاء الجروب');
+        setGroupCompanies((prev) => {
+          const next = [...prev];
+          if (!next.some((item) => item.id === createdId)) next.unshift({ id: createdId, name });
+          return next;
+        });
+        setSelectedGroupId(createdId);
+        return createdId;
+      };
+
+      const syncGroupNeighbors = async (groupId: string) => {
+        if (!groupId) return;
+        const peers = await api.get(`/attendees?lite=1&status=registered&company_id=${encodeURIComponent(groupId)}&limit=3000`);
+        const rows = (Array.isArray(peers) ? peers : []).filter((item: any) => item?.id && !item?.is_deleted);
+        const ids = [...new Set(rows.map((item: any) => String(item.id)).filter(Boolean))];
+        if (ids.length < 2) return;
+
+        const nameById = new Map<string, string>();
+        rows.forEach((item: any) => {
+          nameById.set(String(item.id), String(item.full_name || '').trim());
+        });
+
+        for (const memberId of ids) {
+          const member = rows.find((item: any) => String(item.id) === memberId);
+          const existing = Array.isArray(member?.preferred_neighbor_ids) ? member.preferred_neighbor_ids.map(String) : [];
+          const others = ids.filter((id) => id !== memberId);
+          const merged = [...new Set([...existing, ...others])];
+          const names = merged.map((id) => nameById.get(id) || '').filter(Boolean).join('، ');
+          await api.patch(`/attendees/${memberId}`, {
+            company_id: groupId,
+            preferred_neighbor_ids: merged,
+            preferred_neighbor_name: names || null
+          });
+        }
+      };
+
+      const groupId = await resolveTargetGroupId();
       const newAttendeeId = crypto.randomUUID();
       const safeCommission = Math.max(0, Math.min(Number(data.commission_amount || 0), Number(data.payment_amount || 0)));
       const hasSubmittedOverride = data.ticket_price_override !== undefined
@@ -407,6 +478,7 @@ const EditAttendee: React.FC = () => {
             ? Math.max(0, Math.min(Number(data.commission_amount || 0), normalizedPaymentAmount))
             : 0,
           commission_notes: data.commission_notes || null,
+          company_id: groupId || null,
           phone_secondary: data.phone_secondary || null,
           profile_photo_url: data.profile_photo_url || null,
           email_primary: data.email_primary || null,
@@ -440,6 +512,7 @@ const EditAttendee: React.FC = () => {
       delete (window as any)._tempSelectedBarcodeEdit;
 
       await api.put(`/attendees/${id}`, updatedAttendee);
+      if (groupId) await syncGroupNeighbors(groupId);
 
       alert('تم تحديث البيانات بنجاح!');
       navigate('/attendees');
@@ -843,6 +916,66 @@ const EditAttendee: React.FC = () => {
                         />
                       </div>
                     </div>
+
+                    {user?.role === 'owner' && (
+                      <div className="sm:col-span-2 rounded-md border border-indigo-100 bg-indigo-50/50 p-3">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div>
+                            <div className="text-sm font-semibold text-indigo-700">إضافة إلى جروب</div>
+                            <div className="text-xs text-indigo-600">أعضاء الجروب يتم ربطهم للجلوس معًا</div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setEnableGroupAssignment((v) => !v)}
+                            className="px-3 py-1.5 rounded-md text-xs font-semibold bg-indigo-600 text-white hover:bg-indigo-700"
+                          >
+                            {enableGroupAssignment ? 'إلغاء الجروب' : 'إضافة إلى جروب'}
+                          </button>
+                        </div>
+
+                        {enableGroupAssignment && (
+                          <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                            <div>
+                              <label className="block text-xs text-gray-600 mb-1">نوع الجروب</label>
+                              <select
+                                value={groupMode}
+                                onChange={(e) => setGroupMode(e.target.value as 'existing' | 'new')}
+                                className="w-full rounded-md border border-gray-300 bg-white p-2 text-sm"
+                              >
+                                <option value="existing">إضافة لجروب موجود</option>
+                                <option value="new">إنشاء جروب جديد</option>
+                              </select>
+                            </div>
+                            {groupMode === 'existing' ? (
+                              <div>
+                                <label className="block text-xs text-gray-600 mb-1">اختيار الجروب</label>
+                                <select
+                                  value={selectedGroupId}
+                                  onChange={(e) => setSelectedGroupId(e.target.value)}
+                                  className="w-full rounded-md border border-gray-300 bg-white p-2 text-sm"
+                                >
+                                  <option value="">اختر جروب</option>
+                                  {groupCompanies.map((company) => (
+                                    <option key={company.id} value={company.id}>{company.name}</option>
+                                  ))}
+                                </select>
+                              </div>
+                            ) : (
+                              <div>
+                                <label className="block text-xs text-gray-600 mb-1">اسم الجروب الجديد</label>
+                                <input
+                                  type="text"
+                                  value={newGroupName}
+                                  onChange={(e) => setNewGroupName(e.target.value)}
+                                  placeholder="مثال: جروب أكاديمية ألف"
+                                  className="w-full rounded-md border border-gray-300 bg-white p-2 text-sm"
+                                />
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )}
 
                     <div className="sm:col-span-2 bg-indigo-50 border border-indigo-100 rounded-md p-3 text-sm">
                       صافي دخل التذكرة بعد العمولة: <span className="font-bold text-indigo-700">{netTicketAmount.toLocaleString()} ج.م</span>
