@@ -238,6 +238,7 @@ const Register: React.FC = () => {
       if (status !== 'registered') {
         setAvailableSeatsList([]);
         setValue('seat_number', undefined);
+        delete (window as any)._tempSelectedBarcode;
         return;
       }
       
@@ -334,12 +335,21 @@ const Register: React.FC = () => {
       const fullNameEnFinal = String(data.full_name_en || '').trim() || transliterateArabicToEnglish(data.full_name);
       
       let finalSeatNumber = data.status === 'registered' && data.seat_number ? Number(data.seat_number) : null;
-      let finalBarcode = null;
+      let finalBarcode: string | null = null;
       if (data.status === 'registered') {
-         if (finalSeatNumber) {
-            const selectedSeat = availableSeatsList.find(s => s.seat_number === finalSeatNumber);
-            if (selectedSeat) finalBarcode = selectedSeat.seat_code;
-         }
+        const tempBarcode = String((window as any)._tempSelectedBarcode || '').trim();
+        if (tempBarcode) {
+          finalBarcode = tempBarcode;
+          const seatByCode = availableSeatsList.find((s) => String(s.seat_code || '').trim() === tempBarcode);
+          if (seatByCode?.seat_number) finalSeatNumber = Number(seatByCode.seat_number);
+        } else if (finalSeatNumber) {
+          const byNumber = availableSeatsList.filter((s) => Number(s.seat_number) === Number(finalSeatNumber));
+          if (byNumber.length === 1) {
+            finalBarcode = String(byNumber[0].seat_code || '').trim() || null;
+          } else {
+            finalBarcode = null;
+          }
+        }
       }
       
       // We will let the API handle seat resolution if provided
@@ -1033,10 +1043,11 @@ const Register: React.FC = () => {
                           <select
                             id="seat_barcode_select"
                             onChange={(e) => {
-                               const selectedSeat = availableSeatsList.find(s => s.seat_code === e.target.value);
+                               const selectedValue = String(e.target.value || '').trim();
+                               const selectedSeat = availableSeatsList.find(s => s.seat_code === selectedValue);
                                setValue('seat_number', selectedSeat ? selectedSeat.seat_number : undefined);
-                               // Store the actual barcode temporarily so we don't lose it to duplicates
-                               (window as any)._tempSelectedBarcode = e.target.value;
+                               if (selectedValue) (window as any)._tempSelectedBarcode = selectedValue;
+                               else delete (window as any)._tempSelectedBarcode;
                             }}
                             className="shadow-sm focus:ring-indigo-500 focus:border-indigo-500 block w-full sm:text-sm border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-md p-2 border"
                           >

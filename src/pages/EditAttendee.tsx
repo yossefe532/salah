@@ -350,12 +350,23 @@ const EditAttendee: React.FC = () => {
         : 0;
       
       let finalSeatNumber = data.status === 'registered' && data.seat_number ? Number(data.seat_number) : null;
-      let finalBarcode = null;
+      let finalBarcode: string | null = null;
       if (data.status === 'registered') {
-         if (finalSeatNumber) {
-            const selectedSeat = availableSeatsList.find(s => s.seat_number === finalSeatNumber);
-            if (selectedSeat) finalBarcode = selectedSeat.seat_code.replace(' (مقعدك الحالي)', '');
-         }
+        const tempBarcode = String((window as any)._tempSelectedBarcodeEdit || '').trim();
+        const pickedBarcode = (tempBarcode || selectedBarcode || '').replace(' (مقعدك الحالي)', '').trim();
+        if (pickedBarcode) {
+          finalBarcode = pickedBarcode;
+          const seatByCode = availableSeatsList.find((s) => String(s.seat_code || '').replace(' (مقعدك الحالي)', '').trim() === pickedBarcode);
+          if (seatByCode?.seat_number) finalSeatNumber = Number(seatByCode.seat_number);
+        } else if (finalSeatNumber) {
+          const byNumber = availableSeatsList.filter((s) => Number(s.seat_number) === Number(finalSeatNumber));
+          if (byNumber.length === 1) {
+            finalBarcode = String(byNumber[0].seat_code || '').replace(' (مقعدك الحالي)', '').trim() || null;
+          } else {
+            // Ambiguous seat number across tables; don't guess barcode client-side.
+            finalBarcode = null;
+          }
+        }
       }
       
       // Seat number is now optional
@@ -392,13 +403,7 @@ const EditAttendee: React.FC = () => {
           updated_at: new Date().toISOString(),
       };
 
-      if (selectedBarcode) {
-         updatedAttendee.barcode = selectedBarcode.replace(' (مقعدك الحالي)', '');
-      } else if (finalBarcode) {
-         updatedAttendee.barcode = finalBarcode;
-      } else {
-         updatedAttendee.barcode = null;
-      }
+      updatedAttendee.barcode = data.status === 'registered' ? (finalBarcode || null) : null;
       
       // Validation: Check if the selected barcode is taken by another user
       const normalizedNewBarcode = String(updatedAttendee.barcode || '').trim();

@@ -4376,8 +4376,44 @@ export const api = {
           seat_number: body.seat_number ?? oldRecord.seat_number ?? null,
           barcode: body.barcode === null ? null : (body.barcode ?? oldRecord.barcode ?? null),
         };
+        // If attendee has a booked seat but attendee barcode is stale/missing, pull canonical seat_code from seats table.
+        if (!merged.barcode) {
+          const { data: bookedSeat } = await supabase
+            .from('seats')
+            .select('seat_code, seat_number, seat_class')
+            .eq('attendee_id', String(id))
+            .eq('status', 'booked')
+            .limit(1)
+            .maybeSingle();
+          if (bookedSeat?.seat_code) merged.barcode = String(bookedSeat.seat_code);
+          if ((merged.seat_number === null || merged.seat_number === undefined) && bookedSeat?.seat_number !== undefined) {
+            merged.seat_number = Number(bookedSeat.seat_number);
+          }
+          if (!merged.seat_class && bookedSeat?.seat_class) {
+            merged.seat_class = String(bookedSeat.seat_class);
+          }
+        }
+
+        const oldSeatNumberForResolve = oldRecord?.seat_number === null || oldRecord?.seat_number === undefined ? null : Number(oldRecord.seat_number);
+        const mergedSeatNumberForResolve = merged.seat_number === null || merged.seat_number === undefined ? null : Number(merged.seat_number);
+        const oldSeatClassForResolve = String(oldRecord?.seat_class || '');
+        const mergedSeatClassForResolve = String(merged.seat_class || oldSeatClassForResolve);
+        const oldGovForResolve = normalizeGovernorate(oldRecord?.governorate);
+        const mergedGovForResolve = normalizeGovernorate(merged.governorate ?? oldRecord?.governorate);
+        const oldBarcodeForResolve = String(oldRecord?.barcode || '').trim();
+        const mergedBarcodeForResolve = String(merged.barcode || '').trim();
+        const oldStatusForResolve = String(oldRecord?.status || '');
+        const mergedStatusForResolve = String(merged.status || oldStatusForResolve);
+        const seatResolveNeeded = seatMutationRequested && (
+          oldSeatNumberForResolve !== mergedSeatNumberForResolve ||
+          oldSeatClassForResolve !== mergedSeatClassForResolve ||
+          oldGovForResolve !== mergedGovForResolve ||
+          oldBarcodeForResolve !== mergedBarcodeForResolve ||
+          oldStatusForResolve !== mergedStatusForResolve
+        );
+
         let resolvedSeat = oldRecord.seat_number ?? null;
-        if (seatMutationRequested) {
+        if (seatResolveNeeded) {
           resolvedSeat = await resolveSeat(merged, String(id));
         }
         const baseTicketPrice = getBaseTicketPrice({
