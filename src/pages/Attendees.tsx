@@ -12,6 +12,7 @@ const Attendees: React.FC = () => {
   const PAGE_SIZE = 20;
   const { user } = useAuth();
   const [attendees, setAttendees] = useState<Attendee[]>([]);
+  const [companyNames, setCompanyNames] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [page, setPage] = useState(0);
@@ -179,6 +180,24 @@ const Attendees: React.FC = () => {
     };
   }, []);
 
+  useEffect(() => {
+    const loadCompanies = async () => {
+      try {
+        const rows = await api.get('/companies');
+        const mapped: Record<string, string> = {};
+        (Array.isArray(rows) ? rows : []).forEach((item: any) => {
+          const id = String(item?.id || '').trim();
+          const name = String(item?.name || '').trim();
+          if (id) mapped[id] = name || 'جروب';
+        });
+        setCompanyNames(mapped);
+      } catch {
+        setCompanyNames({});
+      }
+    };
+    loadCompanies();
+  }, []);
+
   const handleToggleAttendance = async (attendeeId: string, currentStatus: boolean) => {
     const action = currentStatus ? 'إلغاء حضور' : 'تسجيل حضور';
     if (!window.confirm(`هل أنت متأكد من ${action} هذا الشخص؟`)) return;
@@ -332,6 +351,11 @@ const Attendees: React.FC = () => {
                     <div className="text-base font-bold text-gray-900 flex flex-col gap-1">
                       <span className="flex flex-wrap items-center gap-2">
                         {attendee.full_name}
+                        {attendee.company_id && (
+                          <span className="text-xs px-2 py-0.5 rounded bg-fuchsia-50 text-fuchsia-700 border border-fuchsia-200">
+                            جروب: {companyNames[String(attendee.company_id)] || String(attendee.company_id).slice(0, 8)}
+                          </span>
+                        )}
                         {attendee.preferred_neighbor_name && (
                           <span className="text-xs px-2 py-0.5 rounded bg-indigo-50 text-indigo-700 border border-indigo-200">
                             يريد الجلوس بجوار: {attendee.preferred_neighbor_name}
