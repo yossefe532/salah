@@ -5,11 +5,14 @@ import { AlertCircle, CheckCircle, FileBadge2, Image as ImageIcon, Loader2, Tick
 import { Link } from 'react-router-dom';
 
 const PrintReady: React.FC = () => {
+  const PAGE_SIZE = 40;
   const [attendees, setAttendees] = useState<Attendee[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingMessage, setLoadingMessage] = useState('جاري تحميل العملاء...');
   const [isProcessing, setIsProcessing] = useState(false);
   const [photoFilter, setPhotoFilter] = useState<'all' | 'ready' | 'not_ready'>('all');
+  const [includeZeroDepositInNotReady, setIncludeZeroDepositInNotReady] = useState(false);
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
 
   useEffect(() => {
     fetchReadyAttendees();
@@ -76,15 +79,35 @@ const PrintReady: React.FC = () => {
     }
   };
 
+  const isReadyByPhoto = (a: Attendee) => Boolean(String(a.profile_photo_url || '').trim());
+  const isZeroDepositOrUnpaid = (a: Attendee) => Number(a.payment_amount || 0) <= 0;
+
+  const stats = useMemo(() => {
+    const all = attendees.length;
+    const ready = attendees.filter((a) => isReadyByPhoto(a)).length;
+    const notReadyAll = attendees.filter((a) => !isReadyByPhoto(a));
+    const notReadyEffective = includeZeroDepositInNotReady
+      ? notReadyAll
+      : notReadyAll.filter((a) => !isZeroDepositOrUnpaid(a));
+    return {
+      all,
+      ready,
+      notReady: notReadyEffective.length,
+      excludedNotReady: Math.max(0, notReadyAll.length - notReadyEffective.length)
+    };
+  }, [attendees, includeZeroDepositInNotReady]);
+
   const filteredAttendees = useMemo(() => {
-    const isReadyByPhoto = (a: Attendee) => Boolean(String(a.profile_photo_url || '').trim());
     const list = attendees.filter((a) => {
       if (photoFilter === 'all') return true;
       return photoFilter === 'ready' ? isReadyByPhoto(a) : !isReadyByPhoto(a);
     });
+    const effective = photoFilter === 'not_ready' && !includeZeroDepositInNotReady
+      ? list.filter((a) => !isZeroDepositOrUnpaid(a))
+      : list;
 
     // Raise seat-changed attendees to top.
-    return [...list].sort((a, b) => {
+    return [...effective].sort((a, b) => {
       const aPending = a.seat_change_pending ? 1 : 0;
       const bPending = b.seat_change_pending ? 1 : 0;
       if (aPending !== bPending) return bPending - aPending;
@@ -92,7 +115,17 @@ const PrintReady: React.FC = () => {
       const bTime = new Date(String(b.seat_change_last_at || b.updated_at || b.created_at || 0)).getTime();
       return bTime - aTime;
     });
-  }, [attendees, photoFilter]);
+  }, [attendees, photoFilter, includeZeroDepositInNotReady]);
+
+  useEffect(() => {
+    setVisibleCount(PAGE_SIZE);
+  }, [photoFilter, includeZeroDepositInNotReady, attendees.length]);
+
+  const visibleAttendees = useMemo(
+    () => filteredAttendees.slice(0, visibleCount),
+    [filteredAttendees, visibleCount]
+  );
+  const canLoadMore = visibleCount < filteredAttendees.length;
 
   if (loading) {
     return (
@@ -122,19 +155,26 @@ const PrintReady: React.FC = () => {
             onClick={() => setPhotoFilter('all')}
             className={`px-3 py-2 rounded-md text-sm border ${photoFilter === 'all' ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white border-gray-300 text-gray-700'}`}
           >
-            كل المسجلين
+            كل المسجلين ({stats.all})
           </button>
           <button
             onClick={() => setPhotoFilter('ready')}
             className={`px-3 py-2 rounded-md text-sm border ${photoFilter === 'ready' ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white border-gray-300 text-gray-700'}`}
           >
-            جاهز للطباعة
+            جاهز للطباعة ({stats.ready})
           </button>
           <button
             onClick={() => setPhotoFilter('not_ready')}
             className={`px-3 py-2 rounded-md text-sm border ${photoFilter === 'not_ready' ? 'bg-amber-600 text-white border-amber-600' : 'bg-white border-gray-300 text-gray-700'}`}
           >
-            غير جاهز للطباعة
+            غير جاهز للطباعة ({stats.notReady})
+          </button>
+          <button
+            onClick={() => setIncludeZeroDepositInNotReady((prev) => !prev)}
+            className={`px-3 py-2 rounded-md text-sm border ${includeZeroDepositInNotReady ? 'bg-slate-700 text-white border-slate-700' : 'bg-white border-gray-300 text-gray-700'}`}
+            title="عند الإيقاف: من ليس لديهم دفع فعلي (0) لا يتم احتسابهم ضمن غير الجاهزين"
+          >
+            {includeZeroDepositInNotReady ? 'احتساب العربون الصفري: مفعّل' : 'احتساب العربون الصفري: متوقف'}
           </button>
           {filteredAttendees.length > 0 && (
             <button
@@ -148,6 +188,11 @@ const PrintReady: React.FC = () => {
           )}
         </div>
       </div>
+      {!includeZeroDepositInNotReady && stats.excludedNotReady > 0 && (
+        <div className="bg-amber-50 border border-amber-200 text-amber-800 rounded-md px-4 py-2 text-sm">
+          تم استبعاد {stats.excludedNotReady} من غير الجاهزين لأنهم بدون دفع/بعربون صفري (اختياري ويمكن تفعيله من الزر).
+        </div>
+      )}
 
       <div className="bg-white shadow-lg rounded-lg overflow-hidden border border-gray-100">
         {filteredAttendees.length === 0 ? (
@@ -160,8 +205,12 @@ const PrintReady: React.FC = () => {
             </p>
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 p-4">
-             {filteredAttendees.map(a => (
+          <div className="space-y-3 p-4">
+            <div className="text-xs text-gray-600">
+              المعروض الآن: {Math.min(visibleCount, filteredAttendees.length)} من {filteredAttendees.length}
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+             {visibleAttendees.map(a => (
                 <div key={a.id} className="flex items-start gap-4 p-4 border border-gray-200 rounded-lg hover:border-indigo-300 transition-colors bg-gray-50">
                    <div className="w-16 h-16 shrink-0 rounded-lg overflow-hidden bg-gray-200 border border-gray-300 relative">
                       {a.profile_photo_url ? (
@@ -228,6 +277,17 @@ const PrintReady: React.FC = () => {
                    </div>
                 </div>
              ))}
+            </div>
+            {canLoadMore && (
+              <div className="flex justify-center pt-1">
+                <button
+                  onClick={() => setVisibleCount((prev) => prev + PAGE_SIZE)}
+                  className="px-4 py-2 rounded-md text-sm font-medium border border-indigo-300 text-indigo-700 hover:bg-indigo-50"
+                >
+                  تحميل {Math.min(PAGE_SIZE, filteredAttendees.length - visibleCount)} إضافية
+                </button>
+              </div>
+            )}
           </div>
         )}
       </div>
